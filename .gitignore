@@ -1,0 +1,6 @@
+# Local-only resume used for development runs; the cloud run reads RESUME_TEXT secret.
+resume.txt
+.env
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,37 @@
+# Company -> ATS mapping. Add/remove freely.
+#
+# Per-ATS required keys:
+#   greenhouse: board            -> boards-api.greenhouse.io/v1/boards/{board}/jobs
+#   lever:      org              -> api.lever.co/v0/postings/{org}
+#   ashby:      org              -> api.ashbyhq.com/posting-api/job-board/{org}
+#   workday:    host, tenant, site
+#
+# Slugs need verifying against each company's live careers page. A wrong slug is
+# harmless: the fetcher logs a warning and that company is skipped for the run.
+#
+# Phase 1 (standard ATS) below. Phase 2 (Google/Meta/Amazon/Apple/Microsoft) use
+# custom career sites with no standard ATS and are added later via their own
+# JSON endpoints.
+
+# --- Greenhouse (board slug verified reachable for the first three) ---
+- {name: Coinbase,   ats: greenhouse, board: coinbase}
+- {name: Stripe,     ats: greenhouse, board: stripe}
+- {name: Databricks, ats: greenhouse, board: databricks}
+- {name: Dropbox,    ats: greenhouse, board: dropbox}
+- {name: Instacart,  ats: greenhouse, board: instacart}
+- {name: Robinhood,  ats: greenhouse, board: robinhood}
+- {name: Reddit,     ats: greenhouse, board: reddit}
+- {name: Discord,    ats: greenhouse, board: discord}
+- {name: Figma,      ats: greenhouse, board: figma}
+- {name: Plaid,      ats: greenhouse, board: plaid}
+
+# --- Lever ---
+- {name: Netflix,    ats: lever, org: netflix}
+
+# --- Ashby ---
+- {name: OpenAI,     ats: ashby, org: openai}
+- {name: Ramp,       ats: ashby, org: ramp}
+- {name: Perplexity, ats: ashby, org: perplexity}
+
+# --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
+- {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}

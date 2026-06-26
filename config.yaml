@@ -1,0 +1,92 @@
+# Tunable pipeline settings. Secrets are NOT here (they live in env / GitHub Actions secrets).
+
+# Only roles whose computer-vision score strictly exceeds this are emailed.
+cv_threshold: 50
+
+# OpenAI model used for scoring.
+model: "gpt-5.5"
+
+# Reasoning effort for reasoning models (gpt-5.5): none | low | medium | high | xhigh.
+# "mid" = medium. Leave blank ("") for non-reasoning models (e.g. gpt-4o-mini).
+reasoning_effort: "medium"
+
+# Truncate each job description to this many characters before sending to the LLM.
+max_description_chars: 8000
+
+# HTTP behaviour for the ATS fetchers.
+request_timeout: 20
+user_agent: "job-scout/1.0 (+https://github.com/)"
+
+# A job must mention at least one of these (in title or description) to be sent
+# to the LLM. Kept deliberately broad: recall matters here, the LLM does the
+# precise judgement. Lowercase, matched as substrings.
+prefilter_keywords:
+  - "computer vision"
+  - "vision"
+  - "image"
+  - "video"
+  - "perception"
+  - "detection"
+  - "segmentation"
+  - "3d"
+  - "point cloud"
+  - "slam"
+  - "deep learning"
+  - "machine learning"
+  - " ml "
+  - "ml engineer"
+  - "artificial intelligence"
+  - "neural"
+  - "cnn"
+  - "multimodal"
+  - "robotics"
+  - "autonomous"
+  - "ocr"
+  - "visual"
+
+# A job is treated as US-based if its location string contains any of these.
+# Heuristic and imperfect: bare "remote" also matches non-US remote roles, and
+# unknown/empty locations are excluded. Refine to taste.
+location_us_terms:
+  - "united states"
+  - "usa"
+  - "u.s."
+  - "remote"
+  - "california"
+  - "new york"
+  - "washington"
+  - "texas"
+  - "massachusetts"
+  - "illinois"
+  - "colorado"
+  - "georgia"
+  - "oregon"
+  - "north carolina"
+  - ", ca"
+  - ", ny"
+  - ", wa"
+  - ", tx"
+  - ", ma"
+  - ", il"
+  - ", co"
+  - ", ga"
+  - ", or"
+  - ", nc"
+  - "san francisco"
+  - "mountain view"
+  - "sunnyvale"
+  - "palo alto"
+  - "san jose"
+  - "santa clara"
+  - "cupertino"
+  - "menlo park"
+  - "seattle"
+  - "redmond"
+  - "bellevue"
+  - "new york city"
+  - "austin"
+  - "boston"
+  - "los angeles"
+  - "chicago"
+  - "atlanta"
+  - "denver"
