@@ -13,11 +13,26 @@ concurrency:
   group: job-scout
   cancel-in-progress: false
 
+env:
+  LEDGER_BRANCH: data   # ledger lives here; main stays code-only
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out code (main)
+        uses: actions/checkout@v4
+
+      # Put the ledger on its own branch into .ledger/. Auto-created if it doesn't exist yet.
+      - name: Fetch ledger branch
+        run: |
+          remote="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git ls-remote --exit-code --heads "$remote" "$LEDGER_BRANCH" >/dev/null 2>&1; then
+            git clone --depth 1 --branch "$LEDGER_BRANCH" "$remote" .ledger
+          else
+            git init -b "$LEDGER_BRANCH" .ledger
+            git -C .ledger remote add origin "$remote"
+          fi
 
       - uses: actions/setup-python@v5
         with:
@@ -33,12 +48,13 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          LEDGER_FILE: .ledger/seen_jobs.csv   # write the ledger into the data-branch checkout
         run: python run.py
 
-      - name: Commit job ledger
+      - name: Commit ledger to the data branch
+        working-directory: .ledger
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/seen_jobs.csv
-          git diff --staged --quiet || git commit -m "update job ledger [skip ci]"
-          git push
+          git add seen_jobs.csv
+          git diff --cached --quiet || (git commit -m "update job ledger [skip ci]" && git push -u origin "$LEDGER_BRANCH")

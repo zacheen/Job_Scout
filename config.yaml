@@ -45,9 +45,10 @@ tracks:
       - "ocr"
       - "3d"
       - "visual"
-  - name: "AI / Software Engineering"
+  # AI/ML before Software Engineering: a role matching both lands in the AI/ML email.
+  - name: "AI / ML"
     threshold: 50
-    description: "an AI/ML or software-engineering role (model training, ML systems, backend/full-stack/infra/data engineering)"
+    description: "an AI/ML engineering or research role (model training, deep learning, LLM/NLP, ML systems, data science)"
     keywords:
       - "machine learning"
       - "deep learning"
@@ -55,9 +56,18 @@ tracks:
       - "ml engineer"
       - "ai engineer"
       - "genai"
+      - "generative ai"
       - "llm"
       - "nlp"
       - "neural network"
+      - "mlops"
+      - "reinforcement learning"
+      - "recommendation system"
+      - "data scientist"
+  - name: "Software Engineering"
+    threshold: 50
+    description: "a software-engineering role (backend, full-stack, distributed systems, platform/infra/data engineering)"
+    keywords:
       - "software engineer"
       - "backend engineer"
       - "frontend engineer"
@@ -65,13 +75,15 @@ tracks:
       - "full-stack"
       - "distributed systems"
       - "data engineer"
-      - "mlops"
       - "platform engineer"
       - "infrastructure engineer"
+      - "devops"
+      - "site reliability"
 
-# Drop obviously non-technical roles by title (lowercase substring match), so
-# Marketing / Sales / Customer Experience / etc. never reach scoring on any tier.
-exclude_title_terms:
+# Drop obviously non-technical roles before any scoring (any tier). Matched as a
+# lowercase substring in the title OR the department — so e.g. department "Sales"
+# is excluded too.
+exclude_terms:
   - "marketing"
   - "sales"
   - "customer"
@@ -87,6 +99,16 @@ exclude_title_terms:
   - "community"
   - "business development"
   - "people partner"
+
+# Highest-priority filter: drop a job if its DEPARTMENT contains any of these
+# (lowercase substring). Checked before every other rule.
+exclude_dept_terms:
+  - "audit"
+  - "business"
+  - "sales"
+  - "commercial"
+  - "market"
+  - "customer"
 
 # A job is treated as US-based if its location string contains any of these.
 # Heuristic and imperfect: bare "remote" also matches non-US remote roles, and

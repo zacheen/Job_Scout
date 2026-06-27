@@ -5,7 +5,7 @@ import logging
 
 from .fetchers import AtsFetcher
 from .models import Job, Score
-from .protocols import JobScorer, JobStore, LocationMatcher, Notifier, RoleMatcher, Router
+from .protocols import JobFilter, JobScorer, JobStore, Notifier, Router
 
 log = logging.getLogger(__name__)
 
@@ -15,23 +15,21 @@ class Pipeline:
         self,
         store: JobStore,
         fetchers: list[AtsFetcher],
-        location_filter: LocationMatcher,
-        role_filter: RoleMatcher,
+        prefilter: JobFilter,
         router: Router,
         scorer: JobScorer,
         notifier: Notifier,
     ):
         self._store = store
         self._fetchers = fetchers
-        self._location = location_filter
-        self._role = role_filter
+        self._prefilter = prefilter
         self._router = router
         self._scorer = scorer
         self._notifier = notifier
 
     def run(self) -> None:
         all_jobs = self._fetch_all()
-        candidates = [j for j in all_jobs if self._location.is_us(j) and self._role.is_allowed(j)]
+        candidates = [j for j in all_jobs if self._prefilter.keep(j)]
         new_jobs = [j for j in candidates if j.job_uid not in self._store.known_uids()]
         log.info("fetched=%d candidates=%d new=%d", len(all_jobs), len(candidates), len(new_jobs))
 

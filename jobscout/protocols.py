@@ -16,12 +16,8 @@ class JobStore(Protocol):
     def save(self) -> None: ...
 
 
-class LocationMatcher(Protocol):
-    def is_us(self, job: Job) -> bool: ...
-
-
-class RoleMatcher(Protocol):
-    def is_allowed(self, job: Job) -> bool: ...
+class JobFilter(Protocol):
+    def keep(self, job: Job) -> bool: ...
 
 
 class Router(Protocol):

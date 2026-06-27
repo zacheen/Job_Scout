@@ -3,7 +3,9 @@
 Polls ~100 top-tech companies' official ATS feeds every 30 minutes, keeps only
 US roles, scores new postings with an LLM on two axes (computer-vision relevance
 and fit to your résumé), and emails a sorted digest of the strong matches.
-De-dupes via a CSV ledger committed back to the repo.
+De-dupes via a CSV ledger. The cloud keeps that ledger on a separate `data`
+branch (auto-created), so `main` stays code-only; local runs keep their own
+gitignored copy.
 
 ## How it works
 

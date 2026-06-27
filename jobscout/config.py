@@ -27,7 +27,8 @@ class Track:
 class Settings:
     companies: list[Company]
     tracks: list[Track]
-    exclude_title_terms: list[str]
+    exclude_terms: list[str]
+    exclude_dept_terms: list[str]
     location_us_terms: list[str]
     model: str
     reasoning_effort: str
@@ -51,7 +52,8 @@ class Settings:
         return cls(
             companies=[cls._to_company(d) for d in companies_raw],
             tracks=[cls._to_track(d) for d in cfg["tracks"]],
-            exclude_title_terms=cfg.get("exclude_title_terms", []),
+            exclude_terms=cfg.get("exclude_terms", []),
+            exclude_dept_terms=cfg.get("exclude_dept_terms", []),
             location_us_terms=cfg["location_us_terms"],
             model=cfg.get("model", "gpt-5.5"),
             reasoning_effort=cfg.get("reasoning_effort", ""),
