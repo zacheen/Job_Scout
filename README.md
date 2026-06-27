@@ -42,8 +42,11 @@ gitignored `.env`:
 conda run -n ML pip install -r requirements.txt
 cp .env.example .env          # then edit .env with your values
 # Resume: leave RESUME_TEXT blank in .env and drop your resume in resume.txt (gitignored)
-conda run -n ML python -m jobscout
+conda run -n ML python run.py     # or: python -m jobscout
 ```
+
+Run `run.py` directly (or point the VS Code debugger at it) — do **not** run
+`jobscout/__main__.py` by path, or relative imports fail with no package context.
 
 `.env` is loaded automatically. The first invocation seeds `data/seen_jobs.csv`
 and exits without scoring (so no OpenAI key is needed just to seed).
