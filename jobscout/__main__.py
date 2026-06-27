@@ -11,7 +11,7 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
 
 from .config import Settings
 from .fetchers import FetcherFactory, HttpClient
-from .filters import KeywordFilter, LocationFilter
+from .filters import LocationFilter, RoleFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
 from .scoring import build_scorer
@@ -27,13 +27,13 @@ def main() -> None:
 
     http = HttpClient(settings.request_timeout, settings.user_agent)
     pipeline = Pipeline(
-        store=CsvStore(root / "data" / "seen_jobs.csv"),
+        store=CsvStore(root / settings.ledger_path),
         fetchers=[FetcherFactory.create(c, http) for c in settings.companies],
         location_filter=LocationFilter(settings.location_us_terms),
-        keyword_filter=KeywordFilter(settings.keywords),
+        role_filter=RoleFilter(settings.exclude_title_terms),
+        router=TrackRouter(settings.tracks),
         scorer=build_scorer(settings),
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
-        cv_threshold=settings.cv_threshold,
     )
     pipeline.run()
 

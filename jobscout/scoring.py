@@ -1,8 +1,7 @@
-"""Job scoring strategies and a selector.
+"""Per-track job scoring: three strategies tried in fidelity order.
 
-Three implementations satisfy the JobScorer protocol, tried in order of fidelity:
-OpenAI API -> a local GPT CLI (e.g. Codex, authed via a ChatGPT login) -> a
-no-LLM keyword heuristic. `build_scorer` picks the best one available at startup.
+OpenAI API -> local GPT CLI (e.g. Codex via ChatGPT login) -> keyword heuristic.
+`build_scorer` selects the best available at startup.
 """
 from __future__ import annotations
 
@@ -13,8 +12,8 @@ import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from typing import Final
 
+from .config import Track
 from .models import Job, Score
 from .protocols import JobScorer
 
@@ -23,29 +22,27 @@ log = logging.getLogger(__name__)
 _SCHEMA = {
     "type": "object",
     "properties": {
-        "computer_vision_score": {"type": "integer"},
+        "relevance_score": {"type": "integer"},
         "experience_score": {"type": "integer"},
         "reason": {"type": "string"},
     },
-    "required": ["computer_vision_score", "experience_score", "reason"],
+    "required": ["relevance_score", "experience_score", "reason"],
     "additionalProperties": False,
 }
 
 _SYSTEM = (
-    "You rate a single job posting on two independent 0-100 axes and return JSON.\n"
-    "1. computer_vision_score: how strongly this role is about the field of "
-    "computer-vision (image/video/visual perception, detection, segmentation, 3D "
-    "vision, visual deep learning). A pure NLP, backend, or non-visual role scores "
-    "low even when it is otherwise machine-learning.\n"
-    "2. experience_score: how well the candidate, described by the resume below, "
+    'You rate a single job posting for the "{track}" track and return JSON.\n'
+    "1. relevance_score (0-100): how well this role IS {description}. A non-engineering "
+    "role (marketing, sales, customer support, recruiting, design) scores near 0 even "
+    "when it mentions the technology.\n"
+    "2. experience_score (0-100): how well the candidate, described by the resume below, "
     "fits THIS specific role on skills, domain, and seniority.\n"
     "Scores are integers from 0 to 100.\n\n"
     "CANDIDATE RESUME:\n{resume}"
 )
 
-# Greedy match grabs the outermost {...}, tolerating chatter around it (CLI output).
+# Greedy: captures outermost {...} so surrounding CLI chatter is ignored.
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
-_WORD_RE = re.compile(r"[a-z][a-z0-9+#.]{4,}")
 
 
 def _clamp(value) -> int:
@@ -57,30 +54,26 @@ def _parse_scores(raw: str) -> Score:
     if not match:
         raise ValueError(f"no JSON object found in scorer output; raw: {raw[:200]!r}")
     data = json.loads(match.group(0))
-    missing = {"computer_vision_score", "experience_score"} - data.keys()
+    missing = {"relevance_score", "experience_score"} - data.keys()
     if missing:
         raise ValueError(f"scorer output missing fields {missing}; raw: {raw[:200]!r}")
     return Score(
-        computer_vision_score=_clamp(data["computer_vision_score"]),
+        relevance_score=_clamp(data["relevance_score"]),
         experience_score=_clamp(data["experience_score"]),
         reason=str(data.get("reason", "")).strip(),
     )
 
 
-def _tokens(text: str) -> set[str]:
-    return set(_WORD_RE.findall(text.lower()))
-
-
 class _LlmScorer(ABC):
-    """Template for LLM-backed scorers: shared prompt + parsing, subclass supplies
-    the call that turns the prompt into a raw response string."""
+    """Template Method: shared prompt-building and response parsing; subclass implements `_invoke`."""
 
     def __init__(self, resume_text: str, max_description_chars: int):
         self._resume = resume_text
         self._max_description_chars = max_description_chars
 
-    def score(self, job: Job) -> Score:
-        return _parse_scores(self._invoke(_SYSTEM.format(resume=self._resume), self._job_blob(job)))
+    def score(self, job: Job, track: Track) -> Score:
+        system = _SYSTEM.format(track=track.name, description=track.description, resume=self._resume)
+        return _parse_scores(self._invoke(system, self._job_blob(job)))
 
     def _job_blob(self, job: Job) -> str:
         return (
@@ -96,8 +89,8 @@ class _LlmScorer(ABC):
 
 
 class OpenAiScorer(_LlmScorer):
-    """Builds the client and validates secrets lazily, so a seed-only first run
-    never needs OPENAI_API_KEY / RESUME_TEXT."""
+    """Client creation and secret validation are deferred to first `score()` call,
+    so a seed-only first run never requires OPENAI_API_KEY or RESUME_TEXT."""
 
     def __init__(self, api_key: str, model: str, resume_text: str,
                  max_description_chars: int, reasoning_effort: str = "", max_retries: int = 3):
@@ -134,7 +127,7 @@ class OpenAiScorer(_LlmScorer):
                 "json_schema": {"name": "job_scores", "strict": True, "schema": _SCHEMA},
             },
         }
-        # reasoning_effort applies only to reasoning models (gpt-5.5); omit for others.
+        # reasoning_effort is only valid for reasoning models; omitting it for standard models.
         if self._reasoning_effort:
             request["reasoning_effort"] = self._reasoning_effort
         last_error: Exception | None = None
@@ -150,19 +143,18 @@ class OpenAiScorer(_LlmScorer):
 
 
 class CliScorer(_LlmScorer):
-    """Drives a local GPT CLI (default `codex exec`) for users without an API key.
-    Best-effort: the CLI's exact output format is not guaranteed, so the JSON is
-    extracted leniently and a parse/exit failure surfaces to the caller."""
+    """Drives a local GPT CLI for users without an API key.
+    Best-effort: output format is not guaranteed; JSON is extracted leniently."""
 
     def __init__(self, command: list[str], resume_text: str, max_description_chars: int, timeout: int = 180):
         super().__init__(resume_text, max_description_chars)
-        self._command = command  # full invocation incl. subcommand, e.g. ["codex", "exec"]
+        self._command = command  # full invocation including subcommand, e.g. ["codex", "exec"]
         self._timeout = timeout
 
     def _invoke(self, system_prompt: str, user_prompt: str) -> str:
         prompt = (
             f"{system_prompt}\n\n{user_prompt}\n\n"
-            'Return ONLY a JSON object: {"computer_vision_score": <int 0-100>, '
+            'Return ONLY a JSON object: {"relevance_score": <int 0-100>, '
             '"experience_score": <int 0-100>, "reason": "<one sentence>"}. No other text.'
         )
         result = subprocess.run(
@@ -177,28 +169,24 @@ class CliScorer(_LlmScorer):
 
 
 class KeywordScorer:
-    """No-LLM fallback. computer_vision_score reflects CV-keyword strength;
-    experience_score is resume/job word overlap. Low fidelity by design — only
-    used when neither an API key nor a GPT CLI is available."""
+    """No-LLM fallback: low fidelity by design. Used only when neither API key
+    nor GPT CLI is available."""
 
-    _STRONG_CV: Final = (
-        "computer vision", "vision", "image", "video", "segmentation", "detection",
-        "perception", "slam", "point cloud", "ocr", "visual", "3d",
-    )
+    _WORD_RE = re.compile(r"[a-z][a-z0-9+#.]{4,}")
 
     def __init__(self, resume_text: str = ""):
-        self._resume_tokens = _tokens(resume_text)
+        self._resume_tokens = set(self._WORD_RE.findall(resume_text.lower()))
 
-    def score(self, job: Job) -> Score:
+    def score(self, job: Job, track: Track) -> Score:
         text = f"{job.title} {job.description}".lower()
-        hits = sum(1 for kw in self._STRONG_CV if kw in text)
-        cv = _clamp(45 + 12 * hits) if hits else 40
+        hits = sum(1 for keyword in track.keywords if keyword in text)
+        relevance = _clamp(40 + 12 * hits) if hits else 30
         if self._resume_tokens:
-            overlap = len(self._resume_tokens & _tokens(text))
-            exp = _clamp(40 + 3 * overlap)
+            overlap = len(self._resume_tokens & set(self._WORD_RE.findall(text)))
+            experience = _clamp(40 + 3 * overlap)
         else:
-            exp = 50
-        return Score(cv, exp, "keyword-only heuristic (no LLM available)")
+            experience = 50
+        return Score(relevance, experience, f"keyword-only heuristic ({track.name})")
 
 
 def build_scorer(settings) -> JobScorer:

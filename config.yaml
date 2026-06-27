@@ -1,7 +1,8 @@
 # Tunable pipeline settings. Secrets are NOT here (they live in env / GitHub Actions secrets).
 
-# Only roles whose computer-vision score strictly exceeds this are emailed.
-cv_threshold: 50
+# Dedupe ledger path. Override per-machine with the LEDGER_FILE env var so a local
+# run keeps a separate "seen" list from the committed cloud ledger.
+ledger_path: "data/seen_jobs.csv"
 
 # OpenAI model used for scoring.
 model: "gpt-5.5"
@@ -24,32 +25,68 @@ max_description_chars: 8000
 request_timeout: 20
 user_agent: "job-scout/1.0 (+https://github.com/)"
 
-# A job must mention at least one of these (in title or description) to be sent
-# to the LLM. Kept deliberately broad: recall matters here, the LLM does the
-# precise judgement. Lowercase, matched as substrings.
-prefilter_keywords:
-  - "computer vision"
-  - "vision"
-  - "image"
-  - "video"
-  - "perception"
-  - "detection"
-  - "segmentation"
-  - "3d"
-  - "point cloud"
-  - "slam"
-  - "deep learning"
-  - "machine learning"
-  - " ml "
-  - "ml engineer"
-  - "artificial intelligence"
-  - "neural"
-  - "cnn"
-  - "multimodal"
-  - "robotics"
-  - "autonomous"
-  - "ocr"
-  - "visual"
+# Each new role is routed to the FIRST track whose keywords appear (in title or
+# description), then scored against that track. Order matters — list the more
+# specific track first. Each track emails its own digest, titled by `name`.
+# `description` is what the LLM scores relevance against; `threshold` gates emails.
+tracks:
+  - name: "Computer Vision"
+    threshold: 50
+    description: "a computer-vision engineering or research role (image/video/visual perception, detection, segmentation, 3D vision)"
+    keywords:
+      - "computer vision"
+      - "image"
+      - "video"
+      - "segmentation"
+      - "object detection"
+      - "perception"
+      - "slam"
+      - "point cloud"
+      - "ocr"
+      - "3d"
+      - "visual"
+  - name: "AI / Software Engineering"
+    threshold: 50
+    description: "an AI/ML or software-engineering role (model training, ML systems, backend/full-stack/infra/data engineering)"
+    keywords:
+      - "machine learning"
+      - "deep learning"
+      - "artificial intelligence"
+      - "ml engineer"
+      - "ai engineer"
+      - "genai"
+      - "llm"
+      - "nlp"
+      - "neural network"
+      - "software engineer"
+      - "backend engineer"
+      - "frontend engineer"
+      - "full stack"
+      - "full-stack"
+      - "distributed systems"
+      - "data engineer"
+      - "mlops"
+      - "platform engineer"
+      - "infrastructure engineer"
+
+# Drop obviously non-technical roles by title (lowercase substring match), so
+# Marketing / Sales / Customer Experience / etc. never reach scoring on any tier.
+exclude_title_terms:
+  - "marketing"
+  - "sales"
+  - "customer"
+  - "recruit"
+  - "recruiter"
+  - "account executive"
+  - "designer"
+  - "finance"
+  - "legal"
+  - "talent"
+  - "brand"
+  - "social media"
+  - "community"
+  - "business development"
+  - "people partner"
 
 # A job is treated as US-based if its location string contains any of these.
 # Heuristic and imperfect: bare "remote" also matches non-US remote roles, and

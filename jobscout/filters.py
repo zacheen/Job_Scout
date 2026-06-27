@@ -1,6 +1,7 @@
-"""Cheap pre-LLM filters: US location and keyword relevance."""
+"""Pre-scoring gates: US location, non-technical role exclusion, and track routing."""
 from __future__ import annotations
 
+from .config import Track
 from .models import Job
 
 
@@ -12,17 +13,30 @@ class LocationFilter:
 
     def is_us(self, job: Job) -> bool:
         loc = job.location.lower()
-        if not loc:
-            return False
-        return any(term in loc for term in self._terms)
+        return bool(loc) and any(term in loc for term in self._terms)
 
 
-class KeywordFilter:
-    """Pre-LLM gate: at least one keyword must appear in title or description."""
+class RoleFilter:
+    """Drops clearly non-technical roles by title (marketing, sales, support, ...)."""
 
-    def __init__(self, keywords: list[str]):
-        self._keywords = [k.lower() for k in keywords]
+    def __init__(self, exclude_title_terms: list[str]):
+        self._terms = [t.lower() for t in exclude_title_terms]
 
-    def matches(self, job: Job) -> bool:
-        haystack = f"{job.title}\n{job.description}".lower()
-        return any(kw in haystack for kw in self._keywords)
+    def is_allowed(self, job: Job) -> bool:
+        title = job.title.lower()
+        return not any(term in title for term in self._terms)
+
+
+class TrackRouter:
+    """Assigns a job to the first track whose keywords appear in title or description.
+    Order matters: list more specific tracks first in config."""
+
+    def __init__(self, tracks: list[Track]):
+        self._tracks = tracks
+
+    def route(self, job: Job) -> Track | None:
+        text = f"{job.title}\n{job.description}".lower()
+        for track in self._tracks:
+            if any(keyword in text for keyword in track.keywords):
+                return track
+        return None

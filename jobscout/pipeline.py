@@ -1,11 +1,11 @@
-"""Orchestrates a single scan run from fetch through to email and persistence."""
+"""Orchestrates a single scan run: fetch -> filter -> route -> score -> per-track email."""
 from __future__ import annotations
 
 import logging
 
 from .fetchers import AtsFetcher
-from .models import Job
-from .protocols import JobScorer, JobStore, KeywordMatcher, LocationMatcher, Notifier
+from .models import Job, Score
+from .protocols import JobScorer, JobStore, LocationMatcher, Notifier, RoleMatcher, Router
 
 log = logging.getLogger(__name__)
 
@@ -16,24 +16,24 @@ class Pipeline:
         store: JobStore,
         fetchers: list[AtsFetcher],
         location_filter: LocationMatcher,
-        keyword_filter: KeywordMatcher,
+        role_filter: RoleMatcher,
+        router: Router,
         scorer: JobScorer,
         notifier: Notifier,
-        cv_threshold: int,
     ):
         self._store = store
         self._fetchers = fetchers
         self._location = location_filter
-        self._keyword = keyword_filter
+        self._role = role_filter
+        self._router = router
         self._scorer = scorer
         self._notifier = notifier
-        self._cv_threshold = cv_threshold
 
     def run(self) -> None:
         all_jobs = self._fetch_all()
-        us_jobs = [j for j in all_jobs if self._location.is_us(j)]
-        new_jobs = [j for j in us_jobs if j.job_uid not in self._store.known_uids()]
-        log.info("fetched=%d us=%d new=%d", len(all_jobs), len(us_jobs), len(new_jobs))
+        candidates = [j for j in all_jobs if self._location.is_us(j) and self._role.is_allowed(j)]
+        new_jobs = [j for j in candidates if j.job_uid not in self._store.known_uids()]
+        log.info("fetched=%d candidates=%d new=%d", len(all_jobs), len(candidates), len(new_jobs))
 
         for job in new_jobs:
             self._store.add_seen(job)
@@ -43,38 +43,55 @@ class Pipeline:
             log.info("first run: seeded %d roles, no scoring or email", len(new_jobs))
             return
 
-        selected = self._score_and_select(new_jobs)
-        if selected:
-            selected.sort(key=lambda pair: pair[1].experience_score, reverse=True)
-            subject = f"[Job Scout] {len(selected)} new computer-vision roles"
-            self._notifier.send_digest(selected, subject=subject)
-            self._store.mark_emailed([job.job_uid for job, _ in selected])
-            log.info("emailed %d roles", len(selected))
-        else:
-            log.info("no roles passed the computer-vision threshold")
+        by_track = self._score_by_track(new_jobs)
+        if not by_track:
+            log.info("no roles passed any track threshold")
+            self._store.save()
+            return
 
-        self._store.save()
-
-    def _score_and_select(self, new_jobs: list[Job]):
-        candidates = [j for j in new_jobs if self._keyword.matches(j)]
-        log.info("scoring %d keyword-matched candidates", len(candidates))
-        selected = []
-        for job in candidates:
+        emailed: list[str] = []
+        all_sent = True
+        for track_name, items in by_track.items():
+            items.sort(key=lambda pair: pair[1].experience_score, reverse=True)
             try:
-                score = self._scorer.score(job)
-            except Exception as exc:  # unscored rows stay in the store for retry next run
+                self._notifier.send_digest(items, subject=f"[Job Scout] {len(items)} new {track_name} roles")
+            except Exception as exc:
+                all_sent = False
+                log.error("email failed for %s track: %s", track_name, exc)
+                continue
+            emailed.extend(job.job_uid for job, _ in items)
+            log.info("emailed %d %s roles", len(items), track_name)
+
+        # At-least-once delivery: if any digest failed, do NOT save the ledger so those
+        # roles are retried next run. Trade-off: tracks that DID send may be re-emailed.
+        if all_sent:
+            self._store.mark_emailed(emailed)
+            self._store.save()
+        else:
+            log.error("ledger not saved — email failed; affected roles will retry next run")
+
+    def _score_by_track(self, new_jobs: list[Job]) -> dict[str, list[tuple[Job, Score]]]:
+        by_track: dict[str, list[tuple[Job, Score]]] = {}
+        for job in new_jobs:
+            track = self._router.route(job)
+            if track is None:
+                log.debug("no track matched: %s (%s)", job.job_uid, job.title)
+                continue
+            try:
+                score = self._scorer.score(job, track)
+            except Exception as exc:  # unscored rows remain unseeded; retry next run
                 log.warning("could not score %s: %s", job.job_uid, exc)
                 continue
-            self._store.set_score(job.job_uid, score)
-            if score.computer_vision_score > self._cv_threshold:
-                selected.append((job, score))
-        return selected
+            self._store.set_score(job.job_uid, track.name, score)
+            if score.relevance_score > track.threshold:
+                by_track.setdefault(track.name, []).append((job, score))
+        return by_track
 
     def _fetch_all(self) -> list[Job]:
         jobs: list[Job] = []
         for fetcher in self._fetchers:
             try:
                 jobs.extend(fetcher.fetch())
-            except Exception as exc:  # one company's failure must not abort the whole run
+            except Exception as exc:  # one company failing must not abort the whole run
                 log.warning("fetch failed for an %s company: %s", fetcher.ats_name, exc)
         return jobs

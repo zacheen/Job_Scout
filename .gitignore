@@ -1,6 +1,8 @@
 # Local-only resume used for development runs; the cloud run reads RESUME_TEXT secret.
 resume.txt
 .env
+# Local-only ledgers (LEDGER_FILE) — keep the local run's "seen" list out of git.
+*.local.csv
 __pycache__/
 *.pyc
 .venv/

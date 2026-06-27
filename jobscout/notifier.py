@@ -47,8 +47,7 @@ class EmailNotifier:
             posted = job.date_posted or "?"
             lines.append(f"  location: {location} | dept: {department} | posted: {posted}")
             lines.append(
-                f"  computer-vision: {score.computer_vision_score} | "
-                f"experience: {score.experience_score}"
+                f"  relevance: {score.relevance_score} | experience: {score.experience_score}"
             )
             lines.append(f"  why: {score.reason}")
             lines.append(f"  {job.url}")

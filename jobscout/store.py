@@ -9,7 +9,7 @@ from .models import Job, Score
 
 _FIELDS = [
     "job_uid", "company", "title", "location", "department", "url", "date_posted",
-    "first_seen", "scored", "computer_vision_score", "experience_score", "reason", "emailed",
+    "first_seen", "track", "scored", "relevance_score", "experience_score", "reason", "emailed",
 ]
 
 
@@ -18,10 +18,10 @@ def _now() -> str:
 
 
 class CsvStore:
-    """In-memory rows keyed by job_uid, loaded from and saved to one CSV file.
+    """In-memory rows keyed by job_uid, persisted to one CSV file.
 
-    The file's prior existence is the 'seeded' signal: the very first run finds
-    no file, records the current backlog, and skips scoring/email.
+    NOTE: file existence is the 'seeded' signal. First run creates the file and
+    records the current backlog without scoring or emailing anything.
     """
 
     def __init__(self, path: Path):
@@ -52,19 +52,21 @@ class CsvStore:
             "url": job.url,
             "date_posted": job.date_posted,
             "first_seen": _now(),
+            "track": "",
             "scored": "false",
-            "computer_vision_score": "",
+            "relevance_score": "",
             "experience_score": "",
             "reason": "",
             "emailed": "false",
         }
 
-    def set_score(self, job_uid: str, score: Score) -> None:
+    def set_score(self, job_uid: str, track: str, score: Score) -> None:
         if job_uid not in self._rows:
             raise KeyError(f"set_score for unknown uid {job_uid!r}; call add_seen first")
         row = self._rows[job_uid]
+        row["track"] = track
         row["scored"] = "true"
-        row["computer_vision_score"] = str(score.computer_vision_score)
+        row["relevance_score"] = str(score.relevance_score)
         row["experience_score"] = str(score.experience_score)
         row["reason"] = score.reason
 
@@ -75,6 +77,7 @@ class CsvStore:
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._path.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=_FIELDS)
+            # extrasaction="ignore" lets rows from an older schema survive a migration.
+            writer = csv.DictWriter(fh, fieldnames=_FIELDS, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(self._rows.values())

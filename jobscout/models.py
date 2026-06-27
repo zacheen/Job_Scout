@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Job:
-    # Format: "{ats}:{company}:{ats_job_id}" — used as the dedupe key across all stores.
+    # "{ats}:{company}:{ats_job_id}" — dedupe key across all stores.
     job_uid: str
     company: str
     title: str
@@ -19,6 +19,6 @@ class Job:
 
 @dataclass(frozen=True)
 class Score:
-    computer_vision_score: int  # 0-100, how much the role is computer-vision
-    experience_score: int       # 0-100, fit to the candidate's résumé
+    relevance_score: int    # 0-100, fit to the job's assigned track
+    experience_score: int   # 0-100, fit to the candidate's resume
     reason: str
