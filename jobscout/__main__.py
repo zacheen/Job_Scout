@@ -14,7 +14,7 @@ from .fetchers import FetcherFactory, HttpClient
 from .filters import KeywordFilter, LocationFilter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
-from .scoring import Scorer
+from .scoring import build_scorer
 from .store import CsvStore
 
 
@@ -31,13 +31,7 @@ def main() -> None:
         fetchers=[FetcherFactory.create(c, http) for c in settings.companies],
         location_filter=LocationFilter(settings.location_us_terms),
         keyword_filter=KeywordFilter(settings.keywords),
-        scorer=Scorer(
-            settings.openai_api_key,
-            settings.model,
-            settings.resume_text,
-            settings.max_description_chars,
-            settings.reasoning_effort,
-        ),
+        scorer=build_scorer(settings),
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
         cv_threshold=settings.cv_threshold,
     )

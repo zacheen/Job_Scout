@@ -10,6 +10,12 @@ model: "gpt-5.5"
 # "mid" = medium. Leave blank ("") for non-reasoning models (e.g. gpt-4o-mini).
 reasoning_effort: "medium"
 
+# Fallback when no OPENAI_API_KEY: full command for a local GPT CLI (incl. its
+# subcommand); the prompt is appended as the last arg. Availability is detected
+# from the first token. Default drives Codex (authed via a ChatGPT login). If the
+# command isn't found, scoring drops to keyword-only.
+gpt_cli: "codex exec"
+
 # Truncate each job description to this many characters before sending to the LLM.
 max_description_chars: 8000
 
