@@ -24,6 +24,7 @@ class Settings:
     model: str
     reasoning_effort: str
     gpt_cli: str
+    gpt_cli_args: list[str]
     max_description_chars: int
     request_timeout: int
     user_agent: str
@@ -45,7 +46,8 @@ class Settings:
             cv_threshold=int(cfg.get("cv_threshold", 50)),
             model=cfg.get("model", "gpt-5.5"),
             reasoning_effort=cfg.get("reasoning_effort", ""),
-            gpt_cli=cfg.get("gpt_cli", "codex exec"),
+            gpt_cli=os.getenv("GPT_CLI") or cfg.get("gpt_cli", "codex"),
+            gpt_cli_args=cfg.get("gpt_cli_args", ["exec"]),
             max_description_chars=int(cfg.get("max_description_chars", 8000)),
             request_timeout=int(cfg.get("request_timeout", 20)),
             user_agent=cfg.get("user_agent", "job-scout/1.0"),

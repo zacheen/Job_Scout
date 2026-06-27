@@ -208,9 +208,9 @@ def build_scorer(settings) -> JobScorer:
             settings.openai_api_key, settings.model, settings.resume_text,
             settings.max_description_chars, settings.reasoning_effort,
         )
-    cli = settings.gpt_cli.split()
-    if cli and shutil.which(cli[0]):
-        log.info("scorer: GPT CLI '%s' (no API key found)", settings.gpt_cli)
-        return CliScorer(cli, settings.resume_text, settings.max_description_chars)
+    if settings.gpt_cli and shutil.which(settings.gpt_cli):
+        command = [settings.gpt_cli, *settings.gpt_cli_args]
+        log.info("scorer: GPT CLI '%s' (no API key found)", " ".join(command))
+        return CliScorer(command, settings.resume_text, settings.max_description_chars)
     log.info("scorer: keyword-only fallback (no API key or GPT CLI found)")
     return KeywordScorer(settings.resume_text)
