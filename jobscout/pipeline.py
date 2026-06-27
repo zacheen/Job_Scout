@@ -1,4 +1,4 @@
-"""Orchestrates a single scan run: fetch -> filter -> route -> score -> per-track email."""
+"""Orchestrates a single scan run: fetch -> filter -> route -> score -> one digest email."""
 from __future__ import annotations
 
 import logging
@@ -47,26 +47,22 @@ class Pipeline:
             self._store.save()
             return
 
-        emailed: list[str] = []
-        all_sent = True
-        for track_name, items in by_track.items():
+        # One email; sections in track (priority) order, each sorted by experience.
+        sections = [(name, by_track[name]) for name in self._router.ordered_names() if name in by_track]
+        for _, items in sections:
             items.sort(key=lambda pair: pair[1].experience_score, reverse=True)
-            try:
-                self._notifier.send_digest(items, subject=f"[Job Scout] {len(items)} new {track_name} roles")
-            except Exception as exc:
-                all_sent = False
-                log.error("email failed for %s track: %s", track_name, exc)
-                continue
-            emailed.extend(job.job_uid for job, _ in items)
-            log.info("emailed %d %s roles", len(items), track_name)
+        total = sum(len(items) for _, items in sections)
 
-        # At-least-once delivery: if any digest failed, do NOT save the ledger so those
-        # roles are retried next run. Trade-off: tracks that DID send may be re-emailed.
-        if all_sent:
-            self._store.mark_emailed(emailed)
-            self._store.save()
-        else:
-            log.error("ledger not saved — email failed; affected roles will retry next run")
+        try:
+            self._notifier.send_digest(sections, subject=f"[Job Scout] {total} new roles")
+        except Exception as exc:
+            # Leave the run unsaved so unsent roles are rediscovered and retried next run.
+            log.error("email failed: %s; ledger not saved, roles retry next run", exc)
+            return
+
+        self._store.mark_emailed([job.job_uid for _, items in sections for job, _ in items])
+        self._store.save()
+        log.info("emailed %d roles across %d sections", total, len(sections))
 
     def _score_by_track(self, new_jobs: list[Job]) -> dict[str, list[tuple[Job, Score]]]:
         by_track: dict[str, list[tuple[Job, Score]]] = {}
