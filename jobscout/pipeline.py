@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 
 from .models import Job, Score
-from .protocols import Fetcher, JobFilter, JobScorer, JobStore, Notifier, Router
+from .protocols import Digest, Fetcher, JobFilter, JobScorer, JobStore, Leveler, Notifier, Router
 
 log = logging.getLogger(__name__)
 
@@ -16,6 +16,7 @@ class Pipeline:
         fetcher: Fetcher,
         prefilter: JobFilter,
         router: Router,
+        leveler: Leveler,
         scorer: JobScorer,
         notifier: Notifier,
     ):
@@ -23,6 +24,7 @@ class Pipeline:
         self._fetcher = fetcher
         self._prefilter = prefilter
         self._router = router
+        self._leveler = leveler
         self._scorer = scorer
         self._notifier = notifier
 
@@ -46,22 +48,29 @@ class Pipeline:
             self._store.save()
             return
 
-        # One email; sections in track (priority) order, each sorted by experience.
-        sections = [(name, by_track[name]) for name in self._router.ordered_names() if name in by_track]
-        for _, items in sections:
-            items.sort(key=lambda pair: pair[1].experience_score, reverse=True)
-        total = sum(len(items) for _, items in sections)
+        digest = self._build_digest(by_track)
+        total = sum(len(items) for _, sections in digest for _, items in sections)
+        groups = self._leveler.ordered_groups()
+        top_group = groups[0]
+        top_count = sum(len(items) for name, sections in digest if name == top_group
+                        for _, items in sections)
+        subject = f"[Job Scout] {total} new roles"
+        # Call out the top group only when it's a distinct priority group (e.g. intern),
+        # not when there's a single catch-all group.
+        if len(groups) > 1 and top_count:
+            subject += f" ({top_count} {top_group.lower()})"
 
         try:
-            self._notifier.send_digest(sections, subject=f"[Job Scout] {total} new roles")
+            self._notifier.send_digest(digest, subject=subject)
         except Exception as exc:
             # Leave the run unsaved so unsent roles are rediscovered and retried next run.
             log.error("email failed: %s; ledger not saved, roles retry next run", exc)
             return
 
-        self._store.mark_emailed([job.job_uid for _, items in sections for job, _ in items])
+        emailed = [job.job_uid for _, sections in digest for _, items in sections for job, _ in items]
+        self._store.mark_emailed(emailed)
         self._store.save()
-        log.info("emailed %d roles across %d sections", total, len(sections))
+        log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
 
     def _score_by_track(self, new_jobs: list[Job]) -> dict[str, list[tuple[Job, Score]]]:
         by_track: dict[str, list[tuple[Job, Score]]] = {}
@@ -80,6 +89,28 @@ class Pipeline:
                 by_track.setdefault(track.name, []).append((job, score))
         return by_track
 
+    def _build_digest(self, by_track: dict[str, list[tuple[Job, Score]]]) -> Digest:
+        # Re-bucket each track's items by level group, then emit group -> track sections
+        # in (leveler, router) priority order, each section ranked by experience.
+        grouped: dict[str, dict[str, list[tuple[Job, Score]]]] = {}
+        for track_name, items in by_track.items():
+            for job, score in items:
+                group = self._leveler.group(job)
+                grouped.setdefault(group, {}).setdefault(track_name, []).append((job, score))
+
+        digest: Digest = []
+        for group_name in self._leveler.ordered_groups():
+            track_map = grouped.get(group_name, {})
+            sections = []
+            for track_name in self._router.ordered_names():
+                section_items = track_map.get(track_name)
+                if not section_items:
+                    continue
+                section_items.sort(key=lambda pair: pair[1].experience_score, reverse=True)
+                sections.append((track_name, section_items))
+            if sections:
+                digest.append((group_name, sections))
+        return digest
+
     def _fetch_all(self) -> list[Job]:
-        # Pass known uids so date-ordered fetchers can stop paginating early.
         return self._fetcher.fetch_all(self._store.known_uids())
