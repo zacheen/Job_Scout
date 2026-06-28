@@ -42,6 +42,11 @@ class CsvStore:
     def known_uids(self) -> set[str]:
         return set(self._rows)
 
+    def known_urls(self) -> set[str]:
+        # Cross-source email dedup: same role from two sources shares a URL but has
+        # different uids. Empty URLs excluded to avoid merging distinct roles.
+        return {row["url"] for row in self._rows.values() if row.get("url")}
+
     def add_seen(self, job: Job) -> None:
         # Precondition: uid must not already exist — overwrites the row, losing any
         # scored/emailed state.
