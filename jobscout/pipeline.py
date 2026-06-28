@@ -30,22 +30,31 @@ class Pipeline:
 
     def run(self) -> None:
         all_jobs = self._fetch_all()
+        known = self._store.known_uids()
         candidates = [j for j in all_jobs if self._prefilter.keep(j)]
-        new_jobs = [j for j in candidates if j.job_uid not in self._store.known_uids()]
-        log.info("fetched=%d candidates=%d new=%d", len(all_jobs), len(candidates), len(new_jobs))
-
-        for job in new_jobs:
+        new_candidates = [j for j in candidates if j.job_uid not in known]
+        # Record all new fetched jobs, not only candidates: PreFilter-rejected jobs are
+        # otherwise never recorded and look "new" forever, defeating early-stop.
+        new_fetched = [j for j in all_jobs if j.job_uid not in known]
+        for job in new_fetched:
             self._store.add_seen(job)
+        log.info("fetched=%d candidates=%d new=%d (recorded %d new fetched)",
+                 len(all_jobs), len(candidates), len(new_candidates), len(new_fetched))
 
         if not self._store.is_seeded():
             self._store.save()
-            log.info("first run: seeded %d roles, no scoring or email", len(new_jobs))
+            log.info("first run: seeded %d jobs, no scoring or email", len(new_fetched))
             return
 
-        by_track = self._score_by_track(new_jobs)
-        if not by_track:
-            log.info("no roles passed any track threshold")
+        if not new_candidates:
             self._store.save()
+            log.info("no new roles this run")
+            return
+
+        by_track = self._score_by_track(new_candidates)
+        if not by_track:
+            self._store.save()
+            log.info("%d new roles, but none passed a track threshold", len(new_candidates))
             return
 
         digest = self._build_digest(by_track)
