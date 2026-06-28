@@ -43,6 +43,8 @@ class CsvStore:
         return set(self._rows)
 
     def add_seen(self, job: Job) -> None:
+        # Precondition: uid must not already exist — overwrites the row, losing any
+        # scored/emailed state.
         self._rows[job.job_uid] = {
             "job_uid": job.job_uid,
             "company": job.company,

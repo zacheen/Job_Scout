@@ -60,35 +60,38 @@ def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
     return ""
 
 
+_STOP_AFTER_SEEN = 10  # page until this many already-seen openings show up (cumulative)
+
+
 def _paginate_new(
     fetch_page: Callable[[int], tuple[list[Job], int | None]],
     seen: Collection[str],
     page_size: int,
     seed_max_pages: int,
+    stop_after_seen: int = _STOP_AFTER_SEEN,
 ) -> list[Job]:
-    """Page through a NEWEST-FIRST source, collecting jobs until a whole page has no
-    unseen job — the rest are older / already seen. Stopping on a fully-seen page (not the
-    first seen job) tolerates an old role being re-touched to the top.
+    """Collect jobs from a newest-first source, stopping once `stop_after_seen` already-seen
+    UIDs have accumulated across pages — at that point we're into the backlog and the rest
+    are old too. Cumulative count (not "a whole clean page") tolerates a few new/re-touched
+    roles interleaved at the top.
 
-    An empty `seen` is treated as a seed run and the page cap bounds it — by design, since
-    early-stop has no baseline to stop at yet (the pipeline's known_uids is empty only on a
-    genuine (re)seed). With a non-empty `seen` the cap never applies: later runs page on
-    until the all-seen wall (so no new role is missed) or the source runs out.
-    `fetch_page(index)` returns (that page's jobs, total count or None if unknown)."""
+    Empty `seen` = seed run: cap applies because there is no backlog baseline to stop against.
+    Non-empty `seen`: cap is ignored — pages until the duplicate threshold or source exhausted,
+    so no new role is missed."""
     jobs: list[Job] = []
     index = 0
+    seen_count = 0
     while True:
         page_jobs, total = fetch_page(index)
         jobs.extend(page_jobs)
         index += 1
-        has_new = any(job.job_uid not in seen for job in page_jobs)
+        seen_count += sum(1 for job in page_jobs if job.job_uid in seen)
         fetched = index * page_size
-        # Empty page (source exhausted) is the first guard; the rest assume a non-empty page.
         if (
-            not page_jobs
-            or not has_new
-            or (total is not None and fetched >= total)
-            or (not seen and index >= seed_max_pages)
+            not page_jobs                                # source exhausted
+            or seen_count >= stop_after_seen             # reached the already-seen backlog
+            or (total is not None and fetched >= total)  # covered all results
+            or (not seen and index >= seed_max_pages)    # seed run: bound the first pull
         ):
             break
     return jobs
@@ -308,14 +311,14 @@ class WorkdayFetcher(AtsFetcher):
             ]
             return jobs, data.get("total")
 
-        # Workday defaults to newest-first, so the seen-based early-stop applies.
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES)
+        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES)  # newest-first -> early-stop applies
 
 
 class AmazonFetcher(AtsFetcher):
-    """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows
-    it and `sort=recent` lists newest first, so the seen-based early-stop applies. `hits`
-    is unreliable, so total is unknown and the page cap bounds only the first (seed) run."""
+    """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
+    `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
+    so the seen-based early-stop applies. `hits` is unreliable, so total is unknown and the
+    page cap bounds only the first (seed) run."""
 
     ats_name = "amazon"
     _PAGE = 100
@@ -332,7 +335,8 @@ class AmazonFetcher(AtsFetcher):
             data = self._http.get_json(
                 "https://www.amazon.jobs/en/search.json",
                 params={"base_query": query, "result_limit": self._PAGE,
-                        "offset": index * self._PAGE, "sort": "recent"},
+                        "offset": index * self._PAGE, "sort": "recent",
+                        "normalized_country_code[]": "USA"},
             )
             jobs = [
                 Job(
@@ -489,15 +493,19 @@ class ParallelFetcher:
         jobs: list[Job] = []
         fetch_group = functools.partial(self._fetch_group, seen=seen)
         with ThreadPoolExecutor(max_workers=min(self._max_workers, len(groups))) as pool:
-            for group_jobs in pool.map(fetch_group, groups.values()):
+            for group_jobs in pool.map(fetch_group, groups.items()):
                 jobs.extend(group_jobs)
         return jobs
 
-    def _fetch_group(self, fetchers: list[AtsFetcher], seen: Collection[str]) -> list[Job]:
+    def _fetch_group(self, group: tuple[str, list[AtsFetcher]], seen: Collection[str]) -> list[Job]:
+        host, fetchers = group
+        started = time.perf_counter()
         jobs: list[Job] = []
         for fetcher in fetchers:
             try:
                 jobs.extend(fetcher.fetch(seen))
             except Exception as exc:  # one company failing must not abort the run
                 log.warning("fetch failed for a %s company: %s", fetcher.ats_name, exc)
+        # Logged when this host group finishes; the timestamp + elapsed expose the slowest host.
+        log.info("host %s done: %d jobs in %.1fs", host, len(jobs), time.perf_counter() - started)
         return jobs
