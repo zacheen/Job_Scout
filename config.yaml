@@ -25,6 +25,11 @@ max_description_chars: 8000
 request_timeout: 20
 user_agent: "job-scout/1.0 (+https://github.com/)"
 
+# Polite random delay (seconds) before every request, applied centrally in HttpClient;
+# jitter avoids a fixed cadence that looks like a bot.
+request_delay_min: 1.25
+request_delay_max: 2.0
+
 # Each new role is routed to the FIRST track whose keywords appear (in title or
 # description), then scored against that track. Order matters — list the more
 # specific track first. Each track emails its own digest, titled by `name`.

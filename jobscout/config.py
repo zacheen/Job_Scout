@@ -37,6 +37,8 @@ class Settings:
     max_description_chars: int
     request_timeout: int
     user_agent: str
+    request_delay_min: float
+    request_delay_max: float
     ledger_path: str
     # Secrets may be empty strings; each consuming component validates on first use.
     openai_api_key: str
@@ -62,6 +64,8 @@ class Settings:
             max_description_chars=int(cfg.get("max_description_chars", 8000)),
             request_timeout=int(cfg.get("request_timeout", 20)),
             user_agent=cfg.get("user_agent", "job-scout/1.0"),
+            request_delay_min=float(cfg.get("request_delay_min", 1.25)),
+            request_delay_max=float(cfg.get("request_delay_max", 2.0)),
             # LEDGER_FILE overrides config so local and cloud runs use separate ledgers.
             ledger_path=os.getenv("LEDGER_FILE") or cfg.get("ledger_path", "data/seen_jobs.csv"),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),

@@ -25,7 +25,10 @@ def main() -> None:
         load_dotenv(root / ".env")  # local dev; no-op in Actions (no .env there)
     settings = Settings.load(root)
 
-    http = HttpClient(settings.request_timeout, settings.user_agent)
+    http = HttpClient(
+        settings.request_timeout, settings.user_agent,
+        settings.request_delay_min, settings.request_delay_max,
+    )
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_path),
         fetchers=[FetcherFactory.create(c, http) for c in settings.companies],

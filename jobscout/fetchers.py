@@ -1,10 +1,13 @@
 """One fetcher strategy per ATS, a shared HTTP client, and a factory."""
 from __future__ import annotations
 
+import functools
 import html
 import json
 import logging
+import random
 import re
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Container
 from datetime import datetime, timezone
@@ -56,24 +59,48 @@ def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
     return ""
 
 
-class HttpClient:
-    """Thin requests.Session wrapper with shared timeout/User-Agent."""
+def _throttled(method):
+    """Wrap an HttpClient request method so every outbound connection is paced first.
+    The one place to add per-connection behaviour later (logging, auth, metrics)."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        self._pace()  # pre-connection
+        result = method(self, *args, **kwargs)
+        # post-connection hook point
+        return result
+    return wrapper
 
-    def __init__(self, timeout: int, user_agent: str):
+
+class HttpClient:
+    """requests.Session wrapper with shared timeout/User-Agent that paces every request."""
+
+    def __init__(self, timeout: int, user_agent: str, delay_min: float = 1.25, delay_max: float = 2.0):
+        if delay_min > delay_max:
+            raise ValueError(f"delay_min ({delay_min}) must be <= delay_max ({delay_max})")
         self._timeout = timeout
+        self._delay_min = delay_min
+        self._delay_max = delay_max
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": user_agent})
 
+    def _pace(self) -> None:
+        """Sleep a random delay_min..delay_max seconds before a request so connections
+        aren't fired back-to-back; the jitter avoids a fixed (bot-like) cadence."""
+        time.sleep(random.uniform(self._delay_min, self._delay_max))
+
+    @_throttled
     def get_json(self, url: str, params: dict | None = None):
         resp = self._session.get(url, params=params, timeout=self._timeout)
         resp.raise_for_status()
         return resp.json()
 
+    @_throttled
     def get_text(self, url: str, params: dict | None = None) -> str:
         resp = self._session.get(url, params=params, timeout=self._timeout)
         resp.raise_for_status()
         return resp.text
 
+    @_throttled
     def post_json(self, url: str, payload: dict):
         resp = self._session.post(url, json=payload, timeout=self._timeout)
         resp.raise_for_status()
