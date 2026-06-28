@@ -25,6 +25,14 @@ def main() -> None:
         load_dotenv(root / ".env")  # local dev; no-op in Actions (no .env there)
     settings = Settings.load(root)
 
+    # Referral grouping matches on company name, so a typo / not-yet-added company silently
+    # never appears in the Referral group — warn rather than fail quietly.
+    known_names = {c.name.strip().lower() for c in settings.companies}
+    for rc in settings.referral_companies:
+        if rc.strip().lower() not in known_names:
+            logging.warning("referral company %r has no companies.yaml entry yet "
+                            "(its roles won't be fetched or grouped)", rc)
+
     # One HttpClient (own session + pacing) per fetcher, so parallel host groups never
     # share a session; same-host fetchers still run sequentially inside ParallelFetcher.
     def make_http() -> HttpClient:
@@ -39,7 +47,7 @@ def main() -> None:
         fetcher=ParallelFetcher(fetchers),
         prefilter=PreFilter(settings.location_us_terms, settings.exclude_terms, settings.exclude_dept_terms),
         router=TrackRouter(settings.tracks),
-        leveler=LevelClassifier(settings.intern_terms),
+        leveler=LevelClassifier(settings.referral_companies, settings.intern_terms),
         scorer=build_scorer(settings),
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
     )

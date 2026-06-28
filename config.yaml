@@ -122,9 +122,24 @@ exclude_dept_terms:
   - "market"
   - "customer"
 
-# Roles whose TITLE matches one of these (whole-word, case-insensitive) are grouped
-# under "Intern" at the TOP of the email; the rest go under "Other roles". Whole-word
-# matching keeps "internal" / "international" out of the intern group.
+# Companies you have a referral at -> their roles form the TOP email group "Referral"
+# (above Intern). Matched against the company NAME (case-insensitive), so each must match
+# the `name:` used in companies.yaml.
+referral_companies:
+  - "Google"
+  - "Microsoft"
+  - "Zoox"
+  - "Ford"
+  - "Meta"
+  - "Tesla"
+  - "Dell"
+  - "Intel"
+  - "ASML"
+  - "Applied Materials"
+
+# Roles whose TITLE matches one of these (whole-word, case-insensitive) form the "Intern"
+# group (below Referral, above "Other roles"). Whole-word matching keeps "internal" /
+# "international" out.
 intern_terms:
   - "intern"
   - "internship"

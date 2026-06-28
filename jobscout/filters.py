@@ -18,7 +18,7 @@ class PreFilter:
         self._us_terms = [t.lower() for t in us_terms]
         self._exclude_terms = [t.lower() for t in exclude_terms]
         self._exclude_dept_terms = [t.lower() for t in exclude_dept_terms]
-        # Department exclusion runs first (highest priority); all() short-circuits on it.
+        # Department exclusion runs first (highest priority).
         self._checks = (self._dept_allowed, self._is_us, self._role_allowed)
 
     def keep(self, job: Job) -> bool:
@@ -34,8 +34,7 @@ class PreFilter:
         return bool(loc) and any(term in loc for term in self._us_terms)
 
     def _role_allowed(self, job: Job) -> bool:
-        # Match each term within a single field (so a multi-word term can't span the
-        # title/department join); covers e.g. department == "Sales".
+        # Match within each field separately so a multi-word term can't span the title/department join.
         title, department = job.title.lower(), job.department.lower()
         return not any(t in title or t in department for t in self._exclude_terms)
 
@@ -61,29 +60,41 @@ class TrackRouter:
 
 
 class LevelClassifier:
-    """Top-level email grouping: intern group if the TITLE matches an intern/co-op term
-    (whole-word — "internal"/"international" don't match), default group otherwise.
-    List order of `ordered_groups` = top-to-bottom in the email.
+    """Top-level email grouping, first match wins (most important first): the referral
+    group if the job's COMPANY is one the user has a referral at; else the intern group if
+    the TITLE matches an intern/co-op term (whole-word, so "internal"/"international" don't
+    count); else the default group. `ordered_groups` = top-to-bottom order in the email.
     """
 
-    def __init__(self, intern_terms: list[str],
-                 intern_group: str = "Intern", default_group: str = "Other roles"):
+    def __init__(self, referral_companies: list[str], intern_terms: list[str],
+                 referral_group: str = "Referral", intern_group: str = "Intern",
+                 default_group: str = "Other roles"):
+        self._referral = {c.strip().lower() for c in referral_companies if c.strip()}
         terms = [t for t in intern_terms if t.strip()]
         # None (not an empty-matching regex) when no terms, so nothing is tagged intern.
-        self._pattern = (
+        self._intern_re = (
             re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b", re.IGNORECASE)
             if terms else None
         )
+        self._referral_group = referral_group
         self._intern_group = intern_group
         self._default_group = default_group
+        # Precompute the groups that can actually appear, in email order (top-to-bottom):
+        # referral only if any referral companies, intern only if any terms, default always.
+        groups = []
+        if self._referral:
+            groups.append(referral_group)
+        if self._intern_re:
+            groups.append(intern_group)
+        groups.append(default_group)
+        self._ordered_groups = tuple(groups)
 
     def group(self, job: Job) -> str:
-        if self._pattern and self._pattern.search(job.title):
+        if job.company.lower() in self._referral:
+            return self._referral_group
+        if self._intern_re and self._intern_re.search(job.title):
             return self._intern_group
         return self._default_group
 
     def ordered_groups(self) -> list[str]:
-        # With no intern terms the intern group never appears, so don't advertise it.
-        if self._pattern is None:
-            return [self._default_group]
-        return [self._intern_group, self._default_group]
+        return list(self._ordered_groups)
