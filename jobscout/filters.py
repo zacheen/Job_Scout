@@ -53,3 +53,6 @@ class TrackRouter:
             if any(keyword in text for keyword in track.keywords):
                 return track
         return None
+
+    def ordered_names(self) -> list[str]:
+        return [track.name for track in self._tracks]

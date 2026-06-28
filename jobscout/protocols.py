@@ -6,6 +6,9 @@ from typing import Protocol
 from .config import Track
 from .models import Job, Score
 
+# Ordered (track_name, [(job, score), ...]) sections for one grouped digest email.
+Sections = list[tuple[str, list[tuple[Job, Score]]]]
+
 
 class JobStore(Protocol):
     def is_seeded(self) -> bool: ...
@@ -22,6 +25,7 @@ class JobFilter(Protocol):
 
 class Router(Protocol):
     def route(self, job: Job) -> "Track | None": ...
+    def ordered_names(self) -> list[str]: ...
 
 
 class JobScorer(Protocol):
@@ -29,6 +33,6 @@ class JobScorer(Protocol):
 
 
 class Notifier(Protocol):
-    def send_digest(self, items: list[tuple[Job, Score]], subject: str | None = None) -> None:
-        """Send one digest. An empty `items` must be a no-op."""
+    def send_digest(self, sections: Sections, subject: str | None = None) -> None:
+        """Send one digest grouped into (track_name, items) sections. No items = no-op."""
         ...
