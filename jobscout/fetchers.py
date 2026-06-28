@@ -68,6 +68,7 @@ def _paginate_new(
     seen: Collection[str],
     page_size: int,
     seed_max_pages: int,
+    is_seed_run: bool,
     stop_after_seen: int = _STOP_AFTER_SEEN,
 ) -> list[Job]:
     """Collect jobs from a newest-first source, stopping once `stop_after_seen` already-seen
@@ -75,9 +76,9 @@ def _paginate_new(
     are old too. Cumulative count (not "a whole clean page") tolerates a few new/re-touched
     roles interleaved at the top.
 
-    Empty `seen` = seed run: cap applies because there is no backlog baseline to stop against.
-    Non-empty `seen`: cap is ignored — pages until the duplicate threshold or source exhausted,
-    so no new role is missed."""
+    `is_seed_run` = this company's first appearance (no prior uids in the ledger): the cap
+    bounds the pull, because there is no backlog baseline to stop against. Otherwise the cap
+    is ignored — pages until the duplicate threshold or source exhausted, so no role is missed."""
     jobs: list[Job] = []
     index = 0
     seen_count = 0
@@ -88,10 +89,10 @@ def _paginate_new(
         seen_count += sum(1 for job in page_jobs if job.job_uid in seen)
         fetched = index * page_size
         if (
-            not page_jobs                                # source exhausted
-            or seen_count >= stop_after_seen             # reached the already-seen backlog
-            or (total is not None and fetched >= total)  # covered all results
-            or (not seen and index >= seed_max_pages)    # seed run: bound the first pull
+            not page_jobs                                 # source exhausted
+            or seen_count >= stop_after_seen              # reached the already-seen backlog
+            or (total is not None and fetched >= total)   # covered all results
+            or (is_seed_run and index >= seed_max_pages)  # company's first run: bound the pull
         ):
             break
     return jobs
@@ -177,6 +178,13 @@ class AtsFetcher(ABC):
             raise KeyError(
                 f"{self._company.name}: missing '{key}' for ats={self.ats_name}"
             ) from exc
+
+    def _company_known(self, seen: Collection[str]) -> bool:
+        # True if this company has a prior uid in `seen` (NOT its first run). Each company
+        # gets the seed cap on its own first appearance even if the ledger already holds
+        # other companies. The trailing ':' in the prefix prevents partial-name collisions.
+        prefix = f"{self.ats_name}:{self._company.name}:"
+        return any(uid.startswith(prefix) for uid in seen)
 
 
 class GreenhouseFetcher(AtsFetcher):
@@ -311,7 +319,8 @@ class WorkdayFetcher(AtsFetcher):
             ]
             return jobs, data.get("total")
 
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES)  # newest-first -> early-stop applies
+        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
+                             is_seed_run=not self._company_known(seen))  # newest-first -> early-stop applies
 
 
 class AmazonFetcher(AtsFetcher):
@@ -351,9 +360,10 @@ class AmazonFetcher(AtsFetcher):
                 )
                 for item in data.get("jobs", [])
             ]
-            return jobs, None  # `hits` is unreliable -> total unknown
+            return jobs, None
 
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES)
+        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
+                             is_seed_run=not self._company_known(seen))
 
 
 class GoogleFetcher(AtsFetcher):
@@ -392,7 +402,8 @@ class GoogleFetcher(AtsFetcher):
             jobs = [self._to_job(rec) for rec in records if rec and rec[self._I_ID]]
             return jobs, total
 
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES)
+        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
+                             is_seed_run=not self._company_known(seen))
 
     @classmethod
     def _embedded_jobs(cls, body: str) -> list | None:
