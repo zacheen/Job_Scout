@@ -28,6 +28,7 @@
 
 # --- Lever ---
 - {name: Netflix,    ats: lever, org: netflix}
+- {name: Zoox,       ats: lever, org: zoox}        # referral
 
 # --- Ashby ---
 - {name: OpenAI,     ats: ashby, org: openai}
@@ -36,6 +37,9 @@
 
 # --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
 - {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}
+- {name: Intel, ats: workday, host: intel.wd1.myworkdayjobs.com, tenant: intel, site: External}            # referral
+- {name: Applied Materials, ats: workday, host: amat.wd1.myworkdayjobs.com, tenant: amat, site: External}  # referral
+- {name: ASML, ats: workday, host: asml.wd3.myworkdayjobs.com, tenant: asml, site: ASMLEXT1}                # referral
 
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
@@ -46,6 +50,8 @@
 #     role (dedup ledger), so steady-state runs fetch ~1 page. ---
 - {name: Google, ats: google}
 
-# --- Phase 2, deferred (no clean API): Meta (internal GraphQL/batchexecute),
-#     Apple (jobs.apple.com needs a CSRF-token handshake), Microsoft (gcsservices
-#     endpoint, capture its JSON via DevTools to add). ---
+# --- Deferred (need a custom adapter or DevTools capture; several are referral companies):
+#     Microsoft (gcsservices endpoint needs a bearer token), Meta (metacareers GraphQL with a
+#     rotating token), Tesla (cua-api is Akamai bot-walled), Dell (Workday site 'External'
+#     returns 0 jobs anonymously), Ford (Oracle Cloud HCM — unsupported ATS), Apple
+#     (jobs.apple.com CSRF handshake). Capture the real request via browser DevTools to add. ---
