@@ -277,13 +277,14 @@ class GoogleFetcher(AtsFetcher):
     `location` are both optional."""
 
     ats_name = "google"
+    # Search endpoint and base for per-job description URLs (see _jd_url).
     _BASE = "https://www.google.com/about/careers/applications/jobs/results"
     _PAGE = 20
     _MAX_PAGES = 5
     _CALLBACK_RE = re.compile(r"AF_initDataCallback\(")
     # Positional indices into Google's ds:1 job record (positional schema; source:
     # notes/google_probe_log.md). Must be updated if Google changes the page layout.
-    _I_ID, _I_TITLE, _I_URL = 0, 1, 2
+    _I_ID, _I_TITLE = 0, 1
     _I_RESP, _I_QUALS, _I_ABOUT = 3, 4, 10
     _I_LOC, _I_POSTED = 9, 13
 
@@ -332,6 +333,7 @@ class GoogleFetcher(AtsFetcher):
     def _to_job(self, rec: list) -> Job:
         locations = rec[self._I_LOC] if len(rec) > self._I_LOC else None
         loc_text = locations[0][0] if locations and locations[0] else ""
+        title = rec[self._I_TITLE] if len(rec) > self._I_TITLE else ""
         # Each text block is stored as [null, html]; join about + responsibilities + quals.
         description = " ".join(
             strip_html(rec[i][1])
@@ -341,13 +343,21 @@ class GoogleFetcher(AtsFetcher):
         return Job(
             job_uid=self._uid(rec[self._I_ID]),
             company=self._company.name,
-            title=rec[self._I_TITLE] if len(rec) > self._I_TITLE else "",
+            title=title,
             location=loc_text,
-            url=rec[self._I_URL] if len(rec) > self._I_URL else "",
+            url=self._jd_url(rec[self._I_ID], title),
             description=description,
             department="",
             date_posted=self._posted_date(rec),
         )
+
+    @classmethod
+    def _jd_url(cls, job_id, title: str) -> str:
+        # Use description page URL, not rec[2]'s apply/sign-in URL.
+        # Google routes on the numeric id and ignores the slug (slug is for readability only).
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+        tail = f"{job_id}-{slug}" if slug else str(job_id)
+        return f"{cls._BASE}/{tail}"
 
     @classmethod
     def _posted_date(cls, rec: list) -> str:
