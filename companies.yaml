@@ -5,13 +5,14 @@
 #   lever:      org              -> api.lever.co/v0/postings/{org}
 #   ashby:      org              -> api.ashbyhq.com/posting-api/job-board/{org}
 #   workday:    host, tenant, site
+#   amazon:     query (optional keyword search)
+#   google:     query (optional), location (optional; default "United States")
 #
 # Slugs need verifying against each company's live careers page. A wrong slug is
 # harmless: the fetcher logs a warning and that company is skipped for the run.
 #
-# Phase 1 (standard ATS) below. Phase 2 (Google/Meta/Amazon/Apple/Microsoft) use
-# custom career sites with no standard ATS and are added later via their own
-# JSON endpoints.
+# Standard-ATS companies below, then the custom-site giants (Amazon, Google) that
+# have their own fetchers. Meta/Apple/Microsoft remain deferred (see bottom).
 
 # --- Greenhouse (board slug verified reachable for the first three) ---
 - {name: Coinbase,   ats: greenhouse, board: coinbase}
@@ -35,3 +36,16 @@
 
 # --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
 - {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}
+
+# --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
+#     second entry with a different query to widen coverage. ---
+- {name: Amazon, ats: amazon, query: "engineer"}
+
+# --- Google (parses the careers page's embedded JSON; US-only, newest-first). No
+#     keyword: it pages through the newest roles and stops once a page has no unseen
+#     role (dedup ledger), so steady-state runs fetch ~1 page. ---
+- {name: Google, ats: google}
+
+# --- Phase 2, deferred (no clean API): Meta (internal GraphQL/batchexecute),
+#     Apple (jobs.apple.com needs a CSRF-token handshake), Microsoft (gcsservices
+#     endpoint, capture its JSON via DevTools to add). ---

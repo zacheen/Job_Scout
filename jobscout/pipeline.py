@@ -82,10 +82,12 @@ class Pipeline:
         return by_track
 
     def _fetch_all(self) -> list[Job]:
+        # Pass known uids so date-ordered fetchers can stop paginating early.
+        seen = self._store.known_uids()
         jobs: list[Job] = []
         for fetcher in self._fetchers:
             try:
-                jobs.extend(fetcher.fetch())
+                jobs.extend(fetcher.fetch(seen))
             except Exception as exc:  # one company failing must not abort the whole run
                 log.warning("fetch failed for an %s company: %s", fetcher.ats_name, exc)
         return jobs
