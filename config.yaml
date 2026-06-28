@@ -122,6 +122,15 @@ exclude_dept_terms:
   - "market"
   - "customer"
 
+# Roles whose TITLE matches one of these (whole-word, case-insensitive) are grouped
+# under "Intern" at the TOP of the email; the rest go under "Other roles". Whole-word
+# matching keeps "internal" / "international" out of the intern group.
+intern_terms:
+  - "intern"
+  - "internship"
+  - "co-op"
+  - "coop"
+
 # A job is treated as US-based if its location string contains any of these.
 # Heuristic and imperfect: bare "remote" also matches non-US remote roles, and
 # unknown/empty locations are excluded. Refine to taste.

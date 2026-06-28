@@ -7,8 +7,10 @@ from typing import Protocol
 from .config import Track
 from .models import Job, Score
 
-# Ordered (track_name, [(job, score), ...]) sections for one grouped digest email.
+# A group's ordered track sections: (track_name, ranked [(job, score), ...]).
 Sections = list[tuple[str, list[tuple[Job, Score]]]]
+# Two-level digest: ordered (group_name, that group's track sections) for one email.
+Digest = list[tuple[str, Sections]]
 
 
 class Fetcher(Protocol):
@@ -36,11 +38,16 @@ class Router(Protocol):
     def ordered_names(self) -> list[str]: ...
 
 
+class Leveler(Protocol):
+    def group(self, job: Job) -> str: ...
+    def ordered_groups(self) -> list[str]: ...  # listed top-to-bottom in the email
+
+
 class JobScorer(Protocol):
     def score(self, job: Job, track: Track) -> Score: ...
 
 
 class Notifier(Protocol):
-    def send_digest(self, sections: Sections, subject: str | None = None) -> None:
-        """Send one digest grouped into (track_name, items) sections. No items = no-op."""
+    def send_digest(self, digest: Digest, subject: str | None = None) -> None:
+        """Send one email grouped two levels (group -> track sections). No items = no-op."""
         ...

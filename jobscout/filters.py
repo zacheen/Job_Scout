@@ -1,5 +1,7 @@
-"""Pre-scoring filter (drops unwanted jobs) and track routing."""
+"""Pre-scoring filter (drops unwanted jobs), track routing, and level grouping."""
 from __future__ import annotations
+
+import re
 
 from .config import Track
 from .models import Job
@@ -56,3 +58,32 @@ class TrackRouter:
 
     def ordered_names(self) -> list[str]:
         return [track.name for track in self._tracks]
+
+
+class LevelClassifier:
+    """Top-level email grouping: intern group if the TITLE matches an intern/co-op term
+    (whole-word — "internal"/"international" don't match), default group otherwise.
+    List order of `ordered_groups` = top-to-bottom in the email.
+    """
+
+    def __init__(self, intern_terms: list[str],
+                 intern_group: str = "Intern", default_group: str = "Other roles"):
+        terms = [t for t in intern_terms if t.strip()]
+        # None (not an empty-matching regex) when no terms, so nothing is tagged intern.
+        self._pattern = (
+            re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b", re.IGNORECASE)
+            if terms else None
+        )
+        self._intern_group = intern_group
+        self._default_group = default_group
+
+    def group(self, job: Job) -> str:
+        if self._pattern and self._pattern.search(job.title):
+            return self._intern_group
+        return self._default_group
+
+    def ordered_groups(self) -> list[str]:
+        # With no intern terms the intern group never appears, so don't advertise it.
+        if self._pattern is None:
+            return [self._default_group]
+        return [self._intern_group, self._default_group]

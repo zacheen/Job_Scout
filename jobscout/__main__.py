@@ -11,7 +11,7 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
 
 from .config import Settings
 from .fetchers import FetcherFactory, HttpClient, ParallelFetcher
-from .filters import PreFilter, TrackRouter
+from .filters import LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
 from .scoring import build_scorer
@@ -39,6 +39,7 @@ def main() -> None:
         fetcher=ParallelFetcher(fetchers),
         prefilter=PreFilter(settings.location_us_terms, settings.exclude_terms, settings.exclude_dept_terms),
         router=TrackRouter(settings.tracks),
+        leveler=LevelClassifier(settings.intern_terms),
         scorer=build_scorer(settings),
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
     )
