@@ -1,6 +1,7 @@
 """Structural interfaces (DIP). Implementations satisfy these by shape — no inheritance needed."""
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Protocol
 
 from .config import Track
@@ -8,6 +9,13 @@ from .models import Job, Score
 
 # Ordered (track_name, [(job, score), ...]) sections for one grouped digest email.
 Sections = list[tuple[str, list[tuple[Job, Score]]]]
+
+
+class Fetcher(Protocol):
+    def fetch_all(self, seen: Collection[str]) -> list[Job]:
+        """Fetch all current postings (an impl may run per-host in parallel). `seen` lets
+        date-ordered sources stop paginating early; dedup stays the pipeline's job."""
+        ...
 
 
 class JobStore(Protocol):

@@ -10,6 +10,7 @@ import re
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import requests
@@ -157,6 +158,12 @@ class AtsFetcher(ABC):
         return values through `seen`."""
         ...
 
+    @property
+    @abstractmethod
+    def host(self) -> str:
+        """Network host this fetcher hits — the grouping key for parallel fetching."""
+        ...
+
     def _uid(self, job_id) -> str:
         return f"{self.ats_name}:{self._company.name}:{job_id}"
 
@@ -171,6 +178,10 @@ class AtsFetcher(ABC):
 
 class GreenhouseFetcher(AtsFetcher):
     ats_name = "greenhouse"
+
+    @property
+    def host(self) -> str:
+        return "boards-api.greenhouse.io"
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         board = self._param("board")
@@ -198,6 +209,10 @@ class GreenhouseFetcher(AtsFetcher):
 
 class LeverFetcher(AtsFetcher):
     ats_name = "lever"
+
+    @property
+    def host(self) -> str:
+        return "api.lever.co"
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         org = self._param("org")
@@ -228,6 +243,10 @@ class LeverFetcher(AtsFetcher):
 class AshbyFetcher(AtsFetcher):
     ats_name = "ashby"
 
+    @property
+    def host(self) -> str:
+        return "api.ashbyhq.com"
+
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         org = self._param("org")
         data = self._http.get_json(
@@ -257,6 +276,10 @@ class WorkdayFetcher(AtsFetcher):
     ats_name = "workday"
     _PAGE = 20
     _SEED_MAX_PAGES = 10
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         host, tenant, site = self._param("host"), self._param("tenant"), self._param("site")
@@ -297,6 +320,10 @@ class AmazonFetcher(AtsFetcher):
     ats_name = "amazon"
     _PAGE = 100
     _SEED_MAX_PAGES = 3
+
+    @property
+    def host(self) -> str:
+        return "www.amazon.jobs"
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         query = self._company.params.get("query", "")
@@ -342,6 +369,10 @@ class GoogleFetcher(AtsFetcher):
     _I_ID, _I_TITLE = 0, 1
     _I_RESP, _I_QUALS, _I_ABOUT = 3, 4, 10
     _I_LOC, _I_POSTED = 9, 13
+
+    @property
+    def host(self) -> str:
+        return "www.google.com"
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         query = self._company.params.get("query", "")
@@ -435,3 +466,38 @@ class FetcherFactory:
                 f"(known: {', '.join(sorted(cls._REGISTRY))})"
             ) from exc
         return fetcher_cls(company, http)
+
+
+class ParallelFetcher:
+    """Groups fetchers by host; host-groups run concurrently, same-host fetchers run
+    sequentially in one thread — a host is never hit by two threads at once, and
+    per-request pacing still applies within each sequence. Satisfies the `Fetcher` protocol."""
+
+    def __init__(self, fetchers: list[AtsFetcher], max_workers: int = 8):
+        self._fetchers = fetchers
+        self._max_workers = max_workers
+
+    def fetch_all(self, seen: Collection[str]) -> list[Job]:
+        groups: dict[str, list[AtsFetcher]] = {}
+        for fetcher in self._fetchers:
+            try:
+                groups.setdefault(fetcher.host, []).append(fetcher)
+            except Exception as exc:  # a bad host config must not drop every company
+                log.warning("skipping a %s company (host lookup failed): %s", fetcher.ats_name, exc)
+        if not groups:
+            return []
+        jobs: list[Job] = []
+        fetch_group = functools.partial(self._fetch_group, seen=seen)
+        with ThreadPoolExecutor(max_workers=min(self._max_workers, len(groups))) as pool:
+            for group_jobs in pool.map(fetch_group, groups.values()):
+                jobs.extend(group_jobs)
+        return jobs
+
+    def _fetch_group(self, fetchers: list[AtsFetcher], seen: Collection[str]) -> list[Job]:
+        jobs: list[Job] = []
+        for fetcher in fetchers:
+            try:
+                jobs.extend(fetcher.fetch(seen))
+            except Exception as exc:  # one company failing must not abort the run
+                log.warning("fetch failed for a %s company: %s", fetcher.ats_name, exc)
+        return jobs
