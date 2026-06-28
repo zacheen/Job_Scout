@@ -10,7 +10,7 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
 from .config import Settings
-from .fetchers import FetcherFactory, HttpClient
+from .fetchers import FetcherFactory, HttpClient, ParallelFetcher
 from .filters import PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -25,10 +25,18 @@ def main() -> None:
         load_dotenv(root / ".env")  # local dev; no-op in Actions (no .env there)
     settings = Settings.load(root)
 
-    http = HttpClient(settings.request_timeout, settings.user_agent)
+    # One HttpClient (own session + pacing) per fetcher, so parallel host groups never
+    # share a session; same-host fetchers still run sequentially inside ParallelFetcher.
+    def make_http() -> HttpClient:
+        return HttpClient(
+            settings.request_timeout, settings.user_agent,
+            settings.request_delay_min, settings.request_delay_max,
+        )
+
+    fetchers = [FetcherFactory.create(c, make_http()) for c in settings.companies]
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_path),
-        fetchers=[FetcherFactory.create(c, http) for c in settings.companies],
+        fetcher=ParallelFetcher(fetchers),
         prefilter=PreFilter(settings.location_us_terms, settings.exclude_terms, settings.exclude_dept_terms),
         router=TrackRouter(settings.tracks),
         scorer=build_scorer(settings),

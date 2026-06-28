@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import logging
 
-from .fetchers import AtsFetcher
 from .models import Job, Score
-from .protocols import JobFilter, JobScorer, JobStore, Notifier, Router
+from .protocols import Fetcher, JobFilter, JobScorer, JobStore, Notifier, Router
 
 log = logging.getLogger(__name__)
 
@@ -14,14 +13,14 @@ class Pipeline:
     def __init__(
         self,
         store: JobStore,
-        fetchers: list[AtsFetcher],
+        fetcher: Fetcher,
         prefilter: JobFilter,
         router: Router,
         scorer: JobScorer,
         notifier: Notifier,
     ):
         self._store = store
-        self._fetchers = fetchers
+        self._fetcher = fetcher
         self._prefilter = prefilter
         self._router = router
         self._scorer = scorer
@@ -83,11 +82,4 @@ class Pipeline:
 
     def _fetch_all(self) -> list[Job]:
         # Pass known uids so date-ordered fetchers can stop paginating early.
-        seen = self._store.known_uids()
-        jobs: list[Job] = []
-        for fetcher in self._fetchers:
-            try:
-                jobs.extend(fetcher.fetch(seen))
-            except Exception as exc:  # one company failing must not abort the whole run
-                log.warning("fetch failed for an %s company: %s", fetcher.ats_name, exc)
-        return jobs
+        return self._fetcher.fetch_all(self._store.known_uids())
