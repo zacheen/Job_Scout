@@ -80,10 +80,17 @@ tracks:
       - "devops"
       - "site reliability"
 
-# Drop obviously non-technical roles before any scoring (any tier). Matched as a
+# Drop unwanted roles before any scoring (any tier): non-technical OR too-senior. Matched as a
 # lowercase substring in the title OR the department — so e.g. department "Sales"
 # is excluded too.
 exclude_terms:
+  # too senior for an intern / new-grad applicant (title substring). Note: bare "vp"
+  # is intentionally NOT listed — it would substring-match "vpc"/"vpn" tech roles.
+  - "director"
+  - "principal"
+  - "staff"
+  - "vice president"
+  # non-technical functions
   - "marketing"
   - "sales"
   - "customer"
