@@ -30,7 +30,9 @@ class Pipeline:
 
     def run(self) -> None:
         all_jobs = self._fetch_all()
+        # Snapshot uids + urls BEFORE add_seen, so this run's own jobs don't dedup themselves.
         known = self._store.known_uids()
+        known_urls = self._store.known_urls()
         candidates = [j for j in all_jobs if self._prefilter.keep(j)]
         new_candidates = [j for j in candidates if j.job_uid not in known]
         # Record all new fetched jobs, not only candidates: PreFilter-rejected jobs are
@@ -51,10 +53,19 @@ class Pipeline:
             log.info("no new roles this run")
             return
 
-        by_track = self._score_by_track(new_candidates)
+        # Email dedup is by URL (not uid): same job via another source/prior run is skipped.
+        # Early-stop dedup stays per-source by uid, so this never affects pagination.
+        emailable = self._emailable(new_candidates, known_urls)
+        if not emailable:
+            self._store.save()
+            log.info("%d new roles, all already in the ledger by URL (another source)", len(new_candidates))
+            return
+
+        by_track = self._score_by_track(emailable)
         if not by_track:
             self._store.save()
-            log.info("%d new roles, but none passed a track threshold", len(new_candidates))
+            log.info("%d emailable (of %d new), but none passed a track threshold",
+                     len(emailable), len(new_candidates))
             return
 
         digest = self._build_digest(by_track)
@@ -64,8 +75,6 @@ class Pipeline:
         top_count = sum(len(items) for name, sections in digest if name == top_group
                         for _, items in sections)
         subject = f"[Job Scout] {total} new roles"
-        # Call out the top group only when it's a distinct priority group (e.g. intern),
-        # not when there's a single catch-all group.
         if len(groups) > 1 and top_count:
             subject += f" ({top_count} {top_group.lower()})"
 
@@ -98,9 +107,24 @@ class Pipeline:
                 by_track.setdefault(track.name, []).append((job, score))
         return by_track
 
+    @staticmethod
+    def _emailable(candidates: list[Job], known_urls: set[str]) -> list[Job]:
+        # Email a role once per URL, even across sources: skip a candidate whose URL is
+        # already in the ledger or already kept this run. Empty URLs are never deduped
+        # (would merge distinct rows). Assumes a URL's keep/drop outcome is source-independent
+        # — if two sources disagree on a role's location, one recorded as a non-candidate
+        # could block its candidate twin (revisit if that ever bites).
+        out: list[Job] = []
+        urls: set[str] = set()
+        for job in candidates:
+            if job.url:
+                if job.url in known_urls or job.url in urls:
+                    continue
+                urls.add(job.url)
+            out.append(job)
+        return out
+
     def _build_digest(self, by_track: dict[str, list[tuple[Job, Score]]]) -> Digest:
-        # Re-bucket each track's items by level group, then emit group -> track sections
-        # in (leveler, router) priority order, each section ranked by experience.
         grouped: dict[str, dict[str, list[tuple[Job, Score]]]] = {}
         for track_name, items in by_track.items():
             for job, score in items:
