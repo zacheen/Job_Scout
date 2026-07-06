@@ -105,6 +105,10 @@ exclude_terms:
   # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
   - "phd"
   - "ph.d"
+  # technical areas outside the user's target (CV / AI-ML / SWE). "physics" won't
+  # substring-match "physical"; "gpu" has no common English-word collisions.
+  - "physics"
+  - "gpu" # usually is related to CUDA or kernal
   # non-technical functions
   - "marketing"
   - "sales"
