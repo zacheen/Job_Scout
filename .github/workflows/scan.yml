@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code (main)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Put the ledger on its own branch into .ledger/. Auto-created if it doesn't exist yet.
       - name: Fetch ledger branch
@@ -34,7 +34,7 @@ jobs:
             git -C .ledger remote add origin "$remote"
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip

@@ -160,6 +160,9 @@ class CliScorer(_LlmScorer):
         result = subprocess.run(
             [*self._command, prompt],
             capture_output=True, text=True, timeout=self._timeout,
+            # CLI emits UTF-8; without this, text=True decodes via the OS locale
+            # (cp950 on zh-TW Windows) and the reader thread dies on bytes like 0xe2.
+            encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
             raise RuntimeError(
