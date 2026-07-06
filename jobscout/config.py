@@ -37,6 +37,7 @@ class Settings:
     gpt_cli: str
     gpt_cli_args: list[str]
     max_description_chars: int
+    score_workers: int
     request_timeout: int
     user_agent: str
     request_delay_min: float
@@ -66,6 +67,7 @@ class Settings:
             gpt_cli=os.getenv("GPT_CLI") or cfg.get("gpt_cli", "codex"),
             gpt_cli_args=cfg.get("gpt_cli_args", ["exec"]),
             max_description_chars=int(cfg.get("max_description_chars", 8000)),
+            score_workers=int(cfg.get("score_workers", 5)),
             request_timeout=int(cfg.get("request_timeout", 20)),
             user_agent=cfg.get("user_agent", "job-scout/1.0"),
             request_delay_min=float(cfg.get("request_delay_min", 1.25)),
