@@ -95,6 +95,9 @@ exclude_terms:
   - "principal"
   - "staff"
   - "vice president"
+  # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
+  - "phd"
+  - "ph.d"
   # non-technical functions
   - "marketing"
   - "sales"
