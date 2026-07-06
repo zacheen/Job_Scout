@@ -50,6 +50,7 @@ def main() -> None:
         leveler=LevelClassifier(settings.referral_companies, settings.intern_terms),
         scorer=build_scorer(settings),
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
+        score_workers=settings.score_workers,
     )
     pipeline.run()
 

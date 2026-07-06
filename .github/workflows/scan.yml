@@ -2,8 +2,9 @@ name: job-scout
 
 on:
   schedule:
-    # Every 30 minutes. GitHub may delay scheduled runs under load.
-    - cron: "*/30 * * * *"
+    # :07/:37 — off the :00/:30 peak, where GitHub sheds/delays the most scheduled runs.
+    # Still best-effort: runs may be delayed or dropped under load (no guaranteed cadence).
+    - cron: "7,37 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -20,8 +21,37 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
+      # Fail fast (before any setup) if secrets are missing. Otherwise a missing email secret
+      # makes send_digest raise -> Pipeline swallows it -> ledger unsaved -> green run, no email;
+      # and OPENAI_API_KEY set with RESUME_TEXT empty makes every score fail silently, dropping
+      # qualifying roles (marked seen, never retried). Values are only tested for emptiness.
+      - name: Check required secrets
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          RESUME_TEXT: ${{ secrets.RESUME_TEXT }}
+        run: |
+          missing=()
+          if [ -z "$GMAIL_USER" ];         then missing+=(GMAIL_USER); fi
+          if [ -z "$GMAIL_APP_PASSWORD" ]; then missing+=(GMAIL_APP_PASSWORD); fi
+          if [ -z "$MAIL_TO" ];            then missing+=(MAIL_TO); fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing email secret(s): ${missing[*]}. Set them in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          if [ -n "$OPENAI_API_KEY" ] && [ -z "$RESUME_TEXT" ]; then
+            echo "::error::OPENAI_API_KEY is set but RESUME_TEXT is empty; scoring would fail silently. Set RESUME_TEXT, or unset OPENAI_API_KEY to use the keyword fallback."
+            exit 1
+          fi
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::notice::OPENAI_API_KEY not set; scoring will use the keyword-only fallback (codex CLI is unavailable on the runner)."
+          fi
+          echo "Secret check passed."
+
       - name: Check out code (main)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Put the ledger on its own branch into .ledger/. Auto-created if it doesn't exist yet.
       - name: Fetch ledger branch
@@ -34,7 +64,7 @@ jobs:
             git -C .ledger remote add origin "$remote"
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip

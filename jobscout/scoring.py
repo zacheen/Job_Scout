@@ -160,6 +160,13 @@ class CliScorer(_LlmScorer):
         result = subprocess.run(
             [*self._command, prompt],
             capture_output=True, text=True, timeout=self._timeout,
+            # codex reads stdin regardless of the argv prompt; DEVNULL sends EOF immediately.
+            # Without it, an inherited open-but-empty stdin (e.g. under a debugger/runner)
+            # blocks forever.
+            stdin=subprocess.DEVNULL,
+            # CLI emits UTF-8; without this, text=True decodes via the OS locale
+            # (cp950 on zh-TW Windows) and the reader thread dies on bytes like 0xe2.
+            encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
             raise RuntimeError(

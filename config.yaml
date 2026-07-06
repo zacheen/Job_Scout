@@ -15,11 +15,18 @@ reasoning_effort: "medium"
 # login). gpt_cli is the executable (override per-machine with the GPT_CLI env var,
 # e.g. a full path with spaces); gpt_cli_args are the args before the prompt, which
 # is appended last. If gpt_cli isn't found, scoring drops to keyword-only.
+# `-c model_reasoning_effort=low` overrides codex's own config.toml default (e.g. xhigh) —
+# a simple rating doesn't need more, and low is far faster/cheaper.
 gpt_cli: "codex"
-gpt_cli_args: ["exec"]
+gpt_cli_args: ["exec", "-c", "model_reasoning_effort=low"]
 
 # Truncate each job description to this many characters before sending to the LLM.
 max_description_chars: 8000
+
+# How many jobs to score concurrently (1 = sequential). Higher clears a backlog faster,
+# but the CLI path (codex exec) spawns one heavy subprocess per worker, and all workers
+# share your ChatGPT rate limit — raise cautiously.
+score_workers: 5
 
 # HTTP behaviour for the ATS fetchers.
 request_timeout: 20
@@ -98,6 +105,10 @@ exclude_terms:
   # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
   - "phd"
   - "ph.d"
+  # technical areas outside the user's target (CV / AI-ML / SWE). "physics" won't
+  # substring-match "physical"; "gpu" has no common English-word collisions.
+  - "physics"
+  - "gpu" # usually is related to CUDA or kernal
   # non-technical functions
   - "marketing"
   - "sales"

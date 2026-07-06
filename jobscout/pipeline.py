@@ -2,11 +2,20 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from typing import NamedTuple
 
+from .config import Track
 from .models import Job, Score
 from .protocols import Digest, Fetcher, JobFilter, JobScorer, JobStore, Leveler, Notifier, Router
 
 log = logging.getLogger(__name__)
+
+
+class _ScoreAttempt(NamedTuple):
+    job: Job
+    track: Track
+    score: Score | None  # None = scoring failed (already logged, not re-raised)
 
 
 class Pipeline:
@@ -19,7 +28,10 @@ class Pipeline:
         leveler: Leveler,
         scorer: JobScorer,
         notifier: Notifier,
+        score_workers: int = 1,
     ):
+        if score_workers < 1:
+            raise ValueError(f"score_workers must be >= 1, got {score_workers}")
         self._store = store
         self._fetcher = fetcher
         self._prefilter = prefilter
@@ -27,6 +39,7 @@ class Pipeline:
         self._leveler = leveler
         self._scorer = scorer
         self._notifier = notifier
+        self._score_workers = score_workers
 
     def run(self) -> None:
         all_jobs = self._fetch_all()
@@ -91,21 +104,43 @@ class Pipeline:
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
 
     def _score_by_track(self, new_jobs: list[Job]) -> dict[str, list[tuple[Job, Score]]]:
-        by_track: dict[str, list[tuple[Job, Score]]] = {}
+        routed: list[tuple[Job, Track]] = []
         for job in new_jobs:
             track = self._router.route(job)
             if track is None:
                 log.debug("no track matched: %s (%s)", job.job_uid, job.title)
                 continue
-            try:
-                score = self._scorer.score(job, track)
-            except Exception as exc:  # unscored rows remain unseeded; retry next run
-                log.warning("could not score %s: %s", job.job_uid, exc)
-                continue
-            self._store.set_score(job.job_uid, track.name, score)
-            if score.relevance_score > track.threshold:
-                by_track.setdefault(track.name, []).append((job, score))
+            routed.append((job, track))
+        if not routed:
+            return {}
+
+        total = len(routed)
+        workers = min(self._score_workers, total)  # __init__ guarantees score_workers >= 1
+        log.info("scoring %d roles across %d workers", total, workers)
+        step = max(1, total // 10)  # log progress roughly every 10%
+
+        by_track: dict[str, list[tuple[Job, Score]]] = {}
+        # score() blocks (LLM/CLI call; CLI path spawns a subprocess per worker) so it's
+        # fanned out over a thread pool. map() preserves submission order -> deterministic
+        # digest. Store writes stay on this thread: CsvStore is not concurrency-safe.
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for done, attempt in enumerate(pool.map(self._score_one, routed), start=1):
+                if done % step == 0 or done == total:
+                    log.info("scoring progress: %d/%d", done, total)
+                if attempt.score is None:
+                    continue
+                self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score)
+                if attempt.score.relevance_score > attempt.track.threshold:
+                    by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
         return by_track
+
+    def _score_one(self, pair: tuple[Job, Track]) -> _ScoreAttempt:
+        job, track = pair
+        try:
+            return _ScoreAttempt(job, track, self._scorer.score(job, track))
+        except Exception as exc:  # unscored rows remain unseeded; retry next run
+            log.warning("could not score %s: %s", job.job_uid, exc)
+            return _ScoreAttempt(job, track, None)
 
     @staticmethod
     def _emailable(candidates: list[Job], known_urls: set[str]) -> list[Job]:
