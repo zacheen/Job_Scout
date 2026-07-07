@@ -323,6 +323,52 @@ class WorkdayFetcher(AtsFetcher):
                              is_seed_run=not self._company_known(seen))  # newest-first -> early-stop applies
 
 
+class OracleFetcher(AtsFetcher):
+    """Oracle Recruiting Candidate-Experience API (Fusion HCM). The public
+    `recruitingCEJobRequisitions?finder=findReqs;siteNumber={site},...` endpoint returns the
+    jobs under items[0].requisitionList, newest-first (POSTING_DATES_DESC) — so the seen-based
+    early-stop applies. `host` + `site` (the CX_N siteNumber) identify the career site."""
+
+    ats_name = "oracle"
+    _PAGE = 20
+    _SEED_MAX_PAGES = 10
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        host, site = self._param("host"), self._param("site")
+        url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
+
+        def page(index: int) -> tuple[list[Job], int | None]:
+            finder = (f"findReqs;siteNumber={site},limit={self._PAGE},"
+                      f"offset={index * self._PAGE},sortBy=POSTING_DATES_DESC")
+            data = self._http.get_json(
+                url,
+                params={"onlyData": "true", "expand": "requisitionList.secondaryLocations",
+                        "finder": finder},
+            )
+            result = (data.get("items") or [{}])[0]
+            jobs = [
+                Job(
+                    job_uid=self._uid(item["Id"]),
+                    company=self._company.name,
+                    title=item.get("Title", ""),
+                    location=item.get("PrimaryLocation", ""),
+                    url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{item['Id']}",
+                    description=strip_html(item.get("ShortDescriptionStr", "")),
+                    department=item.get("JobFamily") or "",
+                    date_posted=item.get("PostedDate", ""),
+                )
+                for item in result.get("requisitionList", []) if item.get("Id")
+            ]
+            return jobs, result.get("TotalJobsCount")
+
+        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
+                             is_seed_run=not self._company_known(seen))
+
+
 class AmazonFetcher(AtsFetcher):
     """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
     `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
@@ -467,6 +513,7 @@ class FetcherFactory:
         LeverFetcher.ats_name: LeverFetcher,
         AshbyFetcher.ats_name: AshbyFetcher,
         WorkdayFetcher.ats_name: WorkdayFetcher,
+        OracleFetcher.ats_name: OracleFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
         GoogleFetcher.ats_name: GoogleFetcher,
     }
