@@ -178,9 +178,9 @@ class AtsFetcher(ABC):
 
     @staticmethod
     def uid_prefix(ats: str, company_name: str) -> str:
-        """uid namespace for one (ats, company) pair — the single source of truth shared by
-        _uid, _company_known, and external callers that test a uid's origin (e.g. seed_only).
-        The trailing ':' stops one company name being a prefix of another."""
+        """uid namespace for one (ats, company) pair, shared by _uid, _company_known, and
+        external callers (e.g. seed_only) that test a uid's origin. Trailing ':' stops one
+        company name being a prefix of another."""
         return f"{ats}:{company_name}:"
 
     def _uid(self, job_id) -> str:
@@ -195,9 +195,8 @@ class AtsFetcher(ABC):
             ) from exc
 
     def _company_known(self, seen: Collection[str]) -> bool:
-        # True if this company has a prior uid in `seen` (NOT its first run). Each company
-        # gets the seed cap on its own first appearance even if the ledger already holds
-        # other companies.
+        # True iff THIS company has a prior uid in `seen` — each company gets its own
+        # seed cap on first appearance, regardless of what else is already in the ledger.
         prefix = self.uid_prefix(self.ats_name, self._company.name)
         return any(uid.startswith(prefix) for uid in seen)
 
@@ -527,10 +526,9 @@ class GithubRepoFetcher(AtsFetcher):
     raw.githubusercontent.com. All subclasses share that host, so ParallelFetcher runs
     them sequentially as one polite stream.
 
-    Unlike the single-company ATS fetchers, one repo lists MANY employers: each Job's
-    `company` is the real employer parsed from the row (so referral-company roles still
-    group under Referral), while the uid stays namespaced by the repo entry via `_uid`
-    (cross-source email dedup then falls to the URL, as elsewhere)."""
+    Unlike single-company ATS fetchers, one repo lists MANY employers: `Job.company` is
+    the real employer parsed per-row (so referral-company roles still group under Referral),
+    while the uid stays namespaced by the repo entry — cross-source dedup then falls to URL."""
 
     _RAW_HOST = "raw.githubusercontent.com"
     _DEFAULT_BRANCH = "main"
@@ -547,8 +545,8 @@ class GithubRepoFetcher(AtsFetcher):
 
 class SimplifyFetcher(GithubRepoFetcher):
     """SimplifyJobs internship repos (e.g. Summer2026-Internships). Reads the repo's
-    structured `.github/scripts/listings.json` and keeps only active, visible postings;
-    employer, category, apply URL and posting date all come straight from the JSON."""
+    structured `.github/scripts/listings.json`, keeping only postings marked active
+    and visible (SimplifyJobs' own criteria for a still-open role)."""
 
     ats_name = "simplify"
     _DEFAULT_BRANCH = "dev"
@@ -577,16 +575,15 @@ class SimplifyFetcher(GithubRepoFetcher):
 
 
 class SpeedyApplyFetcher(GithubRepoFetcher):
-    """speedyapply college-job repos (e.g. 2027-AI-College-Jobs). The postings live only in
-    the repo's Markdown tables, so each configured file is fetched and its rows parsed.
-    `files` (comma-separated) picks which lists to read (default the USA intern + new-grad
-    tables). Rows with no apply link (closed/locked) are skipped."""
+    """speedyapply college-job repos (e.g. 2027-AI-College-Jobs): postings live only in
+    the repo's Markdown tables, not JSON. `files` (comma-separated) picks which tables to
+    read (default the USA intern + new-grad lists)."""
 
     ats_name = "speedyapply"
     _DEFAULT_FILES = "README.md,NEW_GRAD_USA.md"
     _COMPANY_RE = re.compile(r"<strong>(.*?)</strong>", re.S)
-    # The apply link is the one href immediately followed by the "Apply" button image;
-    # the company-site link in the first cell has no such image, so this never matches it.
+    # Apply link = href immediately followed by the "Apply" image; the first-cell
+    # company-site link has no such image, so it never matches.
     _APPLY_RE = re.compile(r'href="([^"]+)"[^>]*>\s*<img[^>]*alt="Apply"', re.I)
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
@@ -612,7 +609,7 @@ class SpeedyApplyFetcher(GithubRepoFetcher):
             url, posting_idx = self._apply_link(cells)
             if not url:  # closed/locked posting shows a lock icon, no apply link
                 continue
-            # The salary cell is dropped when unknown, so a row has 5 or 6 columns: find
+            # Salary cell is dropped when unknown -> row has 5 or 6 columns, so locate
             # title/location relative to the apply cell, not by a fixed index.
             title = strip_html(cells[1]) if posting_idx > 1 else ""
             location = strip_html(cells[2]) if posting_idx > 2 else ""

@@ -9,3 +9,5 @@ data/*.csv
 __pycache__/
 *.pyc
 .venv/
+# Claude research/probe notes — local only (condensed facts live in Claude memory).
+notes/

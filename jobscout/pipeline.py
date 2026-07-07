@@ -110,10 +110,9 @@ class Pipeline:
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
 
     def _suppress_seeding(self, new_candidates: list[Job], known: set[str]) -> list[Job]:
-        """Withhold from email any candidate from a seed_only source appearing for the FIRST
-        time (no uid with its prefix was in the ledger before this run). run() still records
-        those roles, so a large aggregator seeds its current backlog silently on that first
-        run and only genuinely new postings email thereafter."""
+        """Drop candidates from a seed_only source on its FIRST appearance (no uid with its
+        prefix was in the ledger before this run) — run() still records them, so a large
+        aggregator seeds its backlog silently once, then emails only genuinely new postings."""
         seeding = [p for p in self._seed_only_prefixes
                    if not any(uid.startswith(p) for uid in known)]
         if not seeding:
