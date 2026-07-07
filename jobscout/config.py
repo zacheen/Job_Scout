@@ -8,11 +8,19 @@ from pathlib import Path
 import yaml
 
 
+def _as_bool(value) -> bool:
+    """Parse a YAML scalar as bool: native booleans pass through, strings use truthy words."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "1", "yes")
+
+
 @dataclass(frozen=True)
 class Company:
     name: str
     ats: str
     params: dict[str, str]  # ATS-specific keys (board / org / host / tenant / site)
+    seed_only: bool = False  # pipeline flag: first appearance seeds silently, then only new roles email
 
 
 @dataclass(frozen=True)
@@ -32,6 +40,7 @@ class Settings:
     intern_terms: list[str]
     referral_companies: list[str]
     location_us_terms: list[str]
+    exclude_location_terms: list[str]
     model: str
     reasoning_effort: str
     gpt_cli: str
@@ -62,6 +71,7 @@ class Settings:
             intern_terms=cfg.get("intern_terms", ["intern", "internship", "co-op", "coop"]),
             referral_companies=cfg.get("referral_companies", []),
             location_us_terms=cfg["location_us_terms"],
+            exclude_location_terms=cfg.get("exclude_location_terms", []),
             model=cfg.get("model", "gpt-5.5"),
             reasoning_effort=cfg.get("reasoning_effort", ""),
             gpt_cli=os.getenv("GPT_CLI") or cfg.get("gpt_cli", "codex"),
@@ -86,7 +96,9 @@ class Settings:
         entry = dict(entry)
         name = entry.pop("name")
         ats = entry.pop("ats")
-        return Company(name=name, ats=ats, params={k: str(v) for k, v in entry.items()})
+        seed_only = _as_bool(entry.pop("seed_only", False))
+        return Company(name=name, ats=ats, seed_only=seed_only,
+                       params={k: str(v) for k, v in entry.items()})
 
     @staticmethod
     def _to_track(entry: dict) -> Track:

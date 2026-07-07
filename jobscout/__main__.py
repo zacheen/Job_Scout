@@ -10,7 +10,7 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
 from .config import Settings
-from .fetchers import FetcherFactory, HttpClient, ParallelFetcher
+from .fetchers import AtsFetcher, FetcherFactory, HttpClient, ParallelFetcher
 from .filters import LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -42,15 +42,28 @@ def main() -> None:
         )
 
     fetchers = [FetcherFactory.create(c, make_http()) for c in settings.companies]
+    # Sources flagged seed_only (large GitHub aggregators) record their current backlog
+    # without emailing on first appearance. Build their uid namespaces via the same
+    # AtsFetcher.uid_prefix that _uid uses, so the format lives in exactly one place.
+    seed_only_prefixes = {
+        AtsFetcher.uid_prefix(c.ats, c.name)
+        for c in settings.companies if c.seed_only
+    }
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_path),
         fetcher=ParallelFetcher(fetchers),
-        prefilter=PreFilter(settings.location_us_terms, settings.exclude_terms, settings.exclude_dept_terms),
+        prefilter=PreFilter(
+            us_terms=settings.location_us_terms,
+            exclude_location_terms=settings.exclude_location_terms,
+            exclude_terms=settings.exclude_terms,
+            exclude_dept_terms=settings.exclude_dept_terms,
+        ),
         router=TrackRouter(settings.tracks),
         leveler=LevelClassifier(settings.referral_companies, settings.intern_terms),
         scorer=build_scorer(settings),
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
         score_workers=settings.score_workers,
+        seed_only_prefixes=seed_only_prefixes,
     )
     pipeline.run()
 

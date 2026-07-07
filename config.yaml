@@ -108,7 +108,9 @@ exclude_terms:
   # technical areas outside the user's target (CV / AI-ML / SWE). "physics" won't
   # substring-match "physical"; "gpu" has no common English-word collisions.
   - "physics"
-  - "gpu" # usually is related to CUDA or kernal
+  - "safety"
+  - "gpu" # usually is related to CUDA or kernel
+  - "kernel" # low-level OS / GPU-kernel systems roles, outside the CV/AI-ML/SWE target
   # non-technical functions
   - "marketing"
   - "sales"
@@ -118,6 +120,7 @@ exclude_terms:
   - "account executive"
   - "designer"
   - "finance"
+  - "banking"
   - "legal"
   - "talent"
   - "brand"
@@ -125,6 +128,9 @@ exclude_terms:
   - "community"
   - "business development"
   - "people partner"
+  # Trailing space is deliberate: matches "partner <role>" (e.g. partner marketing/solutions)
+  # but NOT "partnership(s)".
+  - "partner "
 
 # Highest-priority filter: drop a job if its DEPARTMENT contains any of these
 # (lowercase substring). Checked before every other rule.
@@ -148,7 +154,6 @@ referral_companies:
   - "Tesla"
   - "Dell"
   - "Intel"
-  - "ASML"
   - "Applied Materials"
 
 # Roles whose TITLE matches one of these (whole-word, case-insensitive) form the "Intern"
@@ -159,6 +164,13 @@ intern_terms:
   - "internship"
   - "co-op"
   - "coop"
+
+# Backstop for location_us_terms below: its short state codes leak country names through
+# (", ca" -> ", Canada"; ", co" -> ", Colombia"). "colombia" ('o') is spelled to deliberately
+# avoid matching US "Columbia" ('u').
+exclude_location_terms:
+  - "canada"
+  - "colombia"
 
 # A job is treated as US-based if its location string contains any of these.
 # Heuristic and imperfect: bare "remote" also matches non-US remote roles, and

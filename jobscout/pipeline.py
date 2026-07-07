@@ -5,6 +5,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple
 
+from collections.abc import Collection
+
 from .config import Track
 from .models import Job, Score
 from .protocols import Digest, Fetcher, JobFilter, JobScorer, JobStore, Leveler, Notifier, Router
@@ -29,6 +31,7 @@ class Pipeline:
         scorer: JobScorer,
         notifier: Notifier,
         score_workers: int = 1,
+        seed_only_prefixes: Collection[str] = (),
     ):
         if score_workers < 1:
             raise ValueError(f"score_workers must be >= 1, got {score_workers}")
@@ -40,6 +43,8 @@ class Pipeline:
         self._scorer = scorer
         self._notifier = notifier
         self._score_workers = score_workers
+        # uid prefixes of sources that seed silently on their first appearance (see run()).
+        self._seed_only_prefixes = tuple(seed_only_prefixes)
 
     def run(self) -> None:
         all_jobs = self._fetch_all()
@@ -48,6 +53,7 @@ class Pipeline:
         known_urls = self._store.known_urls()
         candidates = [j for j in all_jobs if self._prefilter.keep(j)]
         new_candidates = [j for j in candidates if j.job_uid not in known]
+        new_candidates = self._suppress_seeding(new_candidates, known)
         # Record all new fetched jobs, not only candidates: PreFilter-rejected jobs are
         # otherwise never recorded and look "new" forever, defeating early-stop.
         new_fetched = [j for j in all_jobs if j.job_uid not in known]
@@ -102,6 +108,22 @@ class Pipeline:
         self._store.mark_emailed(emailed)
         self._store.save()
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
+
+    def _suppress_seeding(self, new_candidates: list[Job], known: set[str]) -> list[Job]:
+        """Withhold from email any candidate from a seed_only source appearing for the FIRST
+        time (no uid with its prefix was in the ledger before this run). run() still records
+        those roles, so a large aggregator seeds its current backlog silently on that first
+        run and only genuinely new postings email thereafter."""
+        seeding = [p for p in self._seed_only_prefixes
+                   if not any(uid.startswith(p) for uid in known)]
+        if not seeding:
+            return new_candidates
+        kept = [job for job in new_candidates
+                if not any(job.job_uid.startswith(p) for p in seeding)]
+        if len(kept) != len(new_candidates):
+            log.info("seeding %d new source(s) silently: withheld %d role(s) from email",
+                     len(seeding), len(new_candidates) - len(kept))
+        return kept
 
     def _score_by_track(self, new_jobs: list[Job]) -> dict[str, list[tuple[Job, Score]]]:
         routed: list[tuple[Job, Track]] = []

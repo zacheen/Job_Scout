@@ -7,6 +7,13 @@
 #   workday:    host, tenant, site
 #   amazon:     query (optional keyword search)
 #   google:     query (optional), location (optional; default "United States")
+#   oracle:     host, site (the CX_N siteNumber from the Oracle candidate-experience URL)
+#   simplify:   repo (owner/name); optional path, branch  -> parses .github/scripts/listings.json
+#   speedyapply:repo (owner/name); optional files (comma-separated .md tables), branch
+#
+# `seed_only: true` (any source): on its FIRST run the source records its current backlog
+# WITHOUT emailing, then emails only newly-posted roles afterward. Used for the big GitHub
+# aggregators so they don't dump hundreds of existing roles into one first digest.
 #
 # Slugs need verifying against each company's live careers page. A wrong slug is
 # harmless: the fetcher logs a warning and that company is skipped for the run.
@@ -39,7 +46,10 @@
 - {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}
 - {name: Intel, ats: workday, host: intel.wd1.myworkdayjobs.com, tenant: intel, site: External}            # referral
 - {name: Applied Materials, ats: workday, host: amat.wd1.myworkdayjobs.com, tenant: amat, site: External}  # referral
-- {name: ASML, ats: workday, host: asml.wd3.myworkdayjobs.com, tenant: asml, site: ASMLEXT1}                # referral
+- {name: ASML, ats: workday, host: asml.wd3.myworkdayjobs.com, tenant: asml, site: ASMLEXT1}                # fetched, not referral
+
+# --- Oracle Recruiting (Fusion HCM candidate-experience API; newest-first, paginated) ---
+- {name: Ford, ats: oracle, host: efds.fa.em5.oraclecloud.com, site: CX_1}  # referral
 
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
@@ -50,8 +60,14 @@
 #     role (dedup ledger), so steady-state runs fetch ~1 page. ---
 - {name: Google, ats: google}
 
-# --- Deferred (need a custom adapter or DevTools capture; several are referral companies):
-#     Microsoft (gcsservices endpoint needs a bearer token), Meta (metacareers GraphQL with a
-#     rotating token), Tesla (cua-api is Akamai bot-walled), Dell (Workday site 'External'
-#     returns 0 jobs anonymously), Ford (Oracle Cloud HCM — unsupported ATS), Apple
-#     (jobs.apple.com CSRF handshake). Capture the real request via browser DevTools to add. ---
+# --- GitHub job-list aggregators. One repo lists many employers; each role keeps its
+#     REAL company (so referral-company roles still group under Referral) and is deduped
+#     against direct-ATS roles by URL. seed_only: first run seeds silently (see header). ---
+- {name: SpeedyApply AI, ats: speedyapply, repo: speedyapply/2027-AI-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
+- {name: SpeedyApply SWE, ats: speedyapply, repo: speedyapply/2027-SWE-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
+- {name: Simplify Internships, ats: simplify, repo: SimplifyJobs/Summer2026-Internships, seed_only: true}
+
+# --- Deferred (need a browser session / DevTools capture; all are referral companies):
+#     Microsoft (old gcsservices search path 404s + cert mismatch — capture the current API),
+#     Meta (metacareers GraphQL with a rotating token), Tesla (cua-api is Akamai bot-walled),
+#     Dell (Workday site 'External' returns 0 jobs anonymously). Apple also deferred (CSRF). ---
