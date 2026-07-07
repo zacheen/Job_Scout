@@ -31,6 +31,10 @@
 - {name: Discord,    ats: greenhouse, board: discord}
 - {name: Figma,      ats: greenhouse, board: figma}
 - {name: Plaid,      ats: greenhouse, board: plaid}
+# Big backlogs (300-450 open roles) -> seed_only so the first run doesn't flood scoring/email.
+- {name: Waymo,      ats: greenhouse, board: waymo, seed_only: true}       # careers.withwaymo.com is Greenhouse-hosted
+- {name: DoorDash,   ats: greenhouse, board: doordashusa, seed_only: true} # careersatdoordash.com WAF-403s; board API is open
+- {name: Pinterest,  ats: greenhouse, board: pinterest, seed_only: true}   # pinterestcareers.com front-end embeds gh_jid links
 
 # --- Lever ---
 - {name: Netflix,    ats: lever, org: netflix}
@@ -46,6 +50,11 @@
 - {name: Intel, ats: workday, host: intel.wd1.myworkdayjobs.com, tenant: intel, site: External}            # referral
 - {name: Applied Materials, ats: workday, host: amat.wd1.myworkdayjobs.com, tenant: amat, site: External}  # referral
 - {name: ASML, ats: workday, host: asml.wd3.myworkdayjobs.com, tenant: asml, site: ASMLEXT1}                # fetched, not referral
+# careers.adobe.com front-end is Phenom, but the underlying Workday CXS is open (~1000 roles ->
+# seed_only). Site external_university exists but returns 0 anonymously — don't add it.
+- {name: Adobe, ats: workday, host: adobe.wd5.myworkdayjobs.com, tenant: adobe, site: external_experienced, seed_only: true}
+# tenant "sec" = Samsung Electronics Co; site is global (~530 roles, US filtered by PreFilter) -> seed_only.
+- {name: Samsung, ats: workday, host: sec.wd3.myworkdayjobs.com, tenant: sec, site: Samsung_Careers, seed_only: true}
 
 # --- Oracle Recruiting (Fusion HCM candidate-experience API; newest-first, paginated) ---
 - {name: Ford, ats: oracle, host: efds.fa.em5.oraclecloud.com, site: CX_1}       # referral
@@ -72,3 +81,9 @@
 #     Meta (metacareers GraphQL token minted by page JS — even dedicated scrapers intercept
 #     it with headless Chrome), Tesla (cua-api behind Akamai; scrapers use stealth
 #     Playwright/nodriver). Apple also deferred (CSRF handshake). ---
+
+# --- Deferred (reachable anonymously but need a NEW fetcher — method-E first-party JSON,
+#     see notes/job-source-methods.md):
+#     AMD (careers.amd.com Jibe/iCIMS API works, newest-first; apply goes to icims.com,
+#     no Workday route — amd.wd1 CXS 422s), TikTok (lifeattiktok.com SPA, no embedded
+#     JSON; jobs load from a client-side API, unprobed). ---
