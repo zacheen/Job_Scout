@@ -165,6 +165,13 @@ intern_terms:
   - "co-op"
   - "coop"
 
+# Backstop for location_us_terms below: its short state codes leak country names through
+# (", ca" -> ", Canada"; ", co" -> ", Colombia"). "colombia" ('o') is spelled to deliberately
+# avoid matching US "Columbia" ('u').
+exclude_location_terms:
+  - "canada"
+  - "colombia"
+
 # A job is treated as US-based if its location string contains any of these.
 # Heuristic and imperfect: bare "remote" also matches non-US remote roles, and
 # unknown/empty locations are excluded. Refine to taste.

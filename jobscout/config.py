@@ -32,6 +32,7 @@ class Settings:
     intern_terms: list[str]
     referral_companies: list[str]
     location_us_terms: list[str]
+    exclude_location_terms: list[str]
     model: str
     reasoning_effort: str
     gpt_cli: str
@@ -62,6 +63,7 @@ class Settings:
             intern_terms=cfg.get("intern_terms", ["intern", "internship", "co-op", "coop"]),
             referral_companies=cfg.get("referral_companies", []),
             location_us_terms=cfg["location_us_terms"],
+            exclude_location_terms=cfg.get("exclude_location_terms", []),
             model=cfg.get("model", "gpt-5.5"),
             reasoning_effort=cfg.get("reasoning_effort", ""),
             gpt_cli=os.getenv("GPT_CLI") or cfg.get("gpt_cli", "codex"),
