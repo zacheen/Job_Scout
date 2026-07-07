@@ -30,6 +30,14 @@ def strip_html(text: str | None) -> str:
     return html.unescape(_TAG_RE.sub(" ", text)).strip()
 
 
+def _unix_to_date(ts: int | float | None) -> str:
+    """Unix seconds -> ISO date (YYYY-MM-DD), or '' if missing/out of range."""
+    try:
+        return datetime.fromtimestamp(ts, timezone.utc).date().isoformat()
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
+
+
 def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
     """Extract a balanced bracket span from text[start:], skipping brackets inside string literals.
     Used to pull a JSON array/object out of surrounding JS (e.g. `AF_initDataCallback(...)`).
@@ -168,8 +176,15 @@ class AtsFetcher(ABC):
         """Network host this fetcher hits — the grouping key for parallel fetching."""
         ...
 
+    @staticmethod
+    def uid_prefix(ats: str, company_name: str) -> str:
+        """uid namespace for one (ats, company) pair — the single source of truth shared by
+        _uid, _company_known, and external callers that test a uid's origin (e.g. seed_only).
+        The trailing ':' stops one company name being a prefix of another."""
+        return f"{ats}:{company_name}:"
+
     def _uid(self, job_id) -> str:
-        return f"{self.ats_name}:{self._company.name}:{job_id}"
+        return f"{self.uid_prefix(self.ats_name, self._company.name)}{job_id}"
 
     def _param(self, key: str) -> str:
         try:
@@ -182,8 +197,8 @@ class AtsFetcher(ABC):
     def _company_known(self, seen: Collection[str]) -> bool:
         # True if this company has a prior uid in `seen` (NOT its first run). Each company
         # gets the seed cap on its own first appearance even if the ledger already holds
-        # other companies. The trailing ':' in the prefix prevents partial-name collisions.
-        prefix = f"{self.ats_name}:{self._company.name}:"
+        # other companies.
+        prefix = self.uid_prefix(self.ats_name, self._company.name)
         return any(uid.startswith(prefix) for uid in seen)
 
 
@@ -507,6 +522,126 @@ class GoogleFetcher(AtsFetcher):
             return ""
 
 
+class GithubRepoFetcher(AtsFetcher):
+    """Base for aggregator sources whose postings live in a GitHub repo, read from
+    raw.githubusercontent.com. All subclasses share that host, so ParallelFetcher runs
+    them sequentially as one polite stream.
+
+    Unlike the single-company ATS fetchers, one repo lists MANY employers: each Job's
+    `company` is the real employer parsed from the row (so referral-company roles still
+    group under Referral), while the uid stays namespaced by the repo entry via `_uid`
+    (cross-source email dedup then falls to the URL, as elsewhere)."""
+
+    _RAW_HOST = "raw.githubusercontent.com"
+    _DEFAULT_BRANCH = "main"
+
+    @property
+    def host(self) -> str:
+        return self._RAW_HOST
+
+    def _raw_url(self, path: str) -> str:
+        repo = self._param("repo")
+        branch = self._company.params.get("branch", self._DEFAULT_BRANCH)
+        return f"https://{self._RAW_HOST}/{repo}/{branch}/{path.strip()}"
+
+
+class SimplifyFetcher(GithubRepoFetcher):
+    """SimplifyJobs internship repos (e.g. Summer2026-Internships). Reads the repo's
+    structured `.github/scripts/listings.json` and keeps only active, visible postings;
+    employer, category, apply URL and posting date all come straight from the JSON."""
+
+    ats_name = "simplify"
+    _DEFAULT_BRANCH = "dev"
+    _DEFAULT_PATH = ".github/scripts/listings.json"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        path = self._company.params.get("path", self._DEFAULT_PATH)
+        data = self._http.get_json(self._raw_url(path))
+        jobs = []
+        for item in data:
+            if not (item.get("active") and item.get("is_visible") and item.get("id")):
+                continue
+            jobs.append(
+                Job(
+                    job_uid=self._uid(item["id"]),
+                    company=item.get("company_name", ""),
+                    title=item.get("title", ""),
+                    location="; ".join(item.get("locations") or []),
+                    url=item.get("url", ""),
+                    description="",  # listings.json carries no description; matched on title
+                    department=item.get("category", ""),
+                    date_posted=_unix_to_date(item.get("date_posted")),
+                )
+            )
+        return jobs
+
+
+class SpeedyApplyFetcher(GithubRepoFetcher):
+    """speedyapply college-job repos (e.g. 2027-AI-College-Jobs). The postings live only in
+    the repo's Markdown tables, so each configured file is fetched and its rows parsed.
+    `files` (comma-separated) picks which lists to read (default the USA intern + new-grad
+    tables). Rows with no apply link (closed/locked) are skipped."""
+
+    ats_name = "speedyapply"
+    _DEFAULT_FILES = "README.md,NEW_GRAD_USA.md"
+    _COMPANY_RE = re.compile(r"<strong>(.*?)</strong>", re.S)
+    # The apply link is the one href immediately followed by the "Apply" button image;
+    # the company-site link in the first cell has no such image, so this never matches it.
+    _APPLY_RE = re.compile(r'href="([^"]+)"[^>]*>\s*<img[^>]*alt="Apply"', re.I)
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        raw = self._company.params.get("files", self._DEFAULT_FILES)
+        files = [f.strip() for f in raw.split(",") if f.strip()]
+        jobs: list[Job] = []
+        for path in files:
+            jobs.extend(self._parse_table(self._http.get_text(self._raw_url(path))))
+        return jobs
+
+    def _parse_table(self, markdown: str) -> list[Job]:
+        jobs: list[Job] = []
+        company = ""  # carried forward: continuation rows repeat a company without a <strong>
+        for line in markdown.splitlines():
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) < 4:  # header, separator, or too few columns to be a posting
+                continue
+            name = self._COMPANY_RE.search(cells[0])
+            if name:
+                company = strip_html(name.group(1))
+            url, posting_idx = self._apply_link(cells)
+            if not url:  # closed/locked posting shows a lock icon, no apply link
+                continue
+            # The salary cell is dropped when unknown, so a row has 5 or 6 columns: find
+            # title/location relative to the apply cell, not by a fixed index.
+            title = strip_html(cells[1]) if posting_idx > 1 else ""
+            location = strip_html(cells[2]) if posting_idx > 2 else ""
+            if not (company and title):
+                continue
+            jobs.append(
+                Job(
+                    job_uid=self._uid(url),
+                    company=company,
+                    title=title,
+                    location=location,
+                    url=url,
+                    description="",  # tables carry no description; matched on title
+                    department="",
+                    date_posted="",  # tables show only a relative age ("6d"), not a date
+                )
+            )
+        return jobs
+
+    @classmethod
+    def _apply_link(cls, cells: list[str]) -> tuple[str, int]:
+        """Return (apply_url, cell_index) for the first cell holding an apply link, else ('', -1)."""
+        for idx, cell in enumerate(cells):
+            match = cls._APPLY_RE.search(cell)
+            if match:
+                return match.group(1), idx
+        return "", -1
+
+
 class FetcherFactory:
     _REGISTRY: dict[str, type[AtsFetcher]] = {
         GreenhouseFetcher.ats_name: GreenhouseFetcher,
@@ -516,6 +651,8 @@ class FetcherFactory:
         OracleFetcher.ats_name: OracleFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
         GoogleFetcher.ats_name: GoogleFetcher,
+        SimplifyFetcher.ats_name: SimplifyFetcher,
+        SpeedyApplyFetcher.ats_name: SpeedyApplyFetcher,
     }
 
     @classmethod

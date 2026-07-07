@@ -10,7 +10,7 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
 from .config import Settings
-from .fetchers import FetcherFactory, HttpClient, ParallelFetcher
+from .fetchers import AtsFetcher, FetcherFactory, HttpClient, ParallelFetcher
 from .filters import LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -42,6 +42,13 @@ def main() -> None:
         )
 
     fetchers = [FetcherFactory.create(c, make_http()) for c in settings.companies]
+    # Sources flagged seed_only (large GitHub aggregators) record their current backlog
+    # without emailing on first appearance. Build their uid namespaces via the same
+    # AtsFetcher.uid_prefix that _uid uses, so the format lives in exactly one place.
+    seed_only_prefixes = {
+        AtsFetcher.uid_prefix(c.ats, c.name)
+        for c in settings.companies if c.seed_only
+    }
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_path),
         fetcher=ParallelFetcher(fetchers),
@@ -56,6 +63,7 @@ def main() -> None:
         scorer=build_scorer(settings),
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
         score_workers=settings.score_workers,
+        seed_only_prefixes=seed_only_prefixes,
     )
     pipeline.run()
 

@@ -8,6 +8,12 @@
 #   amazon:     query (optional keyword search)
 #   google:     query (optional), location (optional; default "United States")
 #   oracle:     host, site (the CX_N siteNumber from the Oracle candidate-experience URL)
+#   simplify:   repo (owner/name); optional path, branch  -> parses .github/scripts/listings.json
+#   speedyapply:repo (owner/name); optional files (comma-separated .md tables), branch
+#
+# `seed_only: true` (any source): on its FIRST run the source records its current backlog
+# WITHOUT emailing, then emails only newly-posted roles afterward. Used for the big GitHub
+# aggregators so they don't dump hundreds of existing roles into one first digest.
 #
 # Slugs need verifying against each company's live careers page. A wrong slug is
 # harmless: the fetcher logs a warning and that company is skipped for the run.
@@ -53,6 +59,13 @@
 #     keyword: it pages through the newest roles and stops once a page has no unseen
 #     role (dedup ledger), so steady-state runs fetch ~1 page. ---
 - {name: Google, ats: google}
+
+# --- GitHub job-list aggregators. One repo lists many employers; each role keeps its
+#     REAL company (so referral-company roles still group under Referral) and is deduped
+#     against direct-ATS roles by URL. seed_only: first run seeds silently (see header). ---
+- {name: SpeedyApply AI, ats: speedyapply, repo: speedyapply/2027-AI-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
+- {name: SpeedyApply SWE, ats: speedyapply, repo: speedyapply/2027-SWE-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
+- {name: Simplify Internships, ats: simplify, repo: SimplifyJobs/Summer2026-Internships, seed_only: true}
 
 # --- Deferred (need a browser session / DevTools capture; all are referral companies):
 #     Microsoft (old gcsservices search path 404s + cert mismatch — capture the current API),

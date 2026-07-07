@@ -8,11 +8,19 @@ from pathlib import Path
 import yaml
 
 
+def _as_bool(value) -> bool:
+    """Parse a YAML scalar as bool: native booleans pass through, strings use truthy words."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "1", "yes")
+
+
 @dataclass(frozen=True)
 class Company:
     name: str
     ats: str
     params: dict[str, str]  # ATS-specific keys (board / org / host / tenant / site)
+    seed_only: bool = False  # pipeline flag: first appearance seeds silently, then only new roles email
 
 
 @dataclass(frozen=True)
@@ -88,7 +96,9 @@ class Settings:
         entry = dict(entry)
         name = entry.pop("name")
         ats = entry.pop("ats")
-        return Company(name=name, ats=ats, params={k: str(v) for k, v in entry.items()})
+        seed_only = _as_bool(entry.pop("seed_only", False))
+        return Company(name=name, ats=ats, seed_only=seed_only,
+                       params={k: str(v) for k, v in entry.items()})
 
     @staticmethod
     def _to_track(entry: dict) -> Track:
