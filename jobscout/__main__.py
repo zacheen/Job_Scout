@@ -42,9 +42,8 @@ def main() -> None:
         )
 
     fetchers = [FetcherFactory.create(c, make_http()) for c in settings.companies]
-    # Sources flagged seed_only (large GitHub aggregators) record their current backlog
-    # without emailing on first appearance. Build their uid namespaces via the same
-    # AtsFetcher.uid_prefix that _uid uses, so the format lives in exactly one place.
+    # seed_only sources (large GitHub aggregators) record their backlog without emailing on
+    # first appearance — reuse AtsFetcher.uid_prefix so the uid format lives in one place.
     seed_only_prefixes = {
         AtsFetcher.uid_prefix(c.ats, c.name)
         for c in settings.companies if c.seed_only
