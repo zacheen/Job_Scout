@@ -83,6 +83,11 @@ class _LlmScorer(ABC):
             f"DESCRIPTION:\n{job.description[: self._max_description_chars]}"
         )
 
+    @property
+    @abstractmethod
+    def method_label(self) -> str:
+        """A plain class attribute (e.g. `method_label = "API"`) satisfies this abstract property."""
+
     @abstractmethod
     def _invoke(self, system_prompt: str, user_prompt: str) -> str:
         ...
@@ -91,6 +96,8 @@ class _LlmScorer(ABC):
 class OpenAiScorer(_LlmScorer):
     """Client creation and secret validation are deferred to first `score()` call,
     so a seed-only first run never requires OPENAI_API_KEY or RESUME_TEXT."""
+
+    method_label = "API"
 
     def __init__(self, api_key: str, model: str, resume_text: str,
                  max_description_chars: int, reasoning_effort: str = "", max_retries: int = 3):
@@ -146,6 +153,8 @@ class CliScorer(_LlmScorer):
     """Drives a local GPT CLI for users without an API key.
     Best-effort: output format is not guaranteed; JSON is extracted leniently."""
 
+    method_label = "CLI"
+
     def __init__(self, command: list[str], resume_text: str, max_description_chars: int, timeout: int = 180):
         super().__init__(resume_text, max_description_chars)
         self._command = command  # full invocation including subcommand, e.g. ["codex", "exec"]
@@ -178,6 +187,8 @@ class CliScorer(_LlmScorer):
 class KeywordScorer:
     """No-LLM fallback: low fidelity by design. Used only when neither API key
     nor GPT CLI is available."""
+
+    method_label = "Keyword"
 
     _WORD_RE = re.compile(r"[a-z][a-z0-9+#.]{4,}")
 

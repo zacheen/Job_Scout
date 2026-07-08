@@ -96,6 +96,7 @@ class Pipeline:
         subject = f"[Job Scout] {total} new roles"
         if len(groups) > 1 and top_count:
             subject += f" ({top_count} {top_group.lower()})"
+        subject += f" [{self._scorer.method_label}]"
 
         try:
             self._notifier.send_digest(digest, subject=subject)

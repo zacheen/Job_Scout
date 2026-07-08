@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 from .config import Track
 from .models import Job, Score
@@ -45,6 +45,8 @@ class Leveler(Protocol):
 
 
 class JobScorer(Protocol):
+    method_label: ClassVar[str]  # scoring method shown in the email subject, e.g. "API" / "CLI" / "Keyword"
+
     def score(self, job: Job, track: Track) -> Score: ...
 
 
