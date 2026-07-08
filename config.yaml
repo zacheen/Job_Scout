@@ -115,9 +115,12 @@ exclude_terms:
   # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
   - "phd"
   - "ph.d"
-  # technical areas outside the user's target (CV / AI-ML / SWE). "physics" won't
-  # substring-match "physical"; "gpu" has no common English-word collisions.
+  - "postdoc" # stem also matches "postdoctoral" (researcher/fellow/scholar)
+  # technical / scientific fields outside the user's target (CV / AI-ML / SWE). "physics"
+  # won't substring-match "physical"; "gpu" has no common English-word collisions.
   - "physics"
+  - "chemistry" # won't match "chemical" (different stem)
+  - "drug" # pharma / drug-discovery domain
   - "safety"
   - "network"
   - "gpu" # usually is related to CUDA or kernel
@@ -137,7 +140,9 @@ exclude_terms:
   - "brand"
   - "social media"
   - "community"
-  - "business development"
+  - "business" # broad: subsumes "business development"; also drops "Business Intelligence/Analyst" titles
+  - "supply chain"
+  - "buyer"
   - "people partner"
   # Trailing space is deliberate: matches "partner <role>" (e.g. partner marketing/solutions)
   # but NOT "partnership(s)".
@@ -147,7 +152,6 @@ exclude_terms:
 # (lowercase substring). Checked before every other rule.
 exclude_dept_terms:
   - "audit"
-  - "business"
   - "sales"
   - "commercial"
   - "market"
