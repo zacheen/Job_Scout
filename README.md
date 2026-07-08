@@ -57,6 +57,7 @@ and exits without scoring (so no OpenAI key is needed just to seed).
 
 - Workday listings expose title + location but not the full description, so
   Workday roles are pre-filtered and scored on the title only.
-- US detection is a location-string heuristic; bare "remote" can include non-US
-  remote roles. Tune `location_us_terms` in `config.yaml`.
+- Region filtering (US + Taiwan) is a location-string heuristic; bare "remote"
+  can include remote roles outside those regions. Tune `include_location_terms`
+  in `config.yaml`.
 - A wrong company slug is skipped with a warning, not a crash.

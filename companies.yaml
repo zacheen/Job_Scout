@@ -88,10 +88,14 @@
 #     second entry with a different query to widen coverage. ---
 - {name: Amazon, ats: amazon, query: "engineer"}
 
-# --- Google (parses the careers page's embedded JSON; US-only, newest-first). No
-#     keyword: it pages through the newest roles and stops once a page has no unseen
-#     role (dedup ledger), so steady-state runs fetch ~1 page. ---
+# --- Google (parses the careers page's embedded JSON; newest-first). No keyword: it
+#     pages through the newest roles and stops once a page has no unseen role (dedup
+#     ledger), so steady-state runs fetch ~1 page. One entry per location filter; the
+#     distinct `name` gives each its own uid namespace (own seed cap + early-stop).
+#     Taiwan (~108 roles): Google's own filter leaks a few nearby-country rows
+#     (e.g. Singapore) — PreFilter's include_location_terms drops those. ---
 - {name: Google, ats: google}
+- {name: Google Taiwan, ats: google, location: Taiwan}
 
 # --- Tinder (first-party proxy; Match Group's shared Lever org would mislabel all brands
 #     as Tinder, so this Tinder-only source is used instead). Single-shot, no date field. ---

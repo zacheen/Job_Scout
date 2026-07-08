@@ -23,14 +23,15 @@ class PreFilter:
     private predicate and append it to `self._checks` — that's the only edit.
     """
 
-    def __init__(self, *, us_terms: list[str], exclude_location_terms: list[str],
+    def __init__(self, *, include_location_terms: list[str], exclude_location_terms: list[str],
                  exclude_terms: list[str], exclude_dept_terms: list[str]):
-        self._us_terms = [t.lower() for t in us_terms]
+        self._include_location_terms = [t.lower() for t in include_location_terms]
         self._exclude_location_terms = [t.lower() for t in exclude_location_terms]
         self._exclude_terms = [t.lower() for t in exclude_terms]
         self._exclude_dept_terms = [t.lower() for t in exclude_dept_terms]
         # All four are pure predicates under all(), so this order only affects short-circuit speed, not the result.
-        self._checks = (self._dept_allowed, self._location_allowed, self._is_us, self._role_allowed)
+        self._checks = (self._dept_allowed, self._location_not_excluded,
+                        self._location_included, self._role_allowed)
 
     def keep(self, job: Job) -> bool:
         return all(check(job) for check in self._checks)
@@ -39,15 +40,15 @@ class PreFilter:
         dept = job.department.lower()
         return not any(term in dept for term in self._exclude_dept_terms)
 
-    def _location_allowed(self, job: Job) -> bool:
-        # Backstop for _is_us: its short state codes substring-hit country names (", ca" -> ", Canada"; ", co" -> ", Colombia").
+    def _location_not_excluded(self, job: Job) -> bool:
+        # Backstop for _location_included: its short state codes substring-hit country names (", ca" -> ", Canada"; ", co" -> ", Colombia").
         loc = job.location.lower()
         return not any(term in loc for term in self._exclude_location_terms)
 
-    def _is_us(self, job: Job) -> bool:
-        # Empty/unknown location is treated as non-US and dropped.
+    def _location_included(self, job: Job) -> bool:
+        # Empty/unknown location is treated as outside the allowed regions and dropped.
         loc = job.location.lower()
-        return bool(loc) and any(term in loc for term in self._us_terms)
+        return bool(loc) and any(term in loc for term in self._include_location_terms)
 
     def _role_allowed(self, job: Job) -> bool:
         # Match within each field separately so a multi-word term can't span the title/department join.

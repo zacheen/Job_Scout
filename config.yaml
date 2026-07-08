@@ -162,6 +162,7 @@ exclude_dept_terms:
 # the `name:` used in companies.yaml.
 referral_companies:
   - "Google"
+  - "Google Taiwan" # same referral as Google, just filtered to Taiwan roles
   - "Microsoft"
   - "Zoox"
   - "Ford"
@@ -180,7 +181,7 @@ intern_terms:
   - "co-op"
   - "coop"
 
-# Backstop for location_us_terms below: its short state codes leak country names through
+# Backstop for include_location_terms below: its short state codes leak country names through
 # (", ca" -> ", Canada"; ", co" -> ", Colombia"). "colombia" ('o') is spelled to deliberately
 # avoid matching US "Columbia" ('u').
 exclude_location_terms:
@@ -188,10 +189,12 @@ exclude_location_terms:
   - "colombia"
   - "malaysia"
 
-# A job is treated as US-based if its location string contains any of these.
-# Heuristic and imperfect: bare "remote" also matches non-US remote roles, and
-# unknown/empty locations are excluded. Refine to taste.
-location_us_terms:
+# A job is kept only if its location string contains any of these (allowed regions:
+# US + Taiwan). Heuristic and imperfect: bare "remote" also matches remote roles
+# outside these regions, and unknown/empty locations are excluded. Refine to taste.
+include_location_terms:
+  # Google's Taiwan location strings all end in ", Taiwan" (Taipei / New Taipei / Hsinchu).
+  - "taiwan"
   - "united states"
   - "usa"
   - "u.s."
