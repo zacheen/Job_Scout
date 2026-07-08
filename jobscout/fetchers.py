@@ -201,6 +201,39 @@ class AtsFetcher(ABC):
         return any(uid.startswith(prefix) for uid in seen)
 
 
+class PaginatedFetcher(AtsFetcher):
+    """Base for newest-first, paginated sources. Subclasses set `_PAGE`/`_SEED_MAX_PAGES`
+    and implement `_fetch_page`; `fetch` wires them through `_paginate_new` identically, so
+    every paginated source gets the same seed-cap + early-stop behaviour and a new one can't
+    forget it. Correctness depends on the source returning newest-first (early-stop assumes
+    once you hit already-seen roles, the rest are older) — each subclass documents why it is."""
+
+    _PAGE: int
+    _SEED_MAX_PAGES: int
+
+    def __init__(self, company: Company, http: HttpClient):
+        super().__init__(company, http)
+        # Bare annotations have no runtime force (unlike the @abstractmethods): a subclass
+        # missing them would only AttributeError inside fetch(), which ParallelFetcher
+        # swallows into a warning ("company yields 0 jobs forever"). Fail loud at
+        # construction instead, mirroring the ats_name guard in AtsFetcher.
+        page, seed_max = getattr(self, "_PAGE", None), getattr(self, "_SEED_MAX_PAGES", None)
+        if not isinstance(page, int) or page < 1:
+            raise TypeError(f"{type(self).__name__} must define a positive _PAGE")
+        if not isinstance(seed_max, int) or seed_max < 1:
+            raise TypeError(f"{type(self).__name__} must define a positive _SEED_MAX_PAGES")
+
+    @abstractmethod
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        """Return (jobs, total) for the 0-based page `index`; total is the full result
+        count when the API reports it, else None (then only empty-page/already-seen stop)."""
+        ...
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        return _paginate_new(self._fetch_page, seen, self._PAGE, self._SEED_MAX_PAGES,
+                             is_seed_run=not self._company_known(seen))
+
+
 class GreenhouseFetcher(AtsFetcher):
     ats_name = "greenhouse"
 
@@ -297,7 +330,9 @@ class AshbyFetcher(AtsFetcher):
         return jobs
 
 
-class WorkdayFetcher(AtsFetcher):
+class WorkdayFetcher(PaginatedFetcher):
+    """Workday CXS `jobs` endpoint; default order is newest-first, so early-stop applies."""
+
     ats_name = "workday"
     _PAGE = 20
     _SEED_MAX_PAGES = 10
@@ -306,42 +341,36 @@ class WorkdayFetcher(AtsFetcher):
     def host(self) -> str:
         return self._param("host")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         host, tenant, site = self._param("host"), self._param("tenant"), self._param("site")
-        url = f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
-
-        def page(index: int) -> tuple[list[Job], int | None]:
-            data = self._http.post_json(
-                url,
-                {"appliedFacets": {}, "limit": self._PAGE,
-                 "offset": index * self._PAGE, "searchText": ""},
+        data = self._http.post_json(
+            f"https://{host}/wday/cxs/{tenant}/{site}/jobs",
+            {"appliedFacets": {}, "limit": self._PAGE,
+             "offset": index * self._PAGE, "searchText": ""},
+        )
+        jobs = [
+            Job(
+                job_uid=self._uid(item.get("externalPath", "")),
+                company=self._company.name,
+                title=item.get("title", ""),
+                location=item.get("locationsText", ""),
+                # externalPath alone 404s — the JD page only exists under /en-US/{site}.
+                url=f"https://{host}/en-US/{site}{item.get('externalPath', '')}",
+                # Workday listing API omits description; per-job fetches are too
+                # costly, so these roles are matched on title only.
+                description="",
+                department="",
+                date_posted=item.get("postedOn", ""),
             )
-            jobs = [
-                Job(
-                    job_uid=self._uid(item.get("externalPath", "")),
-                    company=self._company.name,
-                    title=item.get("title", ""),
-                    location=item.get("locationsText", ""),
-                    # externalPath alone 404s — the JD page only exists under /en-US/{site}.
-                    url=f"https://{host}/en-US/{site}{item.get('externalPath', '')}",
-                    # Workday listing API omits description; per-job fetches are too
-                    # costly, so these roles are matched on title only.
-                    description="",
-                    department="",
-                    date_posted=item.get("postedOn", ""),
-                )
-                for item in data.get("jobPostings", [])
-            ]
-            # Some tenants (e.g. Adobe) report total=0 after the first page; treat 0 as
-            # unknown so pagination doesn't stop early — truly empty boards still
-            # terminate via the empty-page check.
-            return jobs, data.get("total") or None
-
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
-                             is_seed_run=not self._company_known(seen))  # newest-first -> early-stop applies
+            for item in data.get("jobPostings", [])
+        ]
+        # Some tenants (e.g. Adobe) report total=0 after the first page; treat 0 as
+        # unknown so pagination doesn't stop early — truly empty boards still
+        # terminate via the empty-page check.
+        return jobs, data.get("total") or None
 
 
-class OracleFetcher(AtsFetcher):
+class OracleFetcher(PaginatedFetcher):
     """Oracle Recruiting Candidate-Experience API (Fusion HCM). The public
     `recruitingCEJobRequisitions?finder=findReqs;siteNumber={site},...` endpoint returns the
     jobs under items[0].requisitionList, newest-first (POSTING_DATES_DESC) — so the seen-based
@@ -355,39 +384,34 @@ class OracleFetcher(AtsFetcher):
     def host(self) -> str:
         return self._param("host")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         host, site = self._param("host"), self._param("site")
         url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
-
-        def page(index: int) -> tuple[list[Job], int | None]:
-            finder = (f"findReqs;siteNumber={site},limit={self._PAGE},"
-                      f"offset={index * self._PAGE},sortBy=POSTING_DATES_DESC")
-            data = self._http.get_json(
-                url,
-                params={"onlyData": "true", "expand": "requisitionList.secondaryLocations",
-                        "finder": finder},
+        finder = (f"findReqs;siteNumber={site},limit={self._PAGE},"
+                  f"offset={index * self._PAGE},sortBy=POSTING_DATES_DESC")
+        data = self._http.get_json(
+            url,
+            params={"onlyData": "true", "expand": "requisitionList.secondaryLocations",
+                    "finder": finder},
+        )
+        result = (data.get("items") or [{}])[0]
+        jobs = [
+            Job(
+                job_uid=self._uid(item["Id"]),
+                company=self._company.name,
+                title=item.get("Title", ""),
+                location=item.get("PrimaryLocation", ""),
+                url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{item['Id']}",
+                description=strip_html(item.get("ShortDescriptionStr", "")),
+                department=item.get("JobFamily") or "",
+                date_posted=item.get("PostedDate", ""),
             )
-            result = (data.get("items") or [{}])[0]
-            jobs = [
-                Job(
-                    job_uid=self._uid(item["Id"]),
-                    company=self._company.name,
-                    title=item.get("Title", ""),
-                    location=item.get("PrimaryLocation", ""),
-                    url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{item['Id']}",
-                    description=strip_html(item.get("ShortDescriptionStr", "")),
-                    department=item.get("JobFamily") or "",
-                    date_posted=item.get("PostedDate", ""),
-                )
-                for item in result.get("requisitionList", []) if item.get("Id")
-            ]
-            return jobs, result.get("TotalJobsCount")
-
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
-                             is_seed_run=not self._company_known(seen))
+            for item in result.get("requisitionList", []) if item.get("Id")
+        ]
+        return jobs, result.get("TotalJobsCount")
 
 
-class SmartRecruitersFetcher(AtsFetcher):
+class SmartRecruitersFetcher(PaginatedFetcher):
     """SmartRecruiters public postings API (Intuitive, Bosch, and many large employers).
     `companies/{id}/postings` returns content[] ordered by releasedDate descending (verified
     across pages), so the seen-based early-stop applies. The listing carries no job-ad body,
@@ -402,31 +426,26 @@ class SmartRecruitersFetcher(AtsFetcher):
     def host(self) -> str:
         return "api.smartrecruiters.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         company_id = self._param("company")
-        url = f"https://api.smartrecruiters.com/v1/companies/{company_id}/postings"
-
-        def page(index: int) -> tuple[list[Job], int | None]:
-            data = self._http.get_json(
-                url, params={"limit": self._PAGE, "offset": index * self._PAGE}
+        data = self._http.get_json(
+            f"https://api.smartrecruiters.com/v1/companies/{company_id}/postings",
+            params={"limit": self._PAGE, "offset": index * self._PAGE},
+        )
+        jobs = [
+            Job(
+                job_uid=self._uid(item["id"]),
+                company=self._company.name,
+                title=item.get("name", ""),
+                location=self._location(item.get("location") or {}),
+                url=f"https://jobs.smartrecruiters.com/{company_id}/{item['id']}",
+                description="",  # listing omits the job-ad body; matched on title only
+                department=self._label(item.get("department")) or self._label(item.get("function")),
+                date_posted=item.get("releasedDate", ""),
             )
-            jobs = [
-                Job(
-                    job_uid=self._uid(item["id"]),
-                    company=self._company.name,
-                    title=item.get("name", ""),
-                    location=self._location(item.get("location") or {}),
-                    url=f"https://jobs.smartrecruiters.com/{company_id}/{item['id']}",
-                    description="",  # listing omits the job-ad body; matched on title only
-                    department=self._label(item.get("department")) or self._label(item.get("function")),
-                    date_posted=item.get("releasedDate", ""),
-                )
-                for item in data.get("content", []) if item.get("id")
-            ]
-            return jobs, data.get("totalFound")
-
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
-                             is_seed_run=not self._company_known(seen))
+            for item in data.get("content", []) if item.get("id")
+        ]
+        return jobs, data.get("totalFound")
 
     @staticmethod
     def _location(loc: dict) -> str:
@@ -441,7 +460,7 @@ class SmartRecruitersFetcher(AtsFetcher):
         return value.get("label", "") if isinstance(value, dict) else ""
 
 
-class AmazonFetcher(AtsFetcher):
+class AmazonFetcher(PaginatedFetcher):
     """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
     `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
     so the seen-based early-stop applies. `hits` is unreliable, so total is unknown and the
@@ -455,36 +474,31 @@ class AmazonFetcher(AtsFetcher):
     def host(self) -> str:
         return "www.amazon.jobs"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         query = self._company.params.get("query", "")
-
-        def page(index: int) -> tuple[list[Job], int | None]:
-            data = self._http.get_json(
-                "https://www.amazon.jobs/en/search.json",
-                params={"base_query": query, "result_limit": self._PAGE,
-                        "offset": index * self._PAGE, "sort": "recent",
-                        "normalized_country_code[]": "USA"},
+        data = self._http.get_json(
+            "https://www.amazon.jobs/en/search.json",
+            params={"base_query": query, "result_limit": self._PAGE,
+                    "offset": index * self._PAGE, "sort": "recent",
+                    "normalized_country_code[]": "USA"},
+        )
+        jobs = [
+            Job(
+                job_uid=self._uid(item.get("id_icims") or item["id"]),
+                company=self._company.name,
+                title=item.get("title", ""),
+                location=item.get("location", ""),
+                url="https://www.amazon.jobs" + (item.get("job_path") or ""),
+                description=strip_html(item.get("description", "")),
+                department=item.get("job_category", ""),
+                date_posted=item.get("posted_date", ""),
             )
-            jobs = [
-                Job(
-                    job_uid=self._uid(item.get("id_icims") or item["id"]),
-                    company=self._company.name,
-                    title=item.get("title", ""),
-                    location=item.get("location", ""),
-                    url="https://www.amazon.jobs" + (item.get("job_path") or ""),
-                    description=strip_html(item.get("description", "")),
-                    department=item.get("job_category", ""),
-                    date_posted=item.get("posted_date", ""),
-                )
-                for item in data.get("jobs", [])
-            ]
-            return jobs, None
-
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
-                             is_seed_run=not self._company_known(seen))
+            for item in data.get("jobs", [])
+        ]
+        return jobs, None
 
 
-class GoogleFetcher(AtsFetcher):
+class GoogleFetcher(PaginatedFetcher):
     """Google has no public careers API; job data is server-side-embedded as JSON inside
     an `AF_initDataCallback({key:'ds:1', data:[...]})` script block — parsed directly, no
     browser or API key needed. `sort_by=date` lists newest first, so the seen-based
@@ -506,22 +520,17 @@ class GoogleFetcher(AtsFetcher):
     def host(self) -> str:
         return "www.google.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         query = self._company.params.get("query", "")
         location = self._company.params.get("location", "United States")
-
-        def page(index: int) -> tuple[list[Job], int | None]:
-            params = {"sort_by": "date", "location": location, "page": index + 1}
-            if query:
-                params["q"] = query
-            ds1 = self._embedded_jobs(self._http.get_text(self._BASE, params=params))
-            records = ds1[0] if ds1 and isinstance(ds1[0], list) else []
-            total = ds1[2] if ds1 and len(ds1) > 2 and isinstance(ds1[2], int) else None
-            jobs = [self._to_job(rec) for rec in records if rec and rec[self._I_ID]]
-            return jobs, total
-
-        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
-                             is_seed_run=not self._company_known(seen))
+        params = {"sort_by": "date", "location": location, "page": index + 1}
+        if query:
+            params["q"] = query
+        ds1 = self._embedded_jobs(self._http.get_text(self._BASE, params=params))
+        records = ds1[0] if ds1 and isinstance(ds1[0], list) else []
+        total = ds1[2] if ds1 and len(ds1) > 2 and isinstance(ds1[2], int) else None
+        jobs = [self._to_job(rec) for rec in records if rec and rec[self._I_ID]]
+        return jobs, total
 
     @classmethod
     def _embedded_jobs(cls, body: str) -> list | None:
