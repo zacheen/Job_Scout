@@ -197,7 +197,7 @@ class KeywordScorer:
 
     def score(self, job: Job, track: Track) -> Score:
         text = f"{job.title} {job.description}".lower()
-        hits = sum(1 for keyword in track.keywords if keyword in text)
+        hits = sum(1 for keyword in track.score_terms() if keyword in text)
         relevance = _clamp(40 + 12 * hits) if hits else 30
         if self._resume_tokens:
             overlap = len(self._resume_tokens & set(self._WORD_RE.findall(text)))

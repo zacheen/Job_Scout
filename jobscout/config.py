@@ -25,10 +25,23 @@ class Company:
 
 @dataclass(frozen=True)
 class Track:
-    name: str            # shown in the email subject, e.g. "Computer Vision"
-    description: str     # fed to the LLM as the target this track scores against
-    keywords: list[str]  # route a job to this track + score it on the keyword tier
-    threshold: int       # minimum relevance_score to email
+    name: str              # shown in the email subject, e.g. "Computer Vision"
+    description: str       # fed to the LLM as the target this track scores against
+    keywords: list[str]    # route a job to this track + score it on the keyword tier
+    threshold: int         # minimum relevance_score to email
+    # Title override: after keyword routing picks a track, a whole-word match of any
+    # of these in the TITLE reclassifies the job into THIS track (e.g. "Senior").
+    title_terms: list[str]
+
+    def is_keyword_track(self) -> bool:
+        """Participates in base keyword routing (an override-only track does not)."""
+        return bool(self.keywords)
+
+    def score_terms(self) -> list[str]:
+        """Terms for the no-LLM keyword-fallback scorer. An override-only track falls
+        back to its title_terms — with empty keywords it would be stuck at the floor
+        score and silently never pass its threshold."""
+        return self.keywords or self.title_terms
 
 
 @dataclass(frozen=True)
@@ -102,12 +115,18 @@ class Settings:
 
     @staticmethod
     def _to_track(entry: dict) -> Track:
-        return Track(
+        track = Track(
             name=entry["name"],
             description=entry.get("description", entry["name"]),
-            keywords=[k.lower() for k in entry["keywords"]],
+            # keywords optional: an override-only track (e.g. "Senior") has just title_terms.
+            keywords=[k.lower() for k in entry.get("keywords", [])],
             threshold=int(entry.get("threshold", 50)),
+            title_terms=[t.lower() for t in entry.get("title_terms", [])],
         )
+        if not track.keywords and not track.title_terms:
+            # Fail fast: with neither, the track is dead config (listed but unroutable), e.g. a keywords: typo.
+            raise ValueError(f"track {track.name!r} has neither keywords nor title_terms")
+        return track
 
     @staticmethod
     def _read_resume(root: Path) -> str:

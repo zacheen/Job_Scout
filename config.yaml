@@ -91,6 +91,16 @@ tracks:
       - "infrastructure engineer"
       - "devops"
       - "site reliability"
+  # Senior is a title override, not a keyword track: a role is first routed by the
+  # keyword tracks above, then reclassified here if its TITLE contains a title_term
+  # (whole-word, so "sr" doesn't hit inside other words). A senior role that matches
+  # no keyword track is still dropped. Listed last so its email section is last.
+  - name: "Senior"
+    threshold: 50
+    description: "a senior-level computer vision, AI/ML, or software engineering role"
+    title_terms:
+      - "senior"
+      - "sr"
 
 # Drop unwanted roles before any scoring (any tier): non-technical OR too-senior. Matched as a
 # lowercase substring in the title OR the department — so e.g. department "Sales"
