@@ -83,8 +83,13 @@ class CsvStore:
 
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Sorted for stable diffs; first_seen is ISO so plain string sort == chronological order.
+        rows = sorted(
+            self._rows.values(),
+            key=lambda r: (r.get("company", "").casefold(), r.get("first_seen", ""), r["job_uid"]),
+        )
         with self._path.open("w", newline="", encoding="utf-8") as fh:
             # extrasaction="ignore" lets rows from an older schema survive a migration.
             writer = csv.DictWriter(fh, fieldnames=_FIELDS, extrasaction="ignore")
             writer.writeheader()
-            writer.writerows(self._rows.values())
+            writer.writerows(rows)

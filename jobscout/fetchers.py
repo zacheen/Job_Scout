@@ -412,11 +412,11 @@ class OracleFetcher(PaginatedFetcher):
 
 
 class SmartRecruitersFetcher(PaginatedFetcher):
-    """SmartRecruiters public postings API (Intuitive, Bosch, and many large employers).
-    `companies/{id}/postings` returns content[] ordered by releasedDate descending (verified
-    across pages), so the seen-based early-stop applies. The listing carries no job-ad body,
-    so roles match on title only — a per-posting detail fetch across 500-5000 roles is too
-    costly. `company` is the SmartRecruiters companyId (jobs.smartrecruiters.com/{company})."""
+    """SmartRecruiters public postings API. `companies/{id}/postings` returns content[]
+    ordered by releasedDate descending (verified across pages), so the seen-based
+    early-stop applies. The listing carries no job-ad body, so roles match on title
+    only — a per-posting detail fetch across 500-5000 roles is too costly. `company`
+    is the SmartRecruiters companyId (jobs.smartrecruiters.com/{company})."""
 
     ats_name = "smartrecruiters"
     _PAGE = 100  # API max page size
