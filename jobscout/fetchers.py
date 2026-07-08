@@ -387,6 +387,60 @@ class OracleFetcher(AtsFetcher):
                              is_seed_run=not self._company_known(seen))
 
 
+class SmartRecruitersFetcher(AtsFetcher):
+    """SmartRecruiters public postings API (Intuitive, Bosch, and many large employers).
+    `companies/{id}/postings` returns content[] ordered by releasedDate descending (verified
+    across pages), so the seen-based early-stop applies. The listing carries no job-ad body,
+    so roles match on title only — a per-posting detail fetch across 500-5000 roles is too
+    costly. `company` is the SmartRecruiters companyId (jobs.smartrecruiters.com/{company})."""
+
+    ats_name = "smartrecruiters"
+    _PAGE = 100  # API max page size
+    _SEED_MAX_PAGES = 10
+
+    @property
+    def host(self) -> str:
+        return "api.smartrecruiters.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        company_id = self._param("company")
+        url = f"https://api.smartrecruiters.com/v1/companies/{company_id}/postings"
+
+        def page(index: int) -> tuple[list[Job], int | None]:
+            data = self._http.get_json(
+                url, params={"limit": self._PAGE, "offset": index * self._PAGE}
+            )
+            jobs = [
+                Job(
+                    job_uid=self._uid(item["id"]),
+                    company=self._company.name,
+                    title=item.get("name", ""),
+                    location=self._location(item.get("location") or {}),
+                    url=f"https://jobs.smartrecruiters.com/{company_id}/{item['id']}",
+                    description="",  # listing omits the job-ad body; matched on title only
+                    department=self._label(item.get("department")) or self._label(item.get("function")),
+                    date_posted=item.get("releasedDate", ""),
+                )
+                for item in data.get("content", []) if item.get("id")
+            ]
+            return jobs, data.get("totalFound")
+
+        return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
+                             is_seed_run=not self._company_known(seen))
+
+    @staticmethod
+    def _location(loc: dict) -> str:
+        # fullLocation carries the spelled-out country PreFilter matches on; fall back to parts.
+        return loc.get("fullLocation") or ", ".join(
+            p for p in (loc.get("city"), loc.get("region"), loc.get("country")) if p
+        )
+
+    @staticmethod
+    def _label(value) -> str:
+        # SmartRecruiters taxonomy fields (department/function) are {id,label} objects or {}.
+        return value.get("label", "") if isinstance(value, dict) else ""
+
+
 class AmazonFetcher(AtsFetcher):
     """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
     `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
@@ -525,6 +579,37 @@ class GoogleFetcher(AtsFetcher):
             return ""
 
 
+class TinderFetcher(AtsFetcher):
+    """Tinder's roles live in Match Group's shared Lever org `matchgroup`, which mixes in
+    every Match brand (Hinge, Match, OkCupid...) and so can't be labeled Tinder cleanly.
+    This first-party proxy returns ONLY Tinder roles as `{total, data[]}`. Small single-shot
+    board with no date field: return everything and let the pipeline dedupe (no early-stop)."""
+
+    ats_name = "tinder"
+
+    @property
+    def host(self) -> str:
+        return "tinderjobs.vercel.app"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        data = self._http.get_json("https://tinderjobs.vercel.app/api/jobs")
+        return [
+            Job(
+                job_uid=self._uid(item["id"]),
+                company=self._company.name,
+                title=item.get("name", ""),
+                location=item.get("location", ""),
+                # applicationUrl is the posting page (like Lever's hostedUrl); applyUrl
+                # ("/{id}/apply") would jump straight to the application form instead.
+                url=item.get("applicationUrl", ""),
+                description=strip_html(item.get("description", "")),
+                department=item.get("department", ""),
+                date_posted="",  # proxy carries no posting date
+            )
+            for item in data.get("data", []) if item.get("id")
+        ]
+
+
 class GithubRepoFetcher(AtsFetcher):
     """Base for aggregator sources whose postings live in a GitHub repo, read from
     raw.githubusercontent.com. All subclasses share that host, so ParallelFetcher runs
@@ -650,8 +735,10 @@ class FetcherFactory:
         AshbyFetcher.ats_name: AshbyFetcher,
         WorkdayFetcher.ats_name: WorkdayFetcher,
         OracleFetcher.ats_name: OracleFetcher,
+        SmartRecruitersFetcher.ats_name: SmartRecruitersFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
         GoogleFetcher.ats_name: GoogleFetcher,
+        TinderFetcher.ats_name: TinderFetcher,
         SimplifyFetcher.ats_name: SimplifyFetcher,
         SpeedyApplyFetcher.ats_name: SpeedyApplyFetcher,
     }

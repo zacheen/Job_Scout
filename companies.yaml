@@ -8,6 +8,8 @@
 #   amazon:     query (optional keyword search)
 #   google:     query (optional), location (optional; default "United States")
 #   oracle:     host, site (the CX_N siteNumber from the Oracle candidate-experience URL)
+#   smartrecruiters: company (the companyId from jobs.smartrecruiters.com/{company})
+#   tinder:     (no params) first-party proxy for Tinder-only roles
 #   simplify:   repo (owner/name); optional path, branch  -> parses .github/scripts/listings.json
 #   speedyapply:repo (owner/name); optional files (comma-separated .md tables), branch
 #
@@ -35,15 +37,30 @@
 - {name: Waymo,      ats: greenhouse, board: waymo, seed_only: true}       # careers.withwaymo.com is Greenhouse-hosted
 - {name: DoorDash,   ats: greenhouse, board: doordashusa, seed_only: true} # careersatdoordash.com WAF-403s; board API is open
 - {name: Pinterest,  ats: greenhouse, board: pinterest, seed_only: true}   # pinterestcareers.com front-end embeds gh_jid links
+# Cover-letter targets (batch 18-41). Several slugs differ from the company name (noted inline).
+- {name: Twitch,      ats: greenhouse, board: twitch}
+- {name: Airbnb,      ats: greenhouse, board: airbnb, seed_only: true}       # ~214 roles
+- {name: Calico,      ats: greenhouse, board: calicolabs}                    # slug calicolabs (calico 404s)
+- {name: MOLOCO,      ats: greenhouse, board: moloco}
+- {name: Box,         ats: greenhouse, board: boxinc, seed_only: true}       # slug boxinc (box 404s); ~134 roles
+- {name: Figure,      ats: greenhouse, board: figureai, seed_only: true}     # figureai = humanoid robotics; board "figure" is a different fintech co
+- {name: Motional,    ats: greenhouse, board: motional, seed_only: true}     # AV company; ~110 roles
+- {name: Glydways,    ats: greenhouse, board: glydways}                      # small board (~5)
+- {name: Zipline,     ats: greenhouse, board: flyzipline}                    # slug flyzipline (zipline 404s)
+- {name: Zuora,       ats: greenhouse, board: zuora}
+- {name: Tenstorrent, ats: greenhouse, board: tenstorrent, seed_only: true}  # AI-chip; ~123 roles
 
 # --- Lever ---
 - {name: Netflix,    ats: lever, org: netflix}
 - {name: Zoox,       ats: lever, org: zoox}        # referral
+- {name: Rigetti,    ats: lever, org: rigetti}     # quantum computing, Berkeley/Fremont CA
 
 # --- Ashby ---
 - {name: OpenAI,     ats: ashby, org: openai}
 - {name: Ramp,       ats: ashby, org: ramp}
 - {name: Perplexity, ats: ashby, org: perplexity}
+- {name: Skydio,     ats: ashby, org: skydio, seed_only: true}     # careers page shows gh_jid-looking UUIDs, but they're Ashby ids; ~113 roles
+- {name: Snowflake,  ats: ashby, org: snowflake, seed_only: true}  # ~411 roles
 
 # --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
 - {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}
@@ -55,10 +72,17 @@
 - {name: Adobe, ats: workday, host: adobe.wd5.myworkdayjobs.com, tenant: adobe, site: external_experienced, seed_only: true}
 # tenant "sec" = Samsung Electronics Co; site is global (~530 roles, US filtered by PreFilter) -> seed_only.
 - {name: Samsung, ats: workday, host: sec.wd3.myworkdayjobs.com, tenant: sec, site: Samsung_Careers, seed_only: true}
+- {name: F5, ats: workday, host: ffive.wd5.myworkdayjobs.com, tenant: ffive, site: f5jobs, seed_only: true}  # ~266 roles ("F5 Tower" = Seattle)
 
 # --- Oracle Recruiting (Fusion HCM candidate-experience API; newest-first, paginated) ---
 - {name: Ford, ats: oracle, host: efds.fa.em5.oraclecloud.com, site: CX_1}       # referral
 - {name: Dell, ats: oracle, host: iawmqy.fa.ocs.oraclecloud.com, site: CX_1001}  # referral (jobs.dell.com redirects here)
+# ~1478 global reqs (seed_only). CX_1 verified: its JD URL 200s, CX_2/CX_1001 302 (wrong).
+- {name: Honeywell, ats: oracle, host: ibqbjb.fa.ocs.oraclecloud.com, site: CX_1, seed_only: true}
+
+# --- SmartRecruiters (public postings API; content[] newest-first by releasedDate) ---
+- {name: Intuitive, ats: smartrecruiters, company: Intuitive, seed_only: true}   # Intuitive Surgical; ~586
+- {name: Bosch,     ats: smartrecruiters, company: BoschGroup, seed_only: true}  # ~4671 global roles
 
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
@@ -68,6 +92,10 @@
 #     keyword: it pages through the newest roles and stops once a page has no unseen
 #     role (dedup ledger), so steady-state runs fetch ~1 page. ---
 - {name: Google, ats: google}
+
+# --- Tinder (first-party proxy; Match Group's shared Lever org would mislabel all brands
+#     as Tinder, so this Tinder-only source is used instead). Single-shot, no date field. ---
+- {name: Tinder, ats: tinder}
 
 # --- GitHub job-list aggregators. One repo lists many employers; each role keeps its
 #     REAL company (so referral-company roles still group under Referral) and dedupes
