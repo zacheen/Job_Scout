@@ -322,7 +322,8 @@ class WorkdayFetcher(AtsFetcher):
                     company=self._company.name,
                     title=item.get("title", ""),
                     location=item.get("locationsText", ""),
-                    url=f"https://{host}{item.get('externalPath', '')}",
+                    # externalPath alone 404s — the JD page only exists under /en-US/{site}.
+                    url=f"https://{host}/en-US/{site}{item.get('externalPath', '')}",
                     # Workday listing API omits description; per-job fetches are too
                     # costly, so these roles are matched on title only.
                     description="",
@@ -331,7 +332,10 @@ class WorkdayFetcher(AtsFetcher):
                 )
                 for item in data.get("jobPostings", [])
             ]
-            return jobs, data.get("total")
+            # Some tenants (e.g. Adobe) report total=0 after the first page; treat 0 as
+            # unknown so pagination doesn't stop early — truly empty boards still
+            # terminate via the empty-page check.
+            return jobs, data.get("total") or None
 
         return _paginate_new(page, seen, self._PAGE, self._SEED_MAX_PAGES,
                              is_seed_run=not self._company_known(seen))  # newest-first -> early-stop applies

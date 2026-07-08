@@ -109,6 +109,7 @@ exclude_terms:
   # substring-match "physical"; "gpu" has no common English-word collisions.
   - "physics"
   - "safety"
+  - "network"
   - "gpu" # usually is related to CUDA or kernel
   - "kernel" # low-level OS / GPU-kernel systems roles, outside the CV/AI-ML/SWE target
   # non-technical functions
@@ -171,6 +172,7 @@ intern_terms:
 exclude_location_terms:
   - "canada"
   - "colombia"
+  - "malaysia"
 
 # A job is treated as US-based if its location string contains any of these.
 # Heuristic and imperfect: bare "remote" also matches non-US remote roles, and
