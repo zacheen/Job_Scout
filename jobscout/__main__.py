@@ -52,7 +52,7 @@ def main() -> None:
         store=CsvStore(root / settings.ledger_path),
         fetcher=ParallelFetcher(fetchers),
         prefilter=PreFilter(
-            us_terms=settings.location_us_terms,
+            include_location_terms=settings.include_location_terms,
             exclude_location_terms=settings.exclude_location_terms,
             exclude_terms=settings.exclude_terms,
             exclude_dept_terms=settings.exclude_dept_terms,

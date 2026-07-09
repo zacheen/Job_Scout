@@ -91,6 +91,16 @@ tracks:
       - "infrastructure engineer"
       - "devops"
       - "site reliability"
+  # Senior is a title override, not a keyword track: a role is first routed by the
+  # keyword tracks above, then reclassified here if its TITLE contains a title_term
+  # (whole-word, so "sr" doesn't hit inside other words). A senior role that matches
+  # no keyword track is still dropped. Listed last so its email section is last.
+  - name: "Senior"
+    threshold: 50
+    description: "a senior-level computer vision, AI/ML, or software engineering role"
+    title_terms:
+      - "senior"
+      - "sr"
 
 # Drop unwanted roles before any scoring (any tier): non-technical OR too-senior. Matched as a
 # lowercase substring in the title OR the department — so e.g. department "Sales"
@@ -105,9 +115,12 @@ exclude_terms:
   # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
   - "phd"
   - "ph.d"
-  # technical areas outside the user's target (CV / AI-ML / SWE). "physics" won't
-  # substring-match "physical"; "gpu" has no common English-word collisions.
+  - "postdoc" # stem also matches "postdoctoral" (researcher/fellow/scholar)
+  # technical / scientific fields outside the user's target (CV / AI-ML / SWE). "physics"
+  # won't substring-match "physical"; "gpu" has no common English-word collisions.
   - "physics"
+  - "chemistry" # won't match "chemical" (different stem)
+  - "drug" # pharma / drug-discovery domain
   - "safety"
   - "network"
   - "gpu" # usually is related to CUDA or kernel
@@ -127,7 +140,9 @@ exclude_terms:
   - "brand"
   - "social media"
   - "community"
-  - "business development"
+  - "business" # broad: subsumes "business development"; also drops "Business Intelligence/Analyst" titles
+  - "supply chain"
+  - "buyer"
   - "people partner"
   # Trailing space is deliberate: matches "partner <role>" (e.g. partner marketing/solutions)
   # but NOT "partnership(s)".
@@ -137,7 +152,6 @@ exclude_terms:
 # (lowercase substring). Checked before every other rule.
 exclude_dept_terms:
   - "audit"
-  - "business"
   - "sales"
   - "commercial"
   - "market"
@@ -148,6 +162,7 @@ exclude_dept_terms:
 # the `name:` used in companies.yaml.
 referral_companies:
   - "Google"
+  - "Google Taiwan" # same referral as Google, just filtered to Taiwan roles
   - "Microsoft"
   - "Zoox"
   - "Ford"
@@ -166,7 +181,7 @@ intern_terms:
   - "co-op"
   - "coop"
 
-# Backstop for location_us_terms below: its short state codes leak country names through
+# Backstop for include_location_terms below: its short state codes leak country names through
 # (", ca" -> ", Canada"; ", co" -> ", Colombia"). "colombia" ('o') is spelled to deliberately
 # avoid matching US "Columbia" ('u').
 exclude_location_terms:
@@ -174,10 +189,12 @@ exclude_location_terms:
   - "colombia"
   - "malaysia"
 
-# A job is treated as US-based if its location string contains any of these.
-# Heuristic and imperfect: bare "remote" also matches non-US remote roles, and
-# unknown/empty locations are excluded. Refine to taste.
-location_us_terms:
+# A job is kept only if its location string contains any of these (allowed regions:
+# US + Taiwan). Heuristic and imperfect: bare "remote" also matches remote roles
+# outside these regions, and unknown/empty locations are excluded. Refine to taste.
+include_location_terms:
+  # Google's Taiwan location strings all end in ", Taiwan" (Taipei / New Taipei / Hsinchu).
+  - "taiwan"
   - "united states"
   - "usa"
   - "u.s."
