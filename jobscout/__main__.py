@@ -49,7 +49,7 @@ def main() -> None:
         for c in settings.companies if c.seed_only
     }
     pipeline = Pipeline(
-        store=CsvStore(root / settings.ledger_path),
+        store=CsvStore(root / settings.ledger_path, track_priority=settings.track_names),
         fetcher=ParallelFetcher(fetchers),
         prefilter=PreFilter(
             include_location_terms=settings.include_location_terms,

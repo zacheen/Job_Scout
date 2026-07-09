@@ -151,7 +151,8 @@ class Pipeline:
                     log.info("scoring progress: %d/%d", done, total)
                 if attempt.score is None:
                     continue
-                self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score)
+                self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score,
+                                      method=self._scorer.method_label)
                 if attempt.score.relevance_score > attempt.track.threshold:
                     by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
         return by_track
