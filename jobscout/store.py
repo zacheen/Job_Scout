@@ -187,7 +187,10 @@ class CsvStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         rows = sorted(self._rows, key=row_sort_key)
         with self._path.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=_FIELDS, extrasaction="ignore")
+            # lineterminator: csv defaults to CRLF; LF keeps local (Windows) and cloud
+            # (Linux runner) commits byte-identical, avoiding whole-file EOL diffs.
+            writer = csv.DictWriter(fh, fieldnames=_FIELDS, extrasaction="ignore",
+                                    lineterminator="\n")
             writer.writeheader()
             writer.writerows(rows)
 
