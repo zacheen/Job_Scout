@@ -178,8 +178,10 @@ class CliScorer(_LlmScorer):
             encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
+            # codex prefixes stderr with a ~200-char startup banner (version/workdir/model/...);
+            # the head never has the actual error, hence taking the tail.
             raise RuntimeError(
-                f"{' '.join(self._command)} exited {result.returncode}: {result.stderr[:200]}"
+                f"{' '.join(self._command)} exited {result.returncode}: {result.stderr[-300:]}"
             )
         return result.stdout
 

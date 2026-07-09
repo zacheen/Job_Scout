@@ -111,7 +111,7 @@ exclude_terms:
   - "director"
   - "principal"
   - "staff"
-  - "lead" # safe as substring: its matches (lead/leader/leadership/leading) are all senior; "learning" is "lea-r" not "lea-d"
+  - "lead" # safe as substring: its matches (lead/leader/leadership/leading) are all senior
   - "vice president"
   # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
   - "phd"
