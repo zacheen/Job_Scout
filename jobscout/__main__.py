@@ -56,6 +56,7 @@ def main() -> None:
             exclude_location_terms=settings.exclude_location_terms,
             exclude_terms=settings.exclude_terms,
             exclude_dept_terms=settings.exclude_dept_terms,
+            exclude_word_terms=settings.exclude_word_terms,
         ),
         router=TrackRouter(settings.tracks),
         leveler=LevelClassifier(settings.referral_companies, settings.intern_terms),

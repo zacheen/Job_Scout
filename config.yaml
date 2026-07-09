@@ -111,6 +111,7 @@ exclude_terms:
   - "director"
   - "principal"
   - "staff"
+  - "lead" # safe as substring: its matches (lead/leader/leadership/leading) are all senior; "learning" is "lea-r" not "lea-d"
   - "vice president"
   # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
   - "phd"
@@ -121,8 +122,11 @@ exclude_terms:
   - "physics"
   - "chemistry" # won't match "chemical" (different stem)
   - "drug" # pharma / drug-discovery domain
+  - "mechanical" # different engineering discipline (also matches "electromechanical")
   - "safety"
   - "network"
+  - "data center" # infra / facilities ops
+  - "datacenter" # one-word spelling of the above
   - "gpu" # usually is related to CUDA or kernel
   - "kernel" # low-level OS / GPU-kernel systems roles, outside the CV/AI-ML/SWE target
   # non-technical functions
@@ -136,12 +140,13 @@ exclude_terms:
   - "finance"
   - "banking"
   - "legal"
+  - "policy" # public-policy / policy-analyst roles
   - "talent"
   - "brand"
   - "social media"
   - "community"
   - "business" # broad: subsumes "business development"; also drops "Business Intelligence/Analyst" titles
-  - "supply chain"
+  - "supply" # subsumes "supply chain"; also supplier / procurement / power-supply roles
   - "buyer"
   - "people partner"
   # Trailing space is deliberate: matches "partner <role>" (e.g. partner marketing/solutions)
@@ -156,6 +161,13 @@ exclude_dept_terms:
   - "commercial"
   - "market"
   - "customer"
+
+# Whole-word exclusions (\b...\b), matched against title OR department. Use this list
+# (not exclude_terms) for any token short enough to be an unsafe substring: e.g. "ux"
+# drops "UX Designer/Researcher" but not "Linux"/"flux"/"redux"/"auxiliary".
+exclude_word_terms:
+  - "ux"
+  - "tpu" # whole-word: bare "tpu" would substring-hit "output"
 
 # Companies you have a referral at -> their roles form the TOP email group "Referral"
 # (above Intern). Matched against the company NAME (case-insensitive), so each must match
@@ -181,13 +193,16 @@ intern_terms:
   - "co-op"
   - "coop"
 
-# Backstop for include_location_terms below: its short state codes leak country names through
-# (", ca" -> ", Canada"; ", co" -> ", Colombia"). "colombia" ('o') is spelled to deliberately
-# avoid matching US "Columbia" ('u').
+# Backstop for include_location_terms below: drop a location even if an include term matched it.
+# Leaks come from short state codes hitting country names (", ca" -> ", Canada"; ", co" -> ", Colombia")
+# and from the broad "remote" include. Matched WHOLE-WORD (see PreFilter) so a country name can't be
+# swallowed by a US one: "india" drops ", India" but NOT "Indiana"/"Indianapolis". "colombia" ('o')
+# still avoids US "Columbia" ('u').
 exclude_location_terms:
   - "canada"
   - "colombia"
   - "malaysia"
+  - "india"
 
 # A job is kept only if its location string contains any of these (allowed regions:
 # US + Taiwan). Heuristic and imperfect: bare "remote" also matches remote roles

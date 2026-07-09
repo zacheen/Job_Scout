@@ -16,22 +16,36 @@ def _word_re(terms: list[str]) -> re.Pattern | None:
     return re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b", re.IGNORECASE)
 
 
+def _matches_any(pattern: re.Pattern | None, *texts: str) -> bool:
+    """True if `pattern` is set and hits any of `texts`. `_word_re` returns None for no terms,
+    so folding that guard in here keeps every caller from having to repeat the None check."""
+    return pattern is not None and any(pattern.search(t) for t in texts)
+
+
 class PreFilter:
     """Initial gate applied before any scoring (keyword / CLI / API).
 
     `keep` returns True only if every rule passes. To add a rule later, write a
-    private predicate and append it to `self._checks` — that's the only edit.
+    private predicate and append it to `self._checks`; a rule needing new criteria
+    data also threads that data through `__init__` (and Settings + wiring).
     """
 
     def __init__(self, *, include_location_terms: list[str], exclude_location_terms: list[str],
-                 exclude_terms: list[str], exclude_dept_terms: list[str]):
+                 exclude_terms: list[str], exclude_dept_terms: list[str],
+                 exclude_word_terms: list[str]):
         self._include_location_terms = [t.lower() for t in include_location_terms]
-        self._exclude_location_terms = [t.lower() for t in exclude_location_terms]
+        # Whole-word: location tokens are discrete, so "india" isn't swallowed by "Indiana"/"Indianapolis".
+        # (This also stops matching adjectival forms "Colombian"/"Malaysian"/"Indian" — harmless, since every
+        # fetcher fills `location` from a structured place-name field, not free text.)
+        # Include stays substring (", ca" etc. aren't single words).
+        self._exclude_location_re = _word_re(exclude_location_terms)
         self._exclude_terms = [t.lower() for t in exclude_terms]
         self._exclude_dept_terms = [t.lower() for t in exclude_dept_terms]
-        # All four are pure predicates under all(), so this order only affects short-circuit speed, not the result.
-        self._checks = (self._dept_allowed, self._location_not_excluded,
-                        self._location_included, self._role_allowed)
+        # Whole-word matcher for tokens too short to be safe substrings (e.g. "ux" must not hit "linux").
+        self._exclude_word_re = _word_re(exclude_word_terms)
+        # All pure predicates under all(), so this order only affects short-circuit speed, not the result.
+        self._checks = (self._dept_allowed, self._location_not_excluded, self._location_included,
+                        self._role_allowed, self._role_words_allowed)
 
     def keep(self, job: Job) -> bool:
         return all(check(job) for check in self._checks)
@@ -41,9 +55,8 @@ class PreFilter:
         return not any(term in dept for term in self._exclude_dept_terms)
 
     def _location_not_excluded(self, job: Job) -> bool:
-        # Backstop for _location_included: its short state codes substring-hit country names (", ca" -> ", Canada"; ", co" -> ", Colombia").
-        loc = job.location.lower()
-        return not any(term in loc for term in self._exclude_location_terms)
+        # Backstop for _location_included (short state codes / broad "remote" leak unwanted regions).
+        return not _matches_any(self._exclude_location_re, job.location)
 
     def _location_included(self, job: Job) -> bool:
         # Empty/unknown location is treated as outside the allowed regions and dropped.
@@ -54,6 +67,10 @@ class PreFilter:
         # Match within each field separately so a multi-word term can't span the title/department join.
         title, department = job.title.lower(), job.department.lower()
         return not any(t in title or t in department for t in self._exclude_terms)
+
+    def _role_words_allowed(self, job: Job) -> bool:
+        # Whole-word counterpart of _role_allowed for collision-prone short tokens.
+        return not _matches_any(self._exclude_word_re, job.title, job.department)
 
 
 class TrackRouter:
