@@ -72,6 +72,11 @@ class Settings:
     gmail_app_password: str
     mail_to: str
 
+    @property
+    def track_names(self) -> list[str]:
+        """Track names in config order — also CsvStore's track-conflict merge priority."""
+        return [t.name for t in self.tracks]
+
     @classmethod
     def load(cls, root: Path) -> "Settings":
         cfg = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
