@@ -251,6 +251,14 @@ exclude_location_terms:
   - "colombia"
   - "malaysia"
   - "india"
+  # Backstops for the short state codes below: ", pa" would leak "…, Panama/Pakistan/Paraguay",
+  # ", az" would leak "…, Azerbaijan". Whole-word, so they can't clip US names.
+  # KNOWN edge: "panama" also kills "Panama City, FL" (a real US city, navy UxS R&D area) —
+  # revisit if a company there is ever added.
+  - "panama"
+  - "pakistan"
+  - "paraguay"
+  - "azerbaijan"
 
 # A job is kept only if its location string contains any of these (allowed regions:
 # US + Taiwan). Heuristic and imperfect: bare "remote" also matches remote roles
@@ -282,6 +290,48 @@ include_location_terms:
   - ", ga"
   - ", or"
   - ", nc"
+  # State codes added 2026-07-10 for the CV-company wave (Pittsburgh/Ann Arbor/MD-VA defense
+  # cluster etc.). Collision audit: ", pa"/", az" leaks are backstopped in
+  # exclude_location_terms; ", in" (=", India") and ", la"/", mo" (=", Lagos/Lahore",
+  # ", Morocco/Moldova") are deliberately NOT listed — their cities/states are covered by
+  # the spelled-out names below instead.
+  - ", pa"
+  - ", mi"
+  - ", md"
+  - ", va"
+  - ", nm"
+  - ", fl"
+  - ", az"
+  - ", ri"
+  - ", ut"
+  - ", ky"
+  - ", oh"
+  - ", nh"
+  - ", id"
+  - ", mn"
+  - ", tn"
+  - ", nv"
+  # Spelled-out states (collision-safe substrings) for labels that write the full name.
+  - "pennsylvania"
+  - "michigan"
+  - "maryland"
+  - "virginia"
+  - "new mexico"
+  - "florida"
+  - "arizona"
+  - "rhode island"
+  - "utah"
+  - "kentucky"
+  - "ohio"
+  - "new hampshire"
+  - "idaho"
+  - "minnesota"
+  - "tennessee"
+  - "nevada"
+  - "louisiana"
+  - "indiana"
+  - "missouri"
+  - "wisconsin"
   - "san francisco"
   - "mountain view"
   - "sunnyvale"
@@ -300,3 +350,12 @@ include_location_terms:
   - "chicago"
   - "atlanta"
   - "denver"
+  # Cities observed in the 2026-07-10 CV-company wave whose labels may carry no state.
+  - "pittsburgh"
+  - "ann arbor"
+  - "albuquerque"
+  - "san diego"
+  - "miami"
+  - "orlando"
+  - "salt lake city"
+  - "new orleans"

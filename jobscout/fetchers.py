@@ -716,10 +716,10 @@ class JazzHRFetcher(AtsFetcher):
     ats_name = "jazzhr"
 
     # One match per job card: the apply anchor, then everything up to the closing </ul>
-    # of the location/department list (`tail`). Attribute quoting varies (' vs ") across
-    # JazzHR themes, so both are accepted.
+    # of the location/department list (`tail`). Attribute quoting varies (' vs ") and some
+    # boards emit plain-http hrefs (Near Earth Autonomy), so both schemes/quotes are accepted.
     _JOB_RE = re.compile(
-        r"""href=["'](?P<url>https://[^"']+/apply/(?P<id>[A-Za-z0-9]+)/[^"']*)["'][^>]*>
+        r"""href=["'](?P<url>https?://[^"']+/apply/(?P<id>[A-Za-z0-9]+)/[^"']*)["'][^>]*>
             \s*(?P<title>[^<]+?)\s*</a>(?P<tail>.*?)</ul>""",
         re.DOTALL | re.VERBOSE,
     )
@@ -742,7 +742,8 @@ class JazzHRFetcher(AtsFetcher):
                     company=self._company.name,
                     title=html.unescape(match.group("title")).strip(),
                     location=html.unescape(location.group(1)).strip() if location else "",
-                    url=match.group("url"),
+                    # normalize the plain-http boards' links; applytojob.com serves https fine
+                    url="https://" + match.group("url").removeprefix("http://").removeprefix("https://"),
                     description="",  # board page carries no description
                     department=html.unescape(department.group(1)).strip() if department else "",
                     date_posted="",  # board page carries no posting date
@@ -752,6 +753,110 @@ class JazzHRFetcher(AtsFetcher):
             log.warning("jazzhr %s: %d rows parsed from one page — re-verify the board "
                         "doesn't paginate at this size", self.host, len(jobs))
         return jobs
+
+
+class RipplingFetcher(AtsFetcher):
+    """Rippling ATS public board (`api.rippling.com/platform/api/ats/v1/board/{board}/jobs`):
+    one anonymous GET returns the whole board as a BARE array (like Lever). The API emits one
+    row PER LOCATION with the same uuid, so rows are merged here (locations joined) — without
+    the merge one posting would become several ledger entries. No dates and no descriptions
+    -> single-shot board, roles match on title only."""
+
+    ats_name = "rippling"
+
+    @property
+    def host(self) -> str:
+        return "api.rippling.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        board = self._param("board")
+        data = self._http.get_json(
+            f"https://api.rippling.com/platform/api/ats/v1/board/{board}/jobs"
+        )
+        merged = self._merge_by_uuid(data)
+        return [
+            Job(
+                job_uid=self._uid(uuid),
+                company=self._company.name,
+                title=record["item"].get("name", ""),
+                location="; ".join(record["locations"]),
+                url=record["item"].get("url") or f"https://ats.rippling.com/{board}/jobs/{uuid}",
+                description="",  # board API carries no description
+                department=(record["item"].get("department") or {}).get("label", ""),
+                date_posted="",  # board API carries no posting date
+            )
+            for uuid, record in merged.items()
+        ]
+
+    @staticmethod
+    def _merge_by_uuid(data: list[dict]) -> dict[str, dict]:
+        """Collapse the one-row-per-location rows: uuid -> first row + accumulated locations."""
+        merged: dict[str, dict] = {}
+        for item in data:
+            uuid = item.get("uuid")
+            if not uuid:
+                continue
+            location = (item.get("workLocation") or {}).get("label", "")
+            record = merged.setdefault(uuid, {"item": item, "locations": []})
+            if location and location not in record["locations"]:
+                record["locations"].append(location)
+        return merged
+
+
+class GemFetcher(AtsFetcher):
+    """Gem ATS public boards (jobs.gem.com/{board}). The board's own anonymous GraphQL
+    endpoint serves the postings; the page's CAPTCHA gates applications only, not reads.
+    No date field -> single-shot full-board fetch. JD URL is jobs.gem.com/{board}/{extId}
+    (both extId and the opaque `id` resolve; extId is the stable UUID form)."""
+
+    ats_name = "gem"
+
+    _QUERY = (
+        "query JobBoardList($boardId: String!) { oatsExternalJobPostings(boardId: $boardId) "
+        "{ jobPostings { id extId title locations { name city isoCountry isRemote } "
+        "job { department { name } locationType employmentType } } } }"
+    )
+
+    @property
+    def host(self) -> str:
+        return "jobs.gem.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        board = self._param("board")
+        data = self._http.post_json(
+            "https://jobs.gem.com/api/public/graphql",
+            {"operationName": "JobBoardList", "variables": {"boardId": board},
+             "query": self._QUERY},
+        )
+        # GraphQL reports failures as HTTP 200 + an `errors` payload — without this guard a
+        # rejected query is indistinguishable from an empty board (silent 0 jobs forever).
+        if data.get("errors"):
+            raise ValueError(f"{self._company.name}: gem GraphQL errors: {data['errors']}")
+        postings = ((data.get("data") or {}).get("oatsExternalJobPostings") or {})
+        return [
+            Job(
+                job_uid=self._uid(item["extId"]),
+                company=self._company.name,
+                title=item.get("title", ""),
+                location=self._join_locations(item.get("locations") or []),
+                url=f"https://jobs.gem.com/{board}/{item['extId']}",
+                description="",  # board API carries no description
+                department=((item.get("job") or {}).get("department") or {}).get("name", ""),
+                date_posted="",  # board API carries no posting date
+            )
+            for item in postings.get("jobPostings", []) if item.get("extId")
+        ]
+
+    @staticmethod
+    def _join_locations(locations: list[dict]) -> str:
+        # `name` is display text ("SF Bay Area, CA"); append "United States" to USA rows so
+        # PreFilter's include terms match even when the name lacks a state code.
+        parts = []
+        for loc in locations:
+            name = loc.get("name", "")
+            country = "United States" if loc.get("isoCountry") == "USA" else ""
+            parts.append(f"{name} ({country})" if country else name)
+        return "; ".join(p for p in parts if p)
 
 
 class GithubRepoFetcher(AtsFetcher):
@@ -886,6 +991,8 @@ class FetcherFactory:
         TinderFetcher.ats_name: TinderFetcher,
         WorkableFetcher.ats_name: WorkableFetcher,
         JazzHRFetcher.ats_name: JazzHRFetcher,
+        RipplingFetcher.ats_name: RipplingFetcher,
+        GemFetcher.ats_name: GemFetcher,
         SimplifyFetcher.ats_name: SimplifyFetcher,
         SpeedyApplyFetcher.ats_name: SpeedyApplyFetcher,
     }

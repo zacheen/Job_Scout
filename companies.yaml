@@ -12,6 +12,8 @@
 #   jibe:       host             -> https://{host}/api/jobs (Jibe/iCIMS careers sites; newest-first)
 #   workable:   account          -> apply.workable.com/api/v1/widget/accounts/{account}
 #   jazzhr:     account          -> {account}.applytojob.com/apply (server-rendered HTML board)
+#   rippling:   board            -> api.rippling.com/platform/api/ats/v1/board/{board}/jobs
+#   gem:        board            -> jobs.gem.com/{board} (anonymous GraphQL; no dates)
 #   tinder:     (no params) first-party proxy for Tinder-only roles
 #   simplify:   repo (owner/name); optional path, branch  -> parses .github/scripts/listings.json
 #   speedyapply:repo (owner/name); optional files (comma-separated .md tables), branch
@@ -65,6 +67,27 @@
 - {name: Wing,             ats: greenhouse, board: wing}                              # Alphabet drone delivery; ~24
 - {name: Verkada,          ats: greenhouse, board: verkada, seed_only: true}          # security cameras CV; ~293
 - {name: Scale AI,         ats: greenhouse, board: scaleai, seed_only: true}          # AI data/infra; ~183 (board "scale" is wrong)
+# CV wave 2 (2026-07-10; startups incl.). All boards live-verified; only Saronic tops the
+# ~100-role seed_only line. Voxel51's board is live but 0 openings right now (harmless).
+- {name: Outrider,        ats: greenhouse, board: outrider}              # autonomous yard trucks; ~9
+- {name: Third Wave Automation, ats: greenhouse, board: thirdwaveautomation}  # autonomous forklifts; ~6
+- {name: Saildrone,       ats: greenhouse, board: saildroneinc}          # ocean drones (Alameda CA); ~25
+- {name: Diligent Robotics, ats: greenhouse, board: diligentrobotics}    # hospital robots; acquired by Serve Robotics 2026-01 but still hires on its own board; ~13
+- {name: Netradyne,       ats: greenhouse, board: netradyne}             # fleet-camera CV; ~65 (many Bangalore)
+- {name: Voxel51,         ats: greenhouse, board: voxel51}               # CV data tooling; 0 openings at add time. Ashby/Lever "voxel" = DIFFERENT co
+- {name: PathAI,          ats: greenhouse, board: pathai}                # pathology CV; ~8
+- {name: Planet Labs,     ats: greenhouse, board: planetlabs}            # satellite imagery; ~81 (Berlin/London mixed in)
+- {name: World Labs,      ats: greenhouse, board: worldlabs}             # spatial intelligence (Fei-Fei Li); ~12, all SF
+# CV batch spare pool promoted 2026-07-10 (verified same day as the batch above).
+- {name: Gatik,            ats: greenhouse, board: gatikaiinc}                        # AV middle-mile trucking; ~61
+- {name: Stack AV,         ats: greenhouse, board: stackav}                           # AV trucking; ~23
+- {name: Lucid Motors,     ats: greenhouse, board: lucidmotors, seed_only: true}      # EV + ADAS; ~241 (incl. Saudi factory roles)
+- {name: Carbon Robotics,  ats: greenhouse, board: carbonrobotics}                    # laser-weeding ag CV; ~21
+- {name: AMP Robotics,     ats: greenhouse, board: ampsortation}                      # recycling CV; rebranded AMP Sortation; ~3
+- {name: Locus Robotics,   ats: greenhouse, board: locusrobotics}                     # warehouse robots; ~18
+- {name: Samsara,          ats: greenhouse, board: samsara, seed_only: true}          # fleet cameras/IoT; ~318
+- {name: Axon,             ats: greenhouse, board: axon, seed_only: true}             # body cams / video CV / drones; ~513
+- {name: Magic Leap,       ats: greenhouse, board: magicleap}                         # AR; ~11 (mostly fab roles currently)
 
 # --- Lever ---
 - {name: Netflix,    ats: lever, org: netflix}
@@ -72,6 +95,29 @@
 - {name: Rigetti,    ats: lever, org: rigetti}     # quantum computing, Berkeley/Fremont CA
 - {name: Shield AI,  ats: lever, org: shieldai, seed_only: true}  # defense drones/AI pilots; ~416 (Greenhouse "shieldai" 404s)
 - {name: Waabi,      ats: lever, org: waabi}       # AV trucking foundation models; ~60 (Toronto HQ + SF; PreFilter keeps US)
+- {name: Dexterity,  ats: lever, org: dexterity}   # warehouse robots (Redwood City); ~25
+- {name: Aeva,       ats: lever, org: aeva}        # FMCW lidar (Mountain View); ~41
+# MicroVision bought bankrupt Luminar's lidar assets 2026-02; luminartech.com 301s here.
+- {name: MicroVision, ats: lever, org: microvision}  # lidar (Orlando FL = ex-Luminar site); ~12
+# CV wave 2. NOTE: Lever org slugs are CASE-SENSITIVE (Burro/ChefRobotics verified; lowercase 404s).
+- {name: Toyota Research Institute, ats: lever, org: tri}  # robotics/driving research (Los Altos, Cambridge); ~17
+- {name: PlusAI,         ats: lever, org: plus-2}          # AV trucking; org is plus-2 NOT plusai; ~49, CV intern roles
+- {name: Merlin Labs,    ats: lever, org: merlinlabs}      # autonomous aircraft (Boston); ~33
+- {name: Elroy Air,      ats: lever, org: elroyair}        # cargo VTOL (Byron CA); ~6 (elroyair.com/careers 404s; board live)
+- {name: Pickle Robot,   ats: lever, org: picklerobot}     # truck-unloading robots (Charlestown MA); ~19
+- {name: Ambi Robotics,  ats: lever, org: ambirobotics}    # warehouse sorting robots (Berkeley); ~6
+- {name: Robust AI,      ats: lever, org: robust-ai}       # collaborative robots (San Carlos); ~4
+- {name: Chef Robotics,  ats: lever, org: ChefRobotics}    # food-assembly robots (SF); ~13
+- {name: Burro,          ats: lever, org: Burro}           # ag robots (Austin/Philly); ~2
+- {name: Bright Machines, ats: lever, org: brightmachines} # manufacturing automation; ~14 (Florence KY + SF; some MX/IE)
+- {name: RAI Institute,  ats: lever, org: rai}             # Robotics & AI Institute (ex-Boston Dynamics AI Institute), Cambridge MA; ~2
+- {name: Mashgin,        ats: lever, org: mashgin}         # checkout CV (Palo Alto); ~15 (some Brazil)
+- {name: Hive,           ats: lever, org: hive}            # content-moderation / media CV (SF); ~75
+- {name: DroneDeploy,    ats: lever, org: dronedeploy}     # drone mapping CV; ~10 US + AU/NZ
+# Landing AI shares AI Fund's Lever org; the ?department= filter scopes it to Landing AI only
+# (bare AIFund would mislabel the whole Andrew Ng portfolio). Works because the fetcher appends
+# &mode=json via params.
+- {name: Landing AI,     ats: lever, org: "AIFund?department=LandingAI"}  # manufacturing CV; ~5 (Mountain View)
 
 # --- Ashby ---
 - {name: OpenAI,     ats: ashby, org: openai}
@@ -86,6 +132,22 @@
 # org has a literal space -> URL-encoded here (fetcher interpolates raw). Bare "Flock" is a
 # DIFFERENT company (UK motor insurer) — do not "fix" this to Flock.
 - {name: Flock Safety, ats: ashby, org: "Flock%20Safety"}                  # cameras/drones public safety; ~40
+- {name: Serve Robotics, ats: ashby, org: serverobotics}                   # sidewalk delivery robots; ~54
+# The games studio went to Scopely (careers.scopely.com, Phenom); the CV/AR/geospatial
+# remainder is Niantic Spatial on Ashby.
+- {name: Niantic Spatial, ats: ashby, org: niantic-spatial}                # geospatial CV/AR; ~10
+# CV wave 2. Ashby orgs may contain literal dots/capitals — keep them verbatim.
+- {name: Helm.ai,        ats: ashby, org: helm-ai}             # AV software; moved off Greenhouse (old board 404s); ~7
+- {name: Saronic,        ats: ashby, org: saronic, seed_only: true}  # autonomous naval vessels (Austin); ~279. Lever "saronic" is an EMPTY decoy
+- {name: BRINC,          ats: ashby, org: brinc}               # public-safety drones (Seattle); ~26 (NOT brinc.io the accelerator)
+- {name: Reliable Robotics, ats: ashby, org: reliable-robotics}  # autonomous aircraft (Mountain View); ~64. Lever "reliable" is an EMPTY decoy
+- {name: Gecko Robotics, ats: ashby, org: gecko-robotics}      # infrastructure-inspection robots (Pittsburgh); ~17
+- {name: Collaborative Robotics, ats: ashby, org: cobot}       # mobile manipulators (Santa Clara/Seattle); ~7
+- {name: Orchard Robotics, ats: ashby, org: orchard}           # ag CV (SF); org is bare "orchard"; ~16
+- {name: Roboflow,       ats: ashby, org: roboflow}            # CV dev platform (NY/SF/remote); ~27
+- {name: Ambient.ai,     ats: ashby, org: "ambient.ai"}        # security video CV (Redwood City); ~15
+- {name: Viz.ai,         ats: ashby, org: "Viz.ai"}            # stroke/medical imaging AI (US remote); ~18
+- {name: Overjet,        ats: ashby, org: Overjet}             # dental CV (Boston/NYC); ~24 (some Lahore/Cairo)
 
 # --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
 - {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}
@@ -100,6 +162,9 @@
 - {name: F5, ats: workday, host: ffive.wd5.myworkdayjobs.com, tenant: ffive, site: f5jobs, seed_only: true}  # ~266 roles ("F5 Tower" = Seattle)
 - {name: Boston Dynamics, ats: workday, host: bostondynamics.wd1.myworkdayjobs.com, tenant: bostondynamics, site: Boston_Dynamics}  # ~73 (Waltham MA)
 - {name: Cognex, ats: workday, host: cognex.wd1.myworkdayjobs.com, tenant: cognex, site: External_Career_Site}  # machine vision; ~89 global
+# Rare wd504 shard; tenant only appears in per-req apply links, not the WP careers pages.
+- {name: Symbotic, ats: workday, host: symbotic.wd504.myworkdayjobs.com, tenant: symbotic, site: Symbotic, seed_only: true}  # warehouse robots; ~163
+- {name: Snap, ats: workday, host: snapchat.wd1.myworkdayjobs.com, tenant: snapchat, site: snap, seed_only: true}  # AR/cameras; ~162 (LA/Bellevue/PA)
 
 # --- Oracle Recruiting (Fusion HCM candidate-experience API; newest-first, paginated) ---
 - {name: Ford, ats: oracle, host: efds.fa.em5.oraclecloud.com, site: CX_1}       # referral
@@ -121,6 +186,17 @@
 
 # --- JazzHR (server-rendered HTML board; no dates/descriptions -> title-only matching) ---
 - {name: Ouster, ats: jazzhr, account: ouster}          # lidar (SF + remote); ~21 roles
+# Custom domain jobs.nearearth.aero serves the same board; "nearearth" (no suffix) is an
+# empty decoy account — keep "nearearthautonomy".
+- {name: Near Earth Autonomy, ats: jazzhr, account: nearearthautonomy}  # aerial autonomy (Pittsburgh); ~7
+
+# --- Rippling (public board API; bare array, one row per location merged by the fetcher;
+#     no dates/descriptions -> title-only matching) ---
+- {name: Forterra,   ats: rippling, board: forterra}     # defense ground autonomy (Clarksburg MD); ~38 reqs
+- {name: Overland AI, ats: rippling, board: overland-ai} # offroad defense autonomy (Seattle); ~22 (moved off Greenhouse)
+
+# --- Gem (jobs.gem.com; anonymous GraphQL; no dates -> single-shot) ---
+- {name: Luma AI, ats: gem, board: lumalabs-ai}          # 3D/genAI spatial (SF Bay Area); ~59
 
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
