@@ -1,4 +1,4 @@
-"""Per-track job scoring: three strategies tried in fidelity order.
+"""Resume-vs-role job scoring: three strategies tried in fidelity order.
 
 OpenAI API -> local GPT CLI (e.g. Codex via ChatGPT login) -> keyword heuristic.
 `build_scorer` selects the best available at startup.
@@ -13,7 +13,6 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 
-from .config import Track
 from .models import Job, Score
 from .protocols import JobScorer
 
@@ -22,22 +21,18 @@ log = logging.getLogger(__name__)
 _SCHEMA = {
     "type": "object",
     "properties": {
-        "relevance_score": {"type": "integer"},
         "experience_score": {"type": "integer"},
         "reason": {"type": "string"},
     },
-    "required": ["relevance_score", "experience_score", "reason"],
+    "required": ["experience_score", "reason"],
     "additionalProperties": False,
 }
 
 _SYSTEM = (
-    'You rate a single job posting for the "{track}" track and return JSON.\n'
-    "1. relevance_score (0-100): how well this role IS {description}. A non-engineering "
-    "role (marketing, sales, customer support, recruiting, design) scores near 0 even "
-    "when it mentions the technology.\n"
-    "2. experience_score (0-100): how well the candidate, described by the resume below, "
-    "fits THIS specific role on skills, domain, and seniority.\n"
-    "Scores are integers from 0 to 100.\n\n"
+    "You rate a single job posting against the candidate resume below and return JSON.\n"
+    "experience_score (0-100, integer): how well the candidate fits THIS specific role "
+    "on skills, domain, and seniority. A role the candidate could not credibly apply to "
+    "(non-engineering, wrong field, far too senior) scores near 0.\n\n"
     "CANDIDATE RESUME:\n{resume}"
 )
 
@@ -49,16 +44,14 @@ def _clamp(value) -> int:
     return max(0, min(100, int(value)))
 
 
-def _parse_scores(raw: str) -> Score:
+def _parse_score(raw: str) -> Score:
     match = _JSON_RE.search(raw)
     if not match:
         raise ValueError(f"no JSON object found in scorer output; raw: {raw[:200]!r}")
     data = json.loads(match.group(0))
-    missing = {"relevance_score", "experience_score"} - data.keys()
-    if missing:
-        raise ValueError(f"scorer output missing fields {missing}; raw: {raw[:200]!r}")
+    if "experience_score" not in data:
+        raise ValueError(f"scorer output missing experience_score; raw: {raw[:200]!r}")
     return Score(
-        relevance_score=_clamp(data["relevance_score"]),
         experience_score=_clamp(data["experience_score"]),
         reason=str(data.get("reason", "")).strip(),
     )
@@ -71,9 +64,9 @@ class _LlmScorer(ABC):
         self._resume = resume_text
         self._max_description_chars = max_description_chars
 
-    def score(self, job: Job, track: Track) -> Score:
-        system = _SYSTEM.format(track=track.name, description=track.description, resume=self._resume)
-        return _parse_scores(self._invoke(system, self._job_blob(job)))
+    def score(self, job: Job) -> Score:
+        system = _SYSTEM.format(resume=self._resume)
+        return _parse_score(self._invoke(system, self._job_blob(job)))
 
     def _job_blob(self, job: Job) -> str:
         return (
@@ -163,8 +156,8 @@ class CliScorer(_LlmScorer):
     def _invoke(self, system_prompt: str, user_prompt: str) -> str:
         prompt = (
             f"{system_prompt}\n\n{user_prompt}\n\n"
-            'Return ONLY a JSON object: {"relevance_score": <int 0-100>, '
-            '"experience_score": <int 0-100>, "reason": "<one sentence>"}. No other text.'
+            'Return ONLY a JSON object: {"experience_score": <int 0-100>, '
+            '"reason": "<one sentence>"}. No other text.'
         )
         result = subprocess.run(
             [*self._command, prompt],
@@ -178,8 +171,10 @@ class CliScorer(_LlmScorer):
             encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
+            # codex prefixes stderr with a ~200-char startup banner (version/workdir/model/...);
+            # the head never has the actual error, hence taking the tail.
             raise RuntimeError(
-                f"{' '.join(self._command)} exited {result.returncode}: {result.stderr[:200]}"
+                f"{' '.join(self._command)} exited {result.returncode}: {result.stderr[-300:]}"
             )
         return result.stdout
 
@@ -195,16 +190,15 @@ class KeywordScorer:
     def __init__(self, resume_text: str = ""):
         self._resume_tokens = set(self._WORD_RE.findall(resume_text.lower()))
 
-    def score(self, job: Job, track: Track) -> Score:
-        text = f"{job.title} {job.description}".lower()
-        hits = sum(1 for keyword in track.score_terms() if keyword in text)
-        relevance = _clamp(40 + 12 * hits) if hits else 30
+    def score(self, job: Job) -> Score:
         if self._resume_tokens:
+            text = f"{job.title} {job.description}".lower()
             overlap = len(self._resume_tokens & set(self._WORD_RE.findall(text)))
             experience = _clamp(40 + 3 * overlap)
         else:
+            # No resume: constant score means every role lands on the same side of the threshold.
             experience = 50
-        return Score(relevance, experience, f"keyword-only heuristic ({track.name})")
+        return Score(experience, "keyword-only heuristic")
 
 
 def build_scorer(settings) -> JobScorer:

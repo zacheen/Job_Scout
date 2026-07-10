@@ -88,3 +88,60 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add seen_jobs.csv
           git diff --cached --quiet || (git commit -m "update job ledger [skip ci]" && git push -u origin "$LEDGER_BRANCH")
+
+  # Replaces GitHub's per-failure emails (disable those in account notification
+  # settings): one email per failure streak, at the 3rd consecutive failure.
+  # WARNING: cannot fire for runs that never start (e.g. "runner not acquired"
+  # cancellations) — no notification at all once the built-in emails are off.
+  notify-failure:
+    needs: scan
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Email on 3rd consecutive failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: |
+          python - <<'EOF'
+          import json, os, smtplib, urllib.request
+          from email.message import EmailMessage
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run_id = os.environ["GITHUB_RUN_ID"]
+          FAIL = {"failure", "cancelled", "timed_out"}
+
+          # status=completed excludes the current run (still in_progress); list starts at the previous run.
+          url = (f"https://api.github.com/repos/{repo}/actions/workflows/"
+                 "scan.yml/runs?status=completed&per_page=5")
+          req = urllib.request.Request(url, headers={
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              "Accept": "application/vnd.github+json",
+          })
+          with urllib.request.urlopen(req) as resp:
+              prev = [r["conclusion"] for r in json.load(resp)["workflow_runs"]]
+
+          # Current run is failure #1 of the streak; email only if the previous 2 also
+          # failed and the one before that didn't (exactly streak length 3) — one email per outage, not per failed run.
+          if len(prev) < 2 or prev[0] not in FAIL or prev[1] not in FAIL:
+              print(f"Failure streak below 3 (previous: {prev[:3]}); not emailing.")
+              raise SystemExit(0)
+          if len(prev) >= 3 and prev[2] in FAIL:
+              print("Streak already alerted at 3; not emailing again.")
+              raise SystemExit(0)
+
+          msg = EmailMessage()
+          msg["Subject"] = "[job-scout] 3 consecutive workflow failures"
+          msg["From"] = os.environ["GMAIL_USER"]
+          msg["To"] = os.environ["MAIL_TO"]
+          msg.set_content(
+              "The job-scout workflow has failed 3 times in a row.\n"
+              f"Latest run: https://github.com/{repo}/actions/runs/{run_id}\n"
+          )
+          with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+              s.login(os.environ["GMAIL_USER"], os.environ["GMAIL_APP_PASSWORD"])
+              s.send_message(msg)
+          print("Alert email sent.")
+          EOF

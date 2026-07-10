@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
 
 from collections.abc import Collection
 
 from .config import Track
 from .models import Job, Score
-from .protocols import Digest, Fetcher, JobFilter, JobScorer, JobStore, Leveler, Notifier, Router
+from .protocols import (Annotator, Digest, Fetcher, JobFilter, JobScorer, JobStore, Leveler,
+                        Notifier, Router)
 
 log = logging.getLogger(__name__)
 
@@ -23,9 +26,11 @@ class _ScoreAttempt(NamedTuple):
 class Pipeline:
     def __init__(
         self,
+        *,
         store: JobStore,
         fetcher: Fetcher,
         prefilter: JobFilter,
+        annotator: Annotator,
         router: Router,
         leveler: Leveler,
         scorer: JobScorer,
@@ -38,6 +43,7 @@ class Pipeline:
         self._store = store
         self._fetcher = fetcher
         self._prefilter = prefilter
+        self._annotator = annotator
         self._router = router
         self._leveler = leveler
         self._scorer = scorer
@@ -52,7 +58,10 @@ class Pipeline:
         known = self._store.known_uids()
         known_urls = self._store.known_urls()
         candidates = [j for j in all_jobs if self._prefilter.keep(j)]
-        new_candidates = [j for j in candidates if j.job_uid not in known]
+        # Annotate only the genuinely new candidates — steady-state runs mostly refetch
+        # already-known jobs. Annotated copies flow only to the email path; add_seen below
+        # records the originals from all_jobs.
+        new_candidates = [self._annotate(j) for j in candidates if j.job_uid not in known]
         new_candidates = self._suppress_seeding(new_candidates, known)
         # Record all new fetched jobs, not only candidates: PreFilter-rejected jobs are
         # otherwise never recorded and look "new" forever, defeating early-stop.
@@ -97,6 +106,8 @@ class Pipeline:
         if len(groups) > 1 and top_count:
             subject += f" ({top_count} {top_group.lower()})"
         subject += f" [{self._scorer.method_label}]"
+        # Timestamp makes each subject unique so Gmail doesn't thread digests together.
+        subject += f" {datetime.now(ZoneInfo('America/New_York')):%m/%d %H:%M}"
 
         try:
             self._notifier.send_digest(digest, subject=subject)
@@ -109,6 +120,16 @@ class Pipeline:
         self._store.mark_emailed(emailed)
         self._store.save()
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
+
+    def _annotate(self, job: Job) -> Job:
+        """Apply the annotator, enforcing its contract (derived presentation fields only):
+        a changed job_uid/url would silently corrupt the uid- and URL-keyed dedup downstream,
+        so fail loud here instead — the Protocol docstring alone can't."""
+        annotated = self._annotator.annotate(job)
+        if annotated.job_uid != job.job_uid or annotated.url != job.url:
+            raise ValueError(f"annotator changed identity fields for {job.job_uid!r} "
+                             f"(uid {annotated.job_uid!r}, url {annotated.url!r})")
+        return annotated
 
     def _suppress_seeding(self, new_candidates: list[Job], known: set[str]) -> list[Job]:
         """Drop candidates from a seed_only source on its FIRST appearance (no uid with its
@@ -153,14 +174,14 @@ class Pipeline:
                     continue
                 self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score,
                                       method=self._scorer.method_label)
-                if attempt.score.relevance_score > attempt.track.threshold:
+                if attempt.score.experience_score > attempt.track.threshold:
                     by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
         return by_track
 
     def _score_one(self, pair: tuple[Job, Track]) -> _ScoreAttempt:
         job, track = pair
         try:
-            return _ScoreAttempt(job, track, self._scorer.score(job, track))
+            return _ScoreAttempt(job, track, self._scorer.score(job))
         except Exception as exc:  # unscored rows remain unseeded; retry next run
             log.warning("could not score %s: %s", job.job_uid, exc)
             return _ScoreAttempt(job, track, None)

@@ -1,8 +1,8 @@
 # Job Scout
 
 Polls ~100 top-tech companies' official ATS feeds every 30 minutes, keeps only
-US roles, scores new postings with an LLM on two axes (computer-vision relevance
-and fit to your résumé), and emails a sorted digest of the strong matches.
+US roles, scores each new posting with an LLM on how well it fits your résumé,
+and emails a sorted digest of the strong matches.
 De-dupes via a CSV ledger. The cloud keeps that ledger on a separate `data`
 branch (auto-created), so `main` stays code-only; local runs keep their own
 gitignored copy.
@@ -11,8 +11,8 @@ gitignored copy.
 
 ```
 fetch (ATS JSON APIs) -> US filter -> dedupe (CSV) -> keyword pre-filter
-  -> OpenAI score {computer_vision_score, experience_score, reason}
-  -> cv_score > threshold -> one digest email, sorted by experience_score
+  -> keyword track routing -> LLM score {experience_score, reason}
+  -> experience_score > threshold -> one digest email, sorted by experience_score
 ```
 
 First run **seeds only**: it records all currently-open roles as "seen" without
@@ -33,7 +33,7 @@ and email start from the next run, for genuinely new postings.
    | `GMAIL_APP_PASSWORD` | Gmail app password (not your login password) |
    | `MAIL_TO` | Where to send the digest |
 
-3. Edit `config.yaml` (`model`, `cv_threshold`, keywords) and `companies.yaml`.
+3. Edit `config.yaml` (`model`, per-track `threshold` / `min_hits`, keywords) and `companies.yaml`.
 
 ## Run locally
 

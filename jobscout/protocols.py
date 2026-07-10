@@ -34,6 +34,13 @@ class JobFilter(Protocol):
     def keep(self, job: Job) -> bool: ...
 
 
+class Annotator(Protocol):
+    def annotate(self, job: Job) -> Job:
+        """Return the job, or a copy with derived presentation fields (e.g. `note`) set.
+        Must not change identity fields (job_uid/url) — dedup keys on them."""
+        ...
+
+
 class Router(Protocol):
     def route(self, job: Job) -> "Track | None": ...
     def ordered_names(self) -> list[str]: ...
@@ -47,7 +54,7 @@ class Leveler(Protocol):
 class JobScorer(Protocol):
     method_label: ClassVar[str]  # scoring method shown in the email subject, e.g. "API" / "CLI" / "Keyword"
 
-    def score(self, job: Job, track: Track) -> Score: ...
+    def score(self, job: Job) -> Score: ...
 
 
 class Notifier(Protocol):

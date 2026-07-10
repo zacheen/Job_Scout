@@ -11,7 +11,7 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
 
 from .config import Settings
 from .fetchers import AtsFetcher, FetcherFactory, HttpClient, ParallelFetcher
-from .filters import LevelClassifier, PreFilter, TrackRouter
+from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
 from .scoring import build_scorer
@@ -56,9 +56,13 @@ def main() -> None:
             exclude_location_terms=settings.exclude_location_terms,
             exclude_terms=settings.exclude_terms,
             exclude_dept_terms=settings.exclude_dept_terms,
+            exclude_word_terms=settings.exclude_word_terms,
+            exclude_description_terms=settings.exclude_description_terms,
         ),
+        annotator=DescriptionFlagger(settings.warn_description_terms),
         router=TrackRouter(settings.tracks),
-        leveler=LevelClassifier(settings.referral_companies, settings.intern_terms),
+        leveler=LevelClassifier(settings.referral_companies, settings.intern_terms,
+                                settings.senior_terms),
         scorer=build_scorer(settings),
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
         score_workers=settings.score_workers,

@@ -37,14 +37,16 @@ user_agent: "job-scout/1.0 (+https://github.com/)"
 request_delay_min: 1.25
 request_delay_max: 2.0
 
-# Each new role is routed to the FIRST track whose keywords appear (in title or
-# description), then scored against that track. Order matters — list the more
-# specific track first. Each track emails its own digest, titled by `name`.
-# `description` is what the LLM scores relevance against; `threshold` gates emails.
+# Each new role is routed to the FIRST track whose keyword hit count reaches its
+# `min_hits` (a hit = one occurrence of a keyword in the title or description; the
+# SAME keyword occurring N times counts as N hits). Order matters — list the more
+# specific track first. Each track is its own email section, titled by `name`.
+# `threshold` gates emails: a role is emailed only when its experience_score
+# (LLM: resume-vs-role fit, 0-100) exceeds it.
 tracks:
   - name: "Computer Vision"
     threshold: 50
-    description: "a computer-vision engineering or research role (image/video/visual perception, detection, segmentation, 3D vision)"
+    min_hits: 1
     keywords:
       - "computer vision"
       - "image"
@@ -60,7 +62,7 @@ tracks:
   # AI/ML before Software Engineering: a role matching both lands in the AI/ML email.
   - name: "AI / ML"
     threshold: 50
-    description: "an AI/ML engineering or research role (model training, deep learning, LLM/NLP, ML systems, data science)"
+    min_hits: 1
     keywords:
       - "machine learning"
       - "deep learning"
@@ -78,7 +80,7 @@ tracks:
       - "data scientist"
   - name: "Software Engineering"
     threshold: 50
-    description: "a software-engineering role (backend, full-stack, distributed systems, platform/infra/data engineering)"
+    min_hits: 1
     keywords:
       - "software engineer"
       - "backend engineer"
@@ -91,16 +93,6 @@ tracks:
       - "infrastructure engineer"
       - "devops"
       - "site reliability"
-  # Senior is a title override, not a keyword track: a role is first routed by the
-  # keyword tracks above, then reclassified here if its TITLE contains a title_term
-  # (whole-word, so "sr" doesn't hit inside other words). A senior role that matches
-  # no keyword track is still dropped. Listed last so its email section is last.
-  - name: "Senior"
-    threshold: 50
-    description: "a senior-level computer vision, AI/ML, or software engineering role"
-    title_terms:
-      - "senior"
-      - "sr"
 
 # Drop unwanted roles before any scoring (any tier): non-technical OR too-senior. Matched as a
 # lowercase substring in the title OR the department — so e.g. department "Sales"
@@ -111,6 +103,7 @@ exclude_terms:
   - "director"
   - "principal"
   - "staff"
+  - "lead" # safe as substring: its matches (lead/leader/leadership/leading) are all senior
   - "vice president"
   # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
   - "phd"
@@ -121,8 +114,11 @@ exclude_terms:
   - "physics"
   - "chemistry" # won't match "chemical" (different stem)
   - "drug" # pharma / drug-discovery domain
+  - "mechanical" # different engineering discipline (also matches "electromechanical")
   - "safety"
   - "network"
+  - "data center" # infra / facilities ops
+  - "datacenter" # one-word spelling of the above
   - "gpu" # usually is related to CUDA or kernel
   - "kernel" # low-level OS / GPU-kernel systems roles, outside the CV/AI-ML/SWE target
   # non-technical functions
@@ -136,12 +132,13 @@ exclude_terms:
   - "finance"
   - "banking"
   - "legal"
+  - "policy" # public-policy / policy-analyst roles
   - "talent"
   - "brand"
   - "social media"
   - "community"
   - "business" # broad: subsumes "business development"; also drops "Business Intelligence/Analyst" titles
-  - "supply chain"
+  - "supply" # subsumes "supply chain"; also supplier / procurement / power-supply roles
   - "buyer"
   - "people partner"
   # Trailing space is deliberate: matches "partner <role>" (e.g. partner marketing/solutions)
@@ -156,6 +153,61 @@ exclude_dept_terms:
   - "commercial"
   - "market"
   - "customer"
+
+# Whole-word exclusions (\b...\b), matched against title OR department. Use this list
+# (not exclude_terms) for any token short enough to be an unsafe substring: e.g. "ux"
+# drops "UX Designer/Researcher" but not "Linux"/"flux"/"redux"/"auxiliary".
+exclude_word_terms:
+  - "ux"
+  - "tpu" # whole-word: bare "tpu" would substring-hit "output"
+
+# Drop a job when its DESCRIPTION contains any of these (lowercase substring; the text is
+# whitespace-collapsed and curly apostrophes straightened before matching, so a phrase still
+# hits across the line breaks strip_html leaves). Purpose: the formulaic "no visa/immigration
+# sponsorship" legal boilerplate. CAVEAT: Workday listings carry NO description (Oracle only
+# a short blurb) — those roles can't be caught here (the LLM sees the same text, so it
+# couldn't either). Substring redundancy is deliberate: "does not offer VISA sponsorship"
+# does NOT contain "not offer sponsorship", so the visa/immigration middles get their own rows.
+exclude_description_terms:
+  # broadest anchor: covers "will/do/does/can/cannot/may not sponsor" and "not sponsorship-eligible"
+  - "not sponsor"
+  - "won't sponsor"
+  - "no visa sponsorship"
+  - "no immigration sponsorship"
+  - "no sponsorship" # "no sponsorship (is) available / offered / provided"
+  - "unable to sponsor"
+  - "not able to sponsor"
+  # "does not offer/provide/support [visa|immigration] sponsorship"
+  - "not offer sponsorship"
+  - "not offer visa sponsorship"
+  - "not offer immigration sponsorship"
+  - "not provide sponsorship"
+  - "not provide visa sponsorship"
+  - "not provide immigration sponsorship"
+  - "not support sponsorship"
+  - "not support visa sponsorship"
+  - "unable to provide sponsorship"
+  - "unable to provide visa sponsorship"
+  - "unable to offer sponsorship"
+  - "unable to offer visa sponsorship"
+  - "sponsorship is not available"
+  - "sponsorship not available"
+  - "sponsorship is unavailable"
+  - "not eligible for sponsorship"
+  - "not eligible for visa sponsorship"
+  - "ineligible for sponsorship"
+  - "ineligible for visa sponsorship"
+
+# AMBIGUOUS sponsorship wording: these describe the CANDIDATE ("must not require sponsorship",
+# "authorized to work without sponsorship") — usually restrictive boilerplate, but not a
+# guaranteed "we don't sponsor". A match does NOT drop the job; it is still scored and
+# emailed, with a "possibly NO visa sponsorship" caveat line. Same matching semantics as
+# exclude_description_terms above.
+warn_description_terms:
+  - "not require sponsorship" # "must not require sponsorship now or in the future"
+  - "without sponsorship"     # "authorized to work ... without sponsorship"
+  - "without the need for sponsorship"
+  - "without the need for visa sponsorship"
 
 # Companies you have a referral at -> their roles form the TOP email group "Referral"
 # (above Intern). Matched against the company NAME (case-insensitive), so each must match
@@ -181,13 +233,24 @@ intern_terms:
   - "co-op"
   - "coop"
 
-# Backstop for include_location_terms below: its short state codes leak country names through
-# (", ca" -> ", Canada"; ", co" -> ", Colombia"). "colombia" ('o') is spelled to deliberately
-# avoid matching US "Columbia" ('u').
+# Roles whose TITLE matches one of these (whole-word, so "sr" doesn't hit inside other
+# words) form the BOTTOM email group "Senior" — still listed, but last, since these are
+# usually skimmed past. Referral outranks it: a senior role at a referral company stays
+# in the Referral group.
+senior_terms:
+  - "senior"
+  - "sr"
+
+# Backstop for include_location_terms below: drop a location even if an include term matched it.
+# Leaks come from short state codes hitting country names (", ca" -> ", Canada"; ", co" -> ", Colombia")
+# and from the broad "remote" include. Matched WHOLE-WORD (see PreFilter) so a country name can't be
+# swallowed by a US one: "india" drops ", India" but NOT "Indiana"/"Indianapolis". "colombia" ('o')
+# still avoids US "Columbia" ('u').
 exclude_location_terms:
   - "canada"
   - "colombia"
   - "malaysia"
+  - "india"
 
 # A job is kept only if its location string contains any of these (allowed regions:
 # US + Taiwan). Heuristic and imperfect: bare "remote" also matches remote roles

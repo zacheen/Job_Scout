@@ -32,7 +32,6 @@
 - {name: Reddit,     ats: greenhouse, board: reddit}
 - {name: Discord,    ats: greenhouse, board: discord}
 - {name: Figma,      ats: greenhouse, board: figma}
-- {name: Plaid,      ats: greenhouse, board: plaid}
 # Big backlogs (300-450 open roles) -> seed_only so the first run doesn't flood scoring/email.
 - {name: Waymo,      ats: greenhouse, board: waymo, seed_only: true}       # careers.withwaymo.com is Greenhouse-hosted
 - {name: DoorDash,   ats: greenhouse, board: doordashusa, seed_only: true} # careersatdoordash.com WAF-403s; board API is open
@@ -59,6 +58,7 @@
 - {name: OpenAI,     ats: ashby, org: openai}
 - {name: Ramp,       ats: ashby, org: ramp}
 - {name: Perplexity, ats: ashby, org: perplexity}
+- {name: Plaid,      ats: ashby, org: plaid, seed_only: true}      # moved off Greenhouse (board 404s since 2026-07); ~106 roles re-appear as new uids
 - {name: Skydio,     ats: ashby, org: skydio, seed_only: true}     # careers page shows gh_jid-looking UUIDs, but they're Ashby ids; ~113 roles
 - {name: Snowflake,  ats: ashby, org: snowflake, seed_only: true}  # ~411 roles
 
