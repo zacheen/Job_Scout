@@ -15,6 +15,9 @@ class Job:
     description: str
     department: str = ""
     date_posted: str = ""
+    # Pipeline-derived caveat shown in the email (e.g. "possibly no visa sponsorship");
+    # never persisted (CsvStore's fixed _FIELDS ignore it).
+    note: str = ""
 
 
 @dataclass(frozen=True)

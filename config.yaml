@@ -169,6 +169,54 @@ exclude_word_terms:
   - "ux"
   - "tpu" # whole-word: bare "tpu" would substring-hit "output"
 
+# Drop a job when its DESCRIPTION contains any of these (lowercase substring; the text is
+# whitespace-collapsed and curly apostrophes straightened before matching, so a phrase still
+# hits across the line breaks strip_html leaves). Purpose: the formulaic "no visa/immigration
+# sponsorship" legal boilerplate. CAVEAT: Workday listings carry NO description (Oracle only
+# a short blurb) — those roles can't be caught here (the LLM sees the same text, so it
+# couldn't either). Substring redundancy is deliberate: "does not offer VISA sponsorship"
+# does NOT contain "not offer sponsorship", so the visa/immigration middles get their own rows.
+exclude_description_terms:
+  # broadest anchor: covers "will/do/does/can/cannot/may not sponsor" and "not sponsorship-eligible"
+  - "not sponsor"
+  - "won't sponsor"
+  - "no visa sponsorship"
+  - "no immigration sponsorship"
+  - "no sponsorship" # "no sponsorship (is) available / offered / provided"
+  - "unable to sponsor"
+  - "not able to sponsor"
+  # "does not offer/provide/support [visa|immigration] sponsorship"
+  - "not offer sponsorship"
+  - "not offer visa sponsorship"
+  - "not offer immigration sponsorship"
+  - "not provide sponsorship"
+  - "not provide visa sponsorship"
+  - "not provide immigration sponsorship"
+  - "not support sponsorship"
+  - "not support visa sponsorship"
+  - "unable to provide sponsorship"
+  - "unable to provide visa sponsorship"
+  - "unable to offer sponsorship"
+  - "unable to offer visa sponsorship"
+  - "sponsorship is not available"
+  - "sponsorship not available"
+  - "sponsorship is unavailable"
+  - "not eligible for sponsorship"
+  - "not eligible for visa sponsorship"
+  - "ineligible for sponsorship"
+  - "ineligible for visa sponsorship"
+
+# AMBIGUOUS sponsorship wording: these describe the CANDIDATE ("must not require sponsorship",
+# "authorized to work without sponsorship") — usually restrictive boilerplate, but not a
+# guaranteed "we don't sponsor". A match does NOT drop the job; it is still scored and
+# emailed, with a "possibly NO visa sponsorship" caveat line. Same matching semantics as
+# exclude_description_terms above.
+warn_description_terms:
+  - "not require sponsorship" # "must not require sponsorship now or in the future"
+  - "without sponsorship"     # "authorized to work ... without sponsorship"
+  - "without the need for sponsorship"
+  - "without the need for visa sponsorship"
+
 # Companies you have a referral at -> their roles form the TOP email group "Referral"
 # (above Intern). Matched against the company NAME (case-insensitive), so each must match
 # the `name:` used in companies.yaml.

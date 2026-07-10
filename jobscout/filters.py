@@ -1,7 +1,8 @@
-"""Pre-scoring filter (drops unwanted jobs), track routing, and level grouping."""
+"""Pre-scoring filter (drops unwanted jobs), description annotation, track routing, and level grouping."""
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from .config import Track
 from .models import Job
@@ -22,6 +23,13 @@ def _matches_any(pattern: re.Pattern | None, *texts: str) -> bool:
     return pattern is not None and any(pattern.search(t) for t in texts)
 
 
+def _normalize_prose(text: str) -> str:
+    """Lowercase free text, straighten curly apostrophes, and collapse whitespace runs —
+    strip_html leaves multi-space/newline gaps where tags were, which would break
+    multi-word phrase matching ("no  immigration\\nsponsorship")."""
+    return " ".join(text.replace("’", "'").lower().split())
+
+
 class PreFilter:
     """Initial gate applied before any scoring (keyword / CLI / API).
 
@@ -32,7 +40,7 @@ class PreFilter:
 
     def __init__(self, *, include_location_terms: list[str], exclude_location_terms: list[str],
                  exclude_terms: list[str], exclude_dept_terms: list[str],
-                 exclude_word_terms: list[str]):
+                 exclude_word_terms: list[str], exclude_description_terms: list[str]):
         self._include_location_terms = [t.lower() for t in include_location_terms]
         # Whole-word: location tokens are discrete, so "india" isn't swallowed by "Indiana"/"Indianapolis".
         # (This also stops matching adjectival forms "Colombian"/"Malaysian"/"Indian" — harmless, since every
@@ -43,9 +51,16 @@ class PreFilter:
         self._exclude_dept_terms = [t.lower() for t in exclude_dept_terms]
         # Whole-word matcher for tokens too short to be safe substrings (e.g. "ux" must not hit "linux").
         self._exclude_word_re = _word_re(exclude_word_terms)
-        # All pure predicates under all(), so this order only affects short-circuit speed, not the result.
+        # Normalized like the haystack so a term matches regardless of case/apostrophe/spacing.
+        # Deliberately substring, NOT _word_re: "not sponsor" must also hit "cannot sponsor"
+        # ("not" inside "cannot" has no \b boundary — rationale in config.yaml).
+        self._exclude_description_terms = [_normalize_prose(t) for t in exclude_description_terms
+                                           if t.strip()]
+        # All pure predicates under all(), so this order only affects short-circuit speed, not the
+        # result. Description scan goes last: it normalizes the longest text, and only after the
+        # cheap title/dept/location checks failed to drop the job.
         self._checks = (self._dept_allowed, self._location_not_excluded, self._location_included,
-                        self._role_allowed, self._role_words_allowed)
+                        self._role_allowed, self._role_words_allowed, self._description_allowed)
 
     def keep(self, job: Job) -> bool:
         return all(check(job) for check in self._checks)
@@ -72,6 +87,41 @@ class PreFilter:
         # Whole-word counterpart of _role_allowed for collision-prone short tokens.
         return not _matches_any(self._exclude_word_re, job.title, job.department)
 
+    def _description_allowed(self, job: Job) -> bool:
+        # "No visa sponsorship" boilerplate scan. Sources whose listing API omits the
+        # description (Workday; Oracle has only a short blurb) pass through vacuously —
+        # there is no text to match, here or at scoring time.
+        if not self._exclude_description_terms or not job.description:
+            return True
+        description = _normalize_prose(job.description)
+        return not any(term in description for term in self._exclude_description_terms)
+
+
+class DescriptionFlagger:
+    """Annotates (never drops) a job whose description matches a warn term, by returning
+    a copy with `Job.note` set — the email renders the note as a caveat line.
+
+    Companion to PreFilter's exclude_description_terms: that list is for phrasings that
+    unambiguously mean "we don't sponsor"; this one is for AMBIGUOUS boilerplate like
+    "authorized to work without sponsorship", which usually implies no sponsorship but
+    sometimes just describes the candidate pool — so the role is still emailed, flagged.
+    Same matching semantics as the exclude list (normalized substring).
+    """
+
+    def __init__(self, warn_description_terms: list[str],
+                 note: str = "possibly NO visa sponsorship — description says {term!r}"):
+        self._terms = [_normalize_prose(t) for t in warn_description_terms if t.strip()]
+        self._note = note
+
+    def annotate(self, job: Job) -> Job:
+        if not self._terms or not job.description:
+            return job
+        description = _normalize_prose(job.description)
+        term = next((t for t in self._terms if t in description), None)
+        if term is None:
+            return job
+        return replace(job, note=self._note.format(term=term))
+
 
 class TrackRouter:
     """Assigns a job to the first matching keyword track (title or description scan),
@@ -90,7 +140,10 @@ class TrackRouter:
                            if (pattern := _word_re(t.title_terms))]
 
     def route(self, job: Job) -> Track | None:
-        text = f"{job.title}\n{job.description}".lower()
+        # Normalize each field separately (whitespace runs from strip_html would break
+        # multi-word keywords like "computer vision"); the \n join stays so a keyword
+        # can't span the title/description boundary — same rule as PreFilter._role_allowed.
+        text = f"{_normalize_prose(job.title)}\n{_normalize_prose(job.description)}"
         base = next((t for t in self._keyword_tracks
                      if any(keyword in text for keyword in t.keywords)), None)
         if base is None:
