@@ -460,6 +460,50 @@ class SmartRecruitersFetcher(PaginatedFetcher):
         return value.get("label", "") if isinstance(value, dict) else ""
 
 
+class JibeFetcher(PaginatedFetcher):
+    """Jibe / iCIMS Talent Cloud careers sites. `GET https://{host}/api/jobs` with
+    sortBy=posted_date&descending=true returns jobs[].data newest-first (verified for AMD
+    and Rivian), so the seen-based early-stop applies. Pages are 1-based, 10 rows,
+    server-fixed. `host` is the careers host (careers.amd.com, careers.rivian.com)."""
+
+    ats_name = "jibe"
+    _PAGE = 10
+    _SEED_MAX_PAGES = 10
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        host = self._param("host")
+        data = self._http.get_json(
+            f"https://{host}/api/jobs",
+            params={"page": index + 1, "sortBy": "posted_date", "descending": "true"},
+        )
+        jobs = []
+        for wrapper in data.get("jobs", []):
+            item = wrapper.get("data") or {}
+            if not item.get("req_id"):
+                continue
+            categories = item.get("categories") or []
+            jobs.append(
+                Job(
+                    job_uid=self._uid(item["req_id"]),
+                    company=self._company.name,
+                    title=item.get("title", ""),
+                    location=item.get("full_location", ""),
+                    # canonical_url is the public JD page; apply_url is an icims LOGIN page —
+                    # wrong for email links.
+                    url=(item.get("meta_data") or {}).get("canonical_url")
+                        or f"https://{host}/jobs/{item['req_id']}",
+                    description=strip_html(item.get("description", "")),
+                    department=categories[0]["name"] if categories else "",
+                    date_posted=item.get("posted_date", ""),
+                )
+            )
+        return jobs, data.get("totalCount")
+
+
 class AmazonFetcher(PaginatedFetcher):
     """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
     `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
@@ -619,6 +663,97 @@ class TinderFetcher(AtsFetcher):
         ]
 
 
+class WorkableFetcher(AtsFetcher):
+    """Workable-hosted boards via the anonymous v1 widget API: ONE request returns every
+    posting including full descriptions (`details=true`). The newer v3 jobs API pages by
+    opaque token for the same data, so v1 stays the simpler fit for these small boards.
+    `account` is the apply.workable.com account slug (e.g. pony-dot-ai)."""
+
+    ats_name = "workable"
+
+    @property
+    def host(self) -> str:
+        return "apply.workable.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        account = self._param("account")
+        data = self._http.get_json(
+            f"https://apply.workable.com/api/v1/widget/accounts/{account}",
+            params={"details": "true"},
+        )
+        return [
+            Job(
+                job_uid=self._uid(item["shortcode"]),
+                company=self._company.name,
+                title=item.get("title", ""),
+                location=", ".join(p for p in (item.get("city"), item.get("state"),
+                                               item.get("country")) if p),
+                # `url` is the public posting page; `application_url` ("/apply") jumps
+                # straight to the form — wrong for email links.
+                url=item.get("url", ""),
+                description=strip_html(item.get("description", "")),
+                department=item.get("department") or "",
+                date_posted=item.get("published_on", ""),
+            )
+            for item in data.get("jobs", []) if item.get("shortcode")
+        ]
+
+
+class JazzHRFetcher(AtsFetcher):
+    """JazzHR-hosted boards ({account}.applytojob.com/apply). The JSON API needs a
+    per-customer key, but the board page is plain server-rendered HTML: one
+    `<a href=".../apply/{id}/{slug}">` per job, followed by a list-inline <ul> whose
+    fa-map-marker / fa-sitemap items carry location / department. No dates and no
+    descriptions -> single-shot board, roles match on title only.
+
+    Single-shot rests on the board rendering ALL openings in one page — verified for
+    Ouster (21 rows, zero pagination markers in the HTML), and plausible platform-wide
+    (JazzHR is an SMB ATS). fetch() still logs a warning past _SUSPICIOUS_COUNT so a
+    future large board can't silently truncate."""
+
+    _SUSPICIOUS_COUNT = 100  # ~5x the verified board; re-verify no pagination past this
+
+    ats_name = "jazzhr"
+
+    # One match per job card: the apply anchor, then everything up to the closing </ul>
+    # of the location/department list (`tail`). Attribute quoting varies (' vs ") across
+    # JazzHR themes, so both are accepted.
+    _JOB_RE = re.compile(
+        r"""href=["'](?P<url>https://[^"']+/apply/(?P<id>[A-Za-z0-9]+)/[^"']*)["'][^>]*>
+            \s*(?P<title>[^<]+?)\s*</a>(?P<tail>.*?)</ul>""",
+        re.DOTALL | re.VERBOSE,
+    )
+    _LOCATION_RE = re.compile(r"fa-map-marker[^>]*>\s*</i>\s*([^<]*)")
+    _DEPT_RE = re.compile(r"fa-sitemap[^>]*>\s*</i>\s*([^<]*)")
+
+    @property
+    def host(self) -> str:
+        return f"{self._param('account')}.applytojob.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        body = self._http.get_text(f"https://{self.host}/apply")
+        jobs = []
+        for match in self._JOB_RE.finditer(body):
+            location = self._LOCATION_RE.search(match.group("tail"))
+            department = self._DEPT_RE.search(match.group("tail"))
+            jobs.append(
+                Job(
+                    job_uid=self._uid(match.group("id")),
+                    company=self._company.name,
+                    title=html.unescape(match.group("title")).strip(),
+                    location=html.unescape(location.group(1)).strip() if location else "",
+                    url=match.group("url"),
+                    description="",  # board page carries no description
+                    department=html.unescape(department.group(1)).strip() if department else "",
+                    date_posted="",  # board page carries no posting date
+                )
+            )
+        if len(jobs) >= self._SUSPICIOUS_COUNT:
+            log.warning("jazzhr %s: %d rows parsed from one page — re-verify the board "
+                        "doesn't paginate at this size", self.host, len(jobs))
+        return jobs
+
+
 class GithubRepoFetcher(AtsFetcher):
     """Base for aggregator sources whose postings live in a GitHub repo, read from
     raw.githubusercontent.com. All subclasses share that host, so ParallelFetcher runs
@@ -745,9 +880,12 @@ class FetcherFactory:
         WorkdayFetcher.ats_name: WorkdayFetcher,
         OracleFetcher.ats_name: OracleFetcher,
         SmartRecruitersFetcher.ats_name: SmartRecruitersFetcher,
+        JibeFetcher.ats_name: JibeFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
         GoogleFetcher.ats_name: GoogleFetcher,
         TinderFetcher.ats_name: TinderFetcher,
+        WorkableFetcher.ats_name: WorkableFetcher,
+        JazzHRFetcher.ats_name: JazzHRFetcher,
         SimplifyFetcher.ats_name: SimplifyFetcher,
         SpeedyApplyFetcher.ats_name: SpeedyApplyFetcher,
     }
