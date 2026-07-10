@@ -9,6 +9,9 @@
 #   google:     query (optional), location (optional; default "United States")
 #   oracle:     host, site (the CX_N siteNumber from the Oracle candidate-experience URL)
 #   smartrecruiters: company (the companyId from jobs.smartrecruiters.com/{company})
+#   jibe:       host             -> https://{host}/api/jobs (Jibe/iCIMS careers sites; newest-first)
+#   workable:   account          -> apply.workable.com/api/v1/widget/accounts/{account}
+#   jazzhr:     account          -> {account}.applytojob.com/apply (server-rendered HTML board)
 #   tinder:     (no params) first-party proxy for Tinder-only roles
 #   simplify:   repo (owner/name); optional path, branch  -> parses .github/scripts/listings.json
 #   speedyapply:repo (owner/name); optional files (comma-separated .md tables), branch
@@ -48,11 +51,27 @@
 - {name: Zipline,     ats: greenhouse, board: flyzipline}                    # slug flyzipline (zipline 404s)
 - {name: Zuora,       ats: greenhouse, board: zuora}
 - {name: Tenstorrent, ats: greenhouse, board: tenstorrent, seed_only: true}  # AI-chip; ~123 roles
+# CV batch 2026-07-10 (robotics / drones / AV theme; all boards live-verified). seed_only
+# where the backlog is ~100+. Several slugs differ from the company name (noted inline).
+- {name: Nuro,             ats: greenhouse, board: nuro}                              # AV delivery; ~93
+- {name: Aurora,           ats: greenhouse, board: aurorainnovation, seed_only: true} # AV trucking; ~146
+- {name: Kodiak Robotics,  ats: greenhouse, board: kodiak}                            # AV trucking; ~70
+- {name: Torc Robotics,    ats: greenhouse, board: torcrobotics}                      # Daimler AV trucking; ~50
+- {name: May Mobility,     ats: greenhouse, board: maymobility}     # AV shuttles; board "maymobilityjobs" is a live-but-EMPTY decoy
+- {name: Anduril,          ats: greenhouse, board: andurilindustries, seed_only: true} # defense autonomy; ~2155 (per-location dupes)
+- {name: Agility Robotics, ats: greenhouse, board: agilityrobotics}                   # humanoids; ~52
+- {name: Apptronik,        ats: greenhouse, board: apptronik}                         # humanoids (Austin); ~97
+- {name: Skild AI,         ats: greenhouse, board: skildai-careers}  # robot foundation models; slug hidden in site JS ("skildai" 404s)
+- {name: Wing,             ats: greenhouse, board: wing}                              # Alphabet drone delivery; ~24
+- {name: Verkada,          ats: greenhouse, board: verkada, seed_only: true}          # security cameras CV; ~293
+- {name: Scale AI,         ats: greenhouse, board: scaleai, seed_only: true}          # AI data/infra; ~183 (board "scale" is wrong)
 
 # --- Lever ---
 - {name: Netflix,    ats: lever, org: netflix}
 - {name: Zoox,       ats: lever, org: zoox}        # referral
 - {name: Rigetti,    ats: lever, org: rigetti}     # quantum computing, Berkeley/Fremont CA
+- {name: Shield AI,  ats: lever, org: shieldai, seed_only: true}  # defense drones/AI pilots; ~416 (Greenhouse "shieldai" 404s)
+- {name: Waabi,      ats: lever, org: waabi}       # AV trucking foundation models; ~60 (Toronto HQ + SF; PreFilter keeps US)
 
 # --- Ashby ---
 - {name: OpenAI,     ats: ashby, org: openai}
@@ -61,6 +80,12 @@
 - {name: Plaid,      ats: ashby, org: plaid, seed_only: true}      # moved off Greenhouse (board 404s since 2026-07); ~106 roles re-appear as new uids
 - {name: Skydio,     ats: ashby, org: skydio, seed_only: true}     # careers page shows gh_jid-looking UUIDs, but they're Ashby ids; ~113 roles
 - {name: Snowflake,  ats: ashby, org: snowflake, seed_only: true}  # ~411 roles
+- {name: Applied Intuition, ats: ashby, org: applied, seed_only: true}     # AV simulation; org is "applied" NOT appliedintuition; ~254
+- {name: Physical Intelligence, ats: ashby, org: physicalintelligence}     # robot foundation models (SF); ~24
+- {name: 1X Technologies, ats: ashby, org: 1x}                             # humanoids (San Carlos/Hayward board; Norway roles separate); ~67
+# org has a literal space -> URL-encoded here (fetcher interpolates raw). Bare "Flock" is a
+# DIFFERENT company (UK motor insurer) — do not "fix" this to Flock.
+- {name: Flock Safety, ats: ashby, org: "Flock%20Safety"}                  # cameras/drones public safety; ~40
 
 # --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
 - {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}
@@ -73,6 +98,8 @@
 # tenant "sec" = Samsung Electronics Co; site is global (~530 roles, US filtered by PreFilter) -> seed_only.
 - {name: Samsung, ats: workday, host: sec.wd3.myworkdayjobs.com, tenant: sec, site: Samsung_Careers, seed_only: true}
 - {name: F5, ats: workday, host: ffive.wd5.myworkdayjobs.com, tenant: ffive, site: f5jobs, seed_only: true}  # ~266 roles ("F5 Tower" = Seattle)
+- {name: Boston Dynamics, ats: workday, host: bostondynamics.wd1.myworkdayjobs.com, tenant: bostondynamics, site: Boston_Dynamics}  # ~73 (Waltham MA)
+- {name: Cognex, ats: workday, host: cognex.wd1.myworkdayjobs.com, tenant: cognex, site: External_Career_Site}  # machine vision; ~89 global
 
 # --- Oracle Recruiting (Fusion HCM candidate-experience API; newest-first, paginated) ---
 - {name: Ford, ats: oracle, host: efds.fa.em5.oraclecloud.com, site: CX_1}       # referral
@@ -83,6 +110,17 @@
 # --- SmartRecruiters (public postings API; content[] newest-first by releasedDate) ---
 - {name: Intuitive, ats: smartrecruiters, company: Intuitive, seed_only: true}   # Intuitive Surgical; ~586
 - {name: Bosch,     ats: smartrecruiters, company: BoschGroup, seed_only: true}  # ~4671 global roles
+
+# --- Jibe / iCIMS Talent Cloud (first-party careers-site JSON; newest-first; full descriptions.
+#     Apply links go to icims.com but the JD canonical_url is public) ---
+- {name: AMD,    ats: jibe, host: careers.amd.com, seed_only: true}     # ~1073 roles
+- {name: Rivian, ats: jibe, host: careers.rivian.com, seed_only: true}  # EV + autonomy/CV; ~591 roles
+
+# --- Workable (anonymous v1 widget; one request, full descriptions) ---
+- {name: Pony.ai, ats: workable, account: pony-dot-ai}  # AV; US board (Fremont CA), ~7 roles
+
+# --- JazzHR (server-rendered HTML board; no dates/descriptions -> title-only matching) ---
+- {name: Ouster, ats: jazzhr, account: ouster}          # lidar (SF + remote); ~21 roles
 
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
@@ -116,6 +154,5 @@
 
 # --- Deferred (reachable anonymously but need a NEW fetcher — method-E first-party JSON,
 #     see notes/job-source-methods.md):
-#     AMD (careers.amd.com Jibe/iCIMS API works, newest-first; apply goes to icims.com,
-#     no Workday route — amd.wd1 CXS 422s), TikTok (lifeattiktok.com SPA, no embedded
-#     JSON; jobs load from a client-side API, unprobed). ---
+#     TikTok (lifeattiktok.com SPA, no embedded JSON; jobs load from a client-side API,
+#     unprobed). ---
