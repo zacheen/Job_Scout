@@ -22,6 +22,11 @@ class Company:
     params: dict[str, str]  # ATS-specific keys (board / org / host / tenant / site)
     seed_only: bool = False  # pipeline flag: first appearance seeds silently, then only new roles email
 
+    def param_bool(self, key: str, default: bool = False) -> bool:
+        """Boolean ATS param (params values are str() coerced, so "True"/"true"/"1" all work)."""
+        value = self.params.get(key)
+        return _as_bool(value) if value is not None else default
+
 
 @dataclass(frozen=True)
 class Track:
