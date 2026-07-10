@@ -13,9 +13,9 @@ this script wraps a scan with a pull / union-merge / push cycle:
     5. merge again and commit + push both csvs; if the cloud pushed while we
        were scanning, re-merge and retry the push once
 
-NOT merge_seen_jobs.py: that script is a one-shot migration in the opposite
-direction — it absorbs the root csv into data/ and then DELETES the root csv,
-which would make the next cloud run treat the whole ledger as unseeded.
+NOT merge_seen_jobs.py: that script is a one-shot migration — it absorbs one
+csv into the other (direction picked via --to) and then DELETES the source csv,
+which would make the next cloud/local run treat the whole ledger as unseeded.
 """
 from __future__ import annotations
 
