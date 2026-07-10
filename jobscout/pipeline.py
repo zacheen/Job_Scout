@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
 
 from collections.abc import Collection
 
@@ -104,6 +106,8 @@ class Pipeline:
         if len(groups) > 1 and top_count:
             subject += f" ({top_count} {top_group.lower()})"
         subject += f" [{self._scorer.method_label}]"
+        # Timestamp makes each subject unique so Gmail doesn't thread digests together.
+        subject += f" {datetime.now(ZoneInfo('America/New_York')):%m/%d %H:%M}"
 
         try:
             self._notifier.send_digest(digest, subject=subject)
