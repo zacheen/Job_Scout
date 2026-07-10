@@ -5,9 +5,9 @@ wires the files together.
 
 Direction is selectable: --to data (default) absorbs the stray root
 seen_jobs.csv into data/seen_jobs.csv (the config ledger); --to root reverses
-it. WARNING: the deleted source may be the ledger the next cloud/local run
-reads, which would make that run treat the whole ledger as unseeded — pass
---keep-source when the source csv is still live.
+it. The source csv is kept by default; --delete-source removes it. WARNING:
+the deleted source may be the ledger the next cloud/local run reads, which
+would make that run treat the whole ledger as unseeded.
 """
 from __future__ import annotations
 
@@ -25,14 +25,14 @@ ROOT = Path(__file__).resolve().parent
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(
-        description="Merge one seen_jobs ledger csv into the other, then delete the source.")
+        description="Merge one seen_jobs ledger csv into the other.")
     parser.add_argument(
         "--to", choices=("data", "root"), default="data",
         help="merge destination: 'data' folds the root seen_jobs.csv into the config "
              "ledger (default); 'root' folds the config ledger into the root csv")
     parser.add_argument(
-        "--keep-source", action="store_true",
-        help="keep the source csv after merging instead of deleting it")
+        "--delete-source", action="store_true",
+        help="delete the source csv after a successful merge (kept by default)")
     args = parser.parse_args()
 
     settings = Settings.load(ROOT)
@@ -55,7 +55,7 @@ def main() -> int:
     print(f"wrote {dest}: {len(store)} rows, {len(store.known_uids())} source uids, "
           f"{len(store.known_urls())} urls")
 
-    if source.exists() and not args.keep_source:
+    if source.exists() and args.delete_source:
         source.unlink()
         print(f"deleted {source}")
     return 0
