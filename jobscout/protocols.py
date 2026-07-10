@@ -54,7 +54,7 @@ class Leveler(Protocol):
 class JobScorer(Protocol):
     method_label: ClassVar[str]  # scoring method shown in the email subject, e.g. "API" / "CLI" / "Keyword"
 
-    def score(self, job: Job, track: Track) -> Score: ...
+    def score(self, job: Job) -> Score: ...
 
 
 class Notifier(Protocol):

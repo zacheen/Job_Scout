@@ -22,6 +22,5 @@ class Job:
 
 @dataclass(frozen=True)
 class Score:
-    relevance_score: int    # 0-100, fit to the job's assigned track
-    experience_score: int   # 0-100, fit to the candidate's resume
+    experience_score: int   # 0-100, candidate-resume fit to this specific role
     reason: str

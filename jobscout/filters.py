@@ -124,34 +124,30 @@ class DescriptionFlagger:
 
 
 class TrackRouter:
-    """Assigns a job to the first matching keyword track (title or description scan),
-    then lets a title-override track (one with `title_terms`, e.g. "Senior") reclassify
-    it on a whole-word TITLE match. A job matching no keyword track is never routed,
-    even if a title term matches. `ordered_names` = config order = email section order,
-    so an override track listed last in config renders as the last section.
+    """Assigns a job to the FIRST track (config order) whose keyword hit count reaches
+    its `min_hits`. A hit = one substring occurrence of one keyword in the title or the
+    description; the SAME keyword occurring N times contributes N hits. A job reaching
+    no track's min_hits is dropped. `ordered_names` = config order = email section order.
 
     Order matters: put more specific keyword tracks before broader ones in config.
     """
 
     def __init__(self, tracks: list[Track]):
         self._tracks = tracks
-        self._keyword_tracks = [t for t in tracks if t.is_keyword_track()]
-        self._overrides = [(t, pattern) for t in tracks
-                           if (pattern := _word_re(t.title_terms))]
 
     def route(self, job: Job) -> Track | None:
         # Normalize each field separately (whitespace runs from strip_html would break
-        # multi-word keywords like "computer vision"); the \n join stays so a keyword
-        # can't span the title/description boundary — same rule as PreFilter._role_allowed.
-        text = f"{_normalize_prose(job.title)}\n{_normalize_prose(job.description)}"
-        base = next((t for t in self._keyword_tracks
-                     if any(keyword in text for keyword in t.keywords)), None)
-        if base is None:
-            return None
-        for track, pattern in self._overrides:
-            if track is not base and pattern.search(job.title):
+        # multi-word keywords like "computer vision"). Counting per field also means a
+        # keyword can't match across the title/description boundary — same rule as
+        # PreFilter._role_allowed.
+        title = _normalize_prose(job.title)
+        description = _normalize_prose(job.description)
+        for track in self._tracks:
+            # str.count is non-overlapping, e.g. "aa".count("aa") == 1, not 2.
+            hits = sum(title.count(kw) + description.count(kw) for kw in track.keywords)
+            if hits >= track.min_hits:
                 return track
-        return base
+        return None
 
     def ordered_names(self) -> list[str]:
         return [track.name for track in self._tracks]
@@ -161,32 +157,42 @@ class LevelClassifier:
     """Top-level email grouping, first match wins (most important first): the referral
     group if the job's COMPANY is one the user has a referral at; else the intern group if
     the TITLE matches an intern/co-op term (whole-word, so "internal"/"international" don't
-    count); else the default group. `ordered_groups` = top-to-bottom order in the email.
+    count); else the senior group on a whole-word TITLE match (so "sr" doesn't hit inside
+    other words) — referral outranks it, a senior role at a referral company stays in
+    Referral; else the default group. `ordered_groups` = top-to-bottom order in the email;
+    senior renders LAST (below default) since those roles are usually skimmed past.
     """
 
     def __init__(self, referral_companies: list[str], intern_terms: list[str],
+                 senior_terms: list[str] = (),
                  referral_group: str = "Referral", intern_group: str = "Intern",
-                 default_group: str = "Other roles"):
+                 default_group: str = "Other roles", senior_group: str = "Senior"):
         self._referral = {c.strip().lower() for c in referral_companies if c.strip()}
         self._intern_re = _word_re(intern_terms)
+        self._senior_re = _word_re(senior_terms)
         self._referral_group = referral_group
         self._intern_group = intern_group
         self._default_group = default_group
+        self._senior_group = senior_group
         # Precompute the groups that can actually appear, in email order (top-to-bottom):
-        # referral only if any referral companies, intern only if any terms, default always.
+        # each conditional group only if it has match data, default always, senior last.
         groups = []
         if self._referral:
             groups.append(referral_group)
         if self._intern_re:
             groups.append(intern_group)
         groups.append(default_group)
+        if self._senior_re:
+            groups.append(senior_group)
         self._ordered_groups = tuple(groups)
 
     def group(self, job: Job) -> str:
         if job.company.lower() in self._referral:
             return self._referral_group
-        if self._intern_re and self._intern_re.search(job.title):
+        if _matches_any(self._intern_re, job.title):
             return self._intern_group
+        if _matches_any(self._senior_re, job.title):
+            return self._senior_group
         return self._default_group
 
     def ordered_groups(self) -> list[str]:

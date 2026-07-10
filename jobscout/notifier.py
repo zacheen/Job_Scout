@@ -56,7 +56,7 @@ class EmailNotifier:
                         f"  location: {job.location or '?'} | dept: {job.department or '?'} | "
                         f"posted: {job.date_posted or '?'}"
                     )
-                    lines.append(f"  relevance: {score.relevance_score} | experience: {score.experience_score}")
+                    lines.append(f"  experience: {score.experience_score}")
                     if job.note:
                         lines.append(f"  ⚠ {job.note}")
                     lines.append(f"  why: {score.reason}")

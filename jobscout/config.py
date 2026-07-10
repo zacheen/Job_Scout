@@ -25,23 +25,10 @@ class Company:
 
 @dataclass(frozen=True)
 class Track:
-    name: str              # shown in the email subject, e.g. "Computer Vision"
-    description: str       # fed to the LLM as the target this track scores against
-    keywords: list[str]    # route a job to this track + score it on the keyword tier
-    threshold: int         # minimum relevance_score to email
-    # Title override: after keyword routing picks a track, a whole-word match of any
-    # of these in the TITLE reclassifies the job into THIS track (e.g. "Senior").
-    title_terms: list[str]
-
-    def is_keyword_track(self) -> bool:
-        """Participates in base keyword routing (an override-only track does not)."""
-        return bool(self.keywords)
-
-    def score_terms(self) -> list[str]:
-        """Terms for the no-LLM keyword-fallback scorer. An override-only track falls
-        back to its title_terms — with empty keywords it would be stuck at the floor
-        score and silently never pass its threshold."""
-        return self.keywords or self.title_terms
+    name: str              # shown in the email section header, e.g. "Computer Vision"
+    keywords: list[str]    # routing terms, matched as lowercase substrings in title/description
+    threshold: int         # a role is emailed only when experience_score exceeds this
+    min_hits: int = 1      # keyword hits (title + description, repeats count) needed to route here
 
 
 @dataclass(frozen=True)
@@ -54,6 +41,7 @@ class Settings:
     exclude_description_terms: list[str]
     warn_description_terms: list[str]
     intern_terms: list[str]
+    senior_terms: list[str]
     referral_companies: list[str]
     include_location_terms: list[str]
     exclude_location_terms: list[str]
@@ -93,6 +81,7 @@ class Settings:
             exclude_description_terms=cfg.get("exclude_description_terms", []),
             warn_description_terms=cfg.get("warn_description_terms", []),
             intern_terms=cfg.get("intern_terms", ["intern", "internship", "co-op", "coop"]),
+            senior_terms=cfg.get("senior_terms", []),
             referral_companies=cfg.get("referral_companies", []),
             include_location_terms=cfg["include_location_terms"],
             exclude_location_terms=cfg.get("exclude_location_terms", []),
@@ -128,15 +117,15 @@ class Settings:
     def _to_track(entry: dict) -> Track:
         track = Track(
             name=entry["name"],
-            description=entry.get("description", entry["name"]),
-            # keywords optional: an override-only track (e.g. "Senior") has just title_terms.
             keywords=[k.lower() for k in entry.get("keywords", [])],
             threshold=int(entry.get("threshold", 50)),
-            title_terms=[t.lower() for t in entry.get("title_terms", [])],
+            min_hits=int(entry.get("min_hits", 1)),
         )
-        if not track.keywords and not track.title_terms:
-            # Fail fast: with neither, the track is dead config (listed but unroutable), e.g. a keywords: typo.
-            raise ValueError(f"track {track.name!r} has neither keywords nor title_terms")
+        if not track.keywords:
+            # Fail fast: a keyword-less track is dead config (listed but unroutable), e.g. a keywords: typo.
+            raise ValueError(f"track {track.name!r} has no keywords")
+        if track.min_hits < 1:
+            raise ValueError(f"track {track.name!r} min_hits must be >= 1, got {track.min_hits}")
         return track
 
     @staticmethod

@@ -174,14 +174,14 @@ class Pipeline:
                     continue
                 self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score,
                                       method=self._scorer.method_label)
-                if attempt.score.relevance_score > attempt.track.threshold:
+                if attempt.score.experience_score > attempt.track.threshold:
                     by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
         return by_track
 
     def _score_one(self, pair: tuple[Job, Track]) -> _ScoreAttempt:
         job, track = pair
         try:
-            return _ScoreAttempt(job, track, self._scorer.score(job, track))
+            return _ScoreAttempt(job, track, self._scorer.score(job))
         except Exception as exc:  # unscored rows remain unseeded; retry next run
             log.warning("could not score %s: %s", job.job_uid, exc)
             return _ScoreAttempt(job, track, None)

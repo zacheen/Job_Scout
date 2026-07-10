@@ -18,14 +18,14 @@ log = logging.getLogger(__name__)
 
 _FIELDS = [
     "job_key", "company", "title", "location", "department", "urls", "date_posted",
-    "first_seen", "track", "scored", "score_method", "relevance_score",
+    "first_seen", "track", "scored", "score_method",
     "experience_score", "reason", "emailed", "source_uids",
 ]
 
 # Fields describing the posting itself; on merge the newer snapshot wins.
 _CONTENT_FIELDS = ("company", "title", "location", "department", "date_posted")
 # Fields written together by one scoring pass; on merge they move as a block.
-_SCORE_FIELDS = ("scored", "score_method", "relevance_score", "experience_score", "reason")
+_SCORE_FIELDS = ("scored", "score_method", "experience_score", "reason")
 
 # Merge fidelity order (matches build_scorer's preference). "" = a legacy row scored
 # before score_method existed: real LLM output of unknown origin, so it only loses
@@ -136,7 +136,6 @@ class CsvStore:
         row["track"] = track
         row["scored"] = "true"
         row["score_method"] = method
-        row["relevance_score"] = str(score.relevance_score)
         row["experience_score"] = str(score.experience_score)
         row["reason"] = score.reason
 
@@ -253,7 +252,6 @@ class CsvStore:
             "track": "",
             "scored": "false",
             "score_method": "",
-            "relevance_score": "",
             "experience_score": "",
             "reason": "",
             "emailed": "false",
@@ -276,7 +274,6 @@ class CsvStore:
             "track": old.get("track", ""),
             "scored": old.get("scored", "false"),
             "score_method": "",  # scored before score_method existed: origin unknown
-            "relevance_score": old.get("relevance_score", ""),
             "experience_score": old.get("experience_score", ""),
             "reason": old.get("reason", ""),
             "emailed": old.get("emailed", "false"),
