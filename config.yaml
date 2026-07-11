@@ -120,6 +120,8 @@ exclude_terms:
   - "drug" # pharma / drug-discovery domain
   - "environmental" # environmental science / sustainability field
   - "mechanical" # different engineering discipline (also matches "electromechanical")
+  - "electrical"
+  - "firmware"
   - "safety"
   - "network"
   - "cybersecurity"
@@ -207,6 +209,11 @@ exclude_description_terms:
   - "not eligible for visa sponsorship"
   - "ineligible for sponsorship"
   - "ineligible for visa sponsorship"
+  # US-citizenship / security-clearance requirements — a visa candidate can't meet these
+  - "security clearance"
+  - "ts/sci"            # postings that write "TS/SCI clearance" without the word "security"
+  - "be a us citizen"   # requirement phrasing ("candidate selected be a US Citizen"; "must be a US citizen")
+  - "be a u.s. citizen" # same, period spelling (normalizer keeps the dots)
 
 # AMBIGUOUS sponsorship wording: these describe the CANDIDATE ("must not require sponsorship",
 # "authorized to work without sponsorship") — usually restrictive boilerplate, but not a
