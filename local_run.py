@@ -13,6 +13,10 @@ push cycle:
     4. run the normal scan (jobscout main, same as run.py)
     5. merge again and commit + push both dirs; if the cloud pushed while we
        were scanning, re-merge and retry the push once
+
+NOT merge_seen_jobs.py: that script is a one-off manual fold in ONE direction
+(default cloud_data -> local_data) that rewrites only the destination — no git
+sync, no scan, and the dirs are not kept identical as step 3 requires.
 """
 from __future__ import annotations
 
