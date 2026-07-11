@@ -186,6 +186,11 @@ class LevelClassifier:
             groups.append(senior_group)
         self._ordered_groups = tuple(groups)
 
+    @property
+    def senior_group(self) -> str:
+        """Exposed so wiring (e.g. __main__) can key per-group scorer overrides on this name."""
+        return self._senior_group
+
     def group(self, job: Job) -> str:
         if job.company.lower() in self._referral:
             return self._referral_group

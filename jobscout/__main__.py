@@ -14,7 +14,7 @@ from .fetchers import AtsFetcher, FetcherFactory, HttpClient, ParallelFetcher
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
-from .scoring import build_scorer
+from .scoring import CliScorer, KeywordScorer, build_scorer
 from .store import CsvStore
 
 
@@ -48,6 +48,16 @@ def main() -> None:
         AtsFetcher.uid_prefix(c.ats, c.name)
         for c in settings.companies if c.seed_only
     }
+    leveler = LevelClassifier(settings.referral_companies, settings.intern_terms,
+                              settings.senior_terms)
+    scorer = build_scorer(settings)
+    # Senior roles render last in the email and are usually skimmed past, so they don't
+    # justify a slow local CLI subprocess call: swap in the keyword heuristic for them
+    # on the CLI path. API path is unaffected — it scores every group.
+    scorer_overrides = {}
+    if settings.senior_terms and isinstance(scorer, CliScorer):
+        scorer_overrides[leveler.senior_group] = KeywordScorer(settings.resume_text)
+
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_path, track_priority=settings.track_names),
         fetcher=ParallelFetcher(fetchers),
@@ -61,12 +71,12 @@ def main() -> None:
         ),
         annotator=DescriptionFlagger(settings.warn_description_terms),
         router=TrackRouter(settings.tracks),
-        leveler=LevelClassifier(settings.referral_companies, settings.intern_terms,
-                                settings.senior_terms),
-        scorer=build_scorer(settings),
+        leveler=leveler,
+        scorer=scorer,
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
         score_workers=settings.score_workers,
         seed_only_prefixes=seed_only_prefixes,
+        scorer_overrides=scorer_overrides,
     )
     pipeline.run()
 

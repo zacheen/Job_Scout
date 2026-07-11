@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 
 from .config import Track
 from .models import Job, Score
@@ -21,6 +21,7 @@ class _ScoreAttempt(NamedTuple):
     job: Job
     track: Track
     score: Score | None  # None = scoring failed (already logged, not re-raised)
+    method: str  # method_label of the scorer that actually ran (group overrides may differ)
 
 
 class Pipeline:
@@ -37,6 +38,7 @@ class Pipeline:
         notifier: Notifier,
         score_workers: int = 1,
         seed_only_prefixes: Collection[str] = (),
+        scorer_overrides: Mapping[str, JobScorer] | None = None,
     ):
         if score_workers < 1:
             raise ValueError(f"score_workers must be >= 1, got {score_workers}")
@@ -51,6 +53,10 @@ class Pipeline:
         self._score_workers = score_workers
         # uid prefixes of sources that seed silently on their first appearance (see run()).
         self._seed_only_prefixes = tuple(seed_only_prefixes)
+        # Per-group scorer overrides: a job whose leveler group is listed here is scored
+        # by that scorer instead of `scorer`. Email subject always shows the primary
+        # scorer's label; the ledger records the actual method used per row.
+        self._scorer_overrides = dict(scorer_overrides or {})
 
     def run(self) -> None:
         all_jobs = self._fetch_all()
@@ -173,18 +179,19 @@ class Pipeline:
                 if attempt.score is None:
                     continue
                 self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score,
-                                      method=self._scorer.method_label)
+                                      method=attempt.method)
                 if attempt.score.experience_score > attempt.track.threshold:
                     by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
         return by_track
 
     def _score_one(self, pair: tuple[Job, Track]) -> _ScoreAttempt:
         job, track = pair
+        scorer = self._scorer_overrides.get(self._leveler.group(job), self._scorer)
         try:
-            return _ScoreAttempt(job, track, self._scorer.score(job))
+            return _ScoreAttempt(job, track, scorer.score(job), scorer.method_label)
         except Exception as exc:  # unscored rows remain unseeded; retry next run
             log.warning("could not score %s: %s", job.job_uid, exc)
-            return _ScoreAttempt(job, track, None)
+            return _ScoreAttempt(job, track, None, scorer.method_label)
 
     @staticmethod
     def _emailable(candidates: list[Job], known_urls: set[str]) -> list[Job]:
