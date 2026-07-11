@@ -30,6 +30,12 @@ def strip_html(text: str | None) -> str:
     return html.unescape(_TAG_RE.sub(" ", text)).strip()
 
 
+def _first_match(pattern: re.Pattern, text: str) -> str:
+    """First capture group of `pattern` in `text`, HTML-stripped/unescaped, or "" if absent."""
+    match = pattern.search(text)
+    return strip_html(match.group(1)) if match else ""
+
+
 def _unix_to_date(ts: int | float | None) -> str:
     """Unix seconds -> ISO date (YYYY-MM-DD), or '' if missing/out of range."""
     try:
@@ -164,8 +170,10 @@ class HttpClient:
         return resp.text
 
     @_throttled
-    def post_json(self, url: str, payload: dict):
-        resp = self._session.post(url, json=payload, timeout=self._timeout)
+    def post_json(self, url: str, payload: dict, headers: dict | None = None):
+        # Per-call headers merge over the session's (User-Agent stays); some ATSes
+        # (ByteDance) 400 unless specific gateway headers are present.
+        resp = self._session.post(url, json=payload, headers=headers, timeout=self._timeout)
         resp.raise_for_status()
         return resp.json()
 
@@ -260,6 +268,10 @@ class GreenhouseFetcher(AtsFetcher):
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         board = self._param("board")
+        # Optional: board-specific metadata field with the real city, for boards whose
+        # location.name is a policy string ("Hybrid"/"Distributed" — Cloudflare) that
+        # PreFilter's location terms would reject.
+        metadata_field = self._company.params.get("location_metadata", "")
         data = self._http.get_json(
             f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs",
             params={"content": "true"},
@@ -272,7 +284,7 @@ class GreenhouseFetcher(AtsFetcher):
                     job_uid=self._uid(item["id"]),
                     company=self._company.name,
                     title=item.get("title", ""),
-                    location=(item.get("location") or {}).get("name", ""),
+                    location=self._location(item, metadata_field),
                     url=item.get("absolute_url", ""),
                     description=strip_html(item.get("content", "")),
                     department=departments[0]["name"] if departments else "",
@@ -280,6 +292,18 @@ class GreenhouseFetcher(AtsFetcher):
                 )
             )
         return jobs
+
+    @staticmethod
+    def _location(item: dict, metadata_field: str) -> str:
+        location = (item.get("location") or {}).get("name", "")
+        if not metadata_field:
+            return location
+        for meta in item.get("metadata") or []:
+            if meta.get("name") == metadata_field and meta.get("value"):
+                value = meta["value"]
+                extra = ", ".join(value) if isinstance(value, list) else str(value)
+                return f"{location}; {extra}" if location else extra
+        return location
 
 
 class LeverFetcher(AtsFetcher):
@@ -541,6 +565,286 @@ class JibeFetcher(PaginatedFetcher):
         return jobs, data.get("totalCount")
 
 
+class EightfoldFetcher(PaginatedFetcher):
+    """Eightfold PCSX careers sites (Qualcomm, HP). `GET {host}/api/pcsx/search` with
+    sort_by=timestamp returns data.positions[] newest-first by postedTs, so the seen-based
+    early-stop applies. Anonymous; the LEGACY `/api/apply/v2/jobs` route 403s
+    ("Not authorized for PCSX") on these tenants — don't fall back to it. `host` is the
+    careers host, `domain` the tenant's Eightfold domain key."""
+
+    ats_name = "eightfold"
+    _PAGE = 10
+    _SEED_MAX_PAGES = 10
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        host = self._param("host")
+        data = self._http.get_json(
+            f"https://{host}/api/pcsx/search",
+            params={"domain": self._param("domain"), "start": index * self._PAGE,
+                    "num": self._PAGE, "sort_by": "timestamp"},
+        )
+        payload = data.get("data") or {}
+        jobs = [
+            Job(
+                job_uid=self._uid(item["id"]),
+                company=self._company.name,
+                title=item.get("name", ""),
+                location="; ".join(item.get("locations") or []),
+                url=f"https://{host}{item.get('positionUrl', '')}",
+                description="",  # search API carries no job-ad body
+                department=item.get("department") or "",
+                date_posted=_unix_to_date(item.get("postedTs")),
+            )
+            for item in payload.get("positions", []) if item.get("id")
+        ]
+        return jobs, payload.get("count")
+
+
+class RadancyFetcher(PaginatedFetcher):
+    """Radancy / TalentBrew portals (Disney, Arm) — method G. `GET {host}{path}` returns
+    JSON whose `results` field is server-rendered HTML job cards; the two `*ModuleName`
+    query params are MANDATORY (without them the endpoint 200s with an empty `results`).
+    SortCriteria=5 lists newest-first (job-date-posted spans confirm), so early-stop
+    applies. `path` defaults to /search-jobs/results (Disney needs /en/search-jobs/results)."""
+
+    ats_name = "radancy"
+    _PAGE = 15
+    _SEED_MAX_PAGES = 10
+
+    _TOTAL_RE = re.compile(r'data-total-job-results="(\d+)"')
+    # One <li> card: anchor href + data-job-id, then everything up to </li>. Card markup
+    # varies per portal: Disney nests <h2> title + job-* spans INSIDE the anchor; Arm puts
+    # the title as the anchor text and location/category spans AFTER it — so the title
+    # falls back to the anchor text and spans are searched across the whole card.
+    _CARD_RE = re.compile(
+        r'<a[^>]+href="(?P<href>[^"]*/job/[^"]+)"[^>]*data-job-id="(?P<id>\d+)"[^>]*>'
+        r"(?P<inner>.*?)</a>(?P<tail>.*?)</li>",
+        re.DOTALL,
+    )
+    _H2_RE = re.compile(r"<h2>(.*?)</h2>", re.DOTALL)
+    _LOCATION_RE = re.compile(r'<span class="[^"]*location[^"]*">(.*?)</span>', re.DOTALL)
+    _DEPT_RE = re.compile(r'<span class="(?:job-brand|category)">(.*?)</span>', re.DOTALL)
+    _DATE_RE = re.compile(r'<span class="job-date-posted">(.*?)</span>', re.DOTALL)
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        host = self._param("host")
+        path = self._company.params.get("path", "/search-jobs/results")
+        data = self._http.get_json(
+            f"https://{host}{path}",
+            params={"ActiveFacetID": 0, "CurrentPage": index + 1,
+                    "RecordsPerPage": self._PAGE, "SortCriteria": 5,
+                    "SearchResultsModuleName": "Search Results",
+                    "SearchFiltersModuleName": "Search Filters"},
+        )
+        body = data.get("results") or ""
+        jobs = []
+        for card in self._CARD_RE.finditer(body):
+            inner = card.group("inner")
+            block = inner + card.group("tail")
+            h2 = self._H2_RE.search(inner)
+            jobs.append(
+                Job(
+                    job_uid=self._uid(card.group("id")),
+                    company=self._company.name,
+                    title=strip_html(h2.group(1) if h2 else inner),
+                    location=_first_match(self._LOCATION_RE, block),
+                    url=f"https://{host}{card.group('href')}",
+                    description="",  # cards carry no job-ad body
+                    department=_first_match(self._DEPT_RE, block),
+                    date_posted=_first_match(self._DATE_RE, block),
+                )
+            )
+        total = self._TOTAL_RE.search(body)
+        return jobs, int(total.group(1)) if total else None
+
+
+class SuccessFactorsFetcher(PaginatedFetcher):
+    """SAP SuccessFactors Career Site Builder portals (jobs.sap.com, Hyundai's
+    careers-americas). No anonymous JSON, but the /search/ page is server-rendered
+    <tr class="data-row"> rows, and `sortColumn=referencedate&sortDirection=desc`
+    gives newest-first — so the seen-based early-stop applies despite the rows
+    carrying no visible date."""
+
+    ats_name = "successfactors"
+    _PAGE = 25  # server-fixed rows per page
+    _SEED_MAX_PAGES = 10
+
+    _ROW_RE = re.compile(r'<tr class="data-row">(.*?)</tr>', re.DOTALL)
+    # Attribute order varies between the desktop and phone anchors -> lookahead on class.
+    _LINK_RE = re.compile(
+        r'<a(?=[^>]*class="jobTitle-link")[^>]*href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>',
+        re.DOTALL,
+    )
+    _LOCATION_RE = re.compile(r'<span class="jobLocation">\s*(.*?)\s*</span>', re.DOTALL)
+    _ID_RE = re.compile(r"/(\d+)/?$")
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        host = self._param("host")
+        body = self._http.get_text(
+            f"https://{host}/search/",
+            params={"q": "", "sortColumn": "referencedate", "sortDirection": "desc",
+                    "startrow": index * self._PAGE},
+        )
+        jobs = []
+        for row in self._ROW_RE.finditer(body):
+            link = self._LINK_RE.search(row.group(1))
+            if not link:
+                continue
+            job_id = self._ID_RE.search(link.group("href"))
+            if not job_id:
+                continue
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id.group(1)),
+                    company=self._company.name,
+                    title=strip_html(link.group("title")),
+                    location=_first_match(self._LOCATION_RE, row.group(1)),
+                    url=f"https://{host}{link.group('href')}",
+                    description="",  # rows carry no job-ad body
+                    department="",
+                    date_posted="",  # rows carry no date; ordering comes from the query
+                )
+            )
+        return jobs, None  # no reliable total on the page; empty-page/early-stop suffice
+
+
+class AvatureFetcher(AtsFetcher):
+    """Avature portals that answer plain HTTP (TSMC, Lenovo, EA — Siemens' is JS-gated).
+    `GET {host}/en_US/careers/SearchJobs/?jobRecordsPerPage=20&jobOffset={N}` returns
+    server-rendered <article class="article--result"> cards. The server clamps
+    jobRecordsPerPage per tenant (TSMC/Lenovo 10, EA 20), so paging steps by the count
+    actually returned; featured cards repeat across pages -> results are deduped by id.
+
+    Ordering is per-tenant, hence two modes: default is a bounded full-board fetch
+    (TSMC leads with old evergreen posts — NOT newest-first); config `newest_first: true`
+    switches to seen-based early-stop pagination for tenants verified to list newest
+    first (Lenovo — its board exceeds even the full-board page cap)."""
+
+    ats_name = "avature"
+    _RPP = 20  # requested page size; the server clamps it per tenant
+    _MAX_PAGES = 120  # hard bound for the full-board mode
+    _SEED_MAX_PAGES = 10  # first-run cap for the newest_first mode
+
+    _CARD_RE = re.compile(r'<article[^>]*class="[^"]*article--result[^"]*"[^>]*>(.*?)</article>',
+                          re.DOTALL)
+    _LINK_RE = re.compile(r'<a[^>]*href="(?P<href>[^"]*JobDetail[^"]*)"[^>]*>(?P<title>.*?)</a>',
+                          re.DOTALL)
+    # id lives in a jobId query param (TSMC) or as the trailing path segment (Lenovo/EA).
+    _ID_QUERY_RE = re.compile(r"[?&]jobId=(\d+)")
+    _ID_PATH_RE = re.compile(r"/(\d+)(?:[/?#]|$)")
+    _LOCATION_RE = re.compile(r'<span class="list-item-location">(.*?)</span>', re.DOTALL)
+    _DEPT_RE = re.compile(
+        r'<span class="(?:list-item-careerArea|list-item-department|paragraph)">(.*?)</span>',
+        re.DOTALL,
+    )
+    _POSTED_RE = re.compile(r"<span[^>]*>\s*(Posted:?[^<]*)</span>")
+    _SUBTITLE_SPAN_RE = re.compile(
+        r'<div class="article__header__text__subtitle">.*?<span[^>]*>\s*([^<]+?)\s*</span>',
+        re.DOTALL,
+    )
+    _TOTAL_RE = re.compile(r"(\d+)\s+results")
+
+    def __init__(self, company: Company, http: HttpClient):
+        super().__init__(company, http)
+        # Per-tenant page size observed from the first page in newest_first mode.
+        self._clamp: int | None = None
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        # Lenovo's board is >1200 rows (past its own "999" display cap); early-stop
+        # keeps steady-state runs to ~2 pages instead of paging the whole board.
+        if self._company.param_bool("newest_first"):
+            jobs = _paginate_new(self._fetch_page, seen, self._RPP, self._SEED_MAX_PAGES,
+                                 is_seed_run=not self._company_known(seen))
+        else:
+            jobs = self._fetch_all_pages()
+        return self._dedupe(jobs)
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        # Step by the OBSERVED page size, not _RPP — the server clamps per tenant (see __init__).
+        offset = index * (self._clamp or self._RPP) if index else 0
+        cards, _ = self._get_cards(offset)
+        if self._clamp is None and cards:
+            self._clamp = len(cards)
+        return [job for card in cards if (job := self._to_job(card)) is not None], None
+
+    def _fetch_all_pages(self) -> list[Job]:
+        jobs: list[Job] = []
+        offset = 0
+        total = None
+        for _ in range(self._MAX_PAGES):
+            cards, page_total = self._get_cards(offset)
+            total = total if total is not None else page_total
+            if not cards:
+                break
+            jobs.extend(job for card in cards if (job := self._to_job(card)) is not None)
+            offset += len(cards)
+            if total is not None and offset >= total:
+                break
+        else:
+            log.warning("avature %s: hit _MAX_PAGES (%d) before the board was exhausted "
+                        "(total=%s) — raise the cap or set newest_first", self.host,
+                        self._MAX_PAGES, total)
+        return jobs
+
+    def _get_cards(self, offset: int) -> tuple[list[str], int | None]:
+        body = self._http.get_text(
+            f"https://{self.host}/en_US/careers/SearchJobs/",
+            params={"jobRecordsPerPage": self._RPP, "jobOffset": offset},
+        )
+        found = self._TOTAL_RE.search(body)
+        return self._CARD_RE.findall(body), int(found.group(1)) if found else None
+
+    @staticmethod
+    def _dedupe(jobs: list[Job]) -> list[Job]:
+        # Featured cards repeat across pages; first occurrence wins, order preserved.
+        by_uid: dict[str, Job] = {}
+        for job in jobs:
+            by_uid.setdefault(job.job_uid, job)
+        return list(by_uid.values())
+
+    def _to_job(self, card: str) -> Job | None:
+        link = self._LINK_RE.search(card)
+        if not link:
+            return None
+        href = html.unescape(link.group("href"))
+        job_id = self._ID_QUERY_RE.search(href) or self._ID_PATH_RE.search(href)
+        if not job_id:
+            return None
+        # Lenovo's location span has no class — fall back to the first subtitle span
+        # that isn't the Req#/Posted line.
+        location = _first_match(self._LOCATION_RE, card)
+        if not location:
+            candidate = _first_match(self._SUBTITLE_SPAN_RE, card)
+            if candidate and not candidate.startswith(("Req", "Posted")):
+                location = candidate
+        return Job(
+            job_uid=self._uid(job_id.group(1)),
+            company=self._company.name,
+            title=strip_html(link.group("title")),
+            location=location,
+            url=href,
+            description="",  # cards carry no job-ad body
+            department=_first_match(self._DEPT_RE, card),
+            date_posted=_first_match(self._POSTED_RE, card),
+        )
+
+
 class AmazonFetcher(PaginatedFetcher):
     """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
     `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
@@ -771,18 +1075,16 @@ class JazzHRFetcher(AtsFetcher):
         body = self._http.get_text(f"https://{self.host}/apply")
         jobs = []
         for match in self._JOB_RE.finditer(body):
-            location = self._LOCATION_RE.search(match.group("tail"))
-            department = self._DEPT_RE.search(match.group("tail"))
             jobs.append(
                 Job(
                     job_uid=self._uid(match.group("id")),
                     company=self._company.name,
                     title=html.unescape(match.group("title")).strip(),
-                    location=html.unescape(location.group(1)).strip() if location else "",
+                    location=_first_match(self._LOCATION_RE, match.group("tail")),
                     # normalize the plain-http boards' links; applytojob.com serves https fine
                     url="https://" + match.group("url").removeprefix("http://").removeprefix("https://"),
                     description="",  # board page carries no description
-                    department=html.unescape(department.group(1)).strip() if department else "",
+                    department=_first_match(self._DEPT_RE, match.group("tail")),
                     date_posted="",  # board page carries no posting date
                 )
             )

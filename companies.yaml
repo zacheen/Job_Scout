@@ -80,6 +80,27 @@
 - {name: Wing,             ats: greenhouse, board: wing}                              # Alphabet drone delivery; ~24
 - {name: Verkada,          ats: greenhouse, board: verkada, seed_only: true}          # security cameras CV; ~293
 - {name: Scale AI,         ats: greenhouse, board: scaleai, seed_only: true}          # AI data/infra; ~183 (board "scale" is wrong)
+# FAANG-tier batch (2026-07-10). All giants -> seed_only except Nintendo (~51).
+- {name: Coupang,     ats: greenhouse, board: coupang, seed_only: true}      # ~635, mostly Seoul; US = Mountain View/Seattle
+- {name: Lyft,        ats: greenhouse, board: lyft, seed_only: true}         # ~157
+- {name: Block,       ats: greenhouse, board: block, seed_only: true}        # Square/Cash App; ~209. SmartRecruiters "Block"/"Square" are EMPTY decoys
+- {name: Anthropic,   ats: greenhouse, board: anthropic, seed_only: true}    # ~402
+- {name: Roblox,      ats: greenhouse, board: roblox, seed_only: true}       # ~230
+- {name: Epic Games,  ats: greenhouse, board: epicgames, seed_only: true}    # ~127 (Cary NC)
+- {name: Riot Games,  ats: greenhouse, board: riotgames, seed_only: true}    # ~162 (LA)
+- {name: Nintendo,    ats: greenhouse, board: nintendo}                      # Nintendo of America + subsidiaries; ~51 (Redmond WA)
+- {name: PlayStation, ats: greenhouse, board: sonyinteractiveentertainmentglobal, seed_only: true}  # SIE global; ~190
+- {name: Twilio,      ats: greenhouse, board: twilio, seed_only: true}       # ~154 (mostly Remote-US)
+- {name: Datadog,     ats: greenhouse, board: datadog, seed_only: true}      # ~426
+- {name: MongoDB,     ats: greenhouse, board: mongodb, seed_only: true}      # ~389
+- {name: Pure Storage, ats: greenhouse, board: purestorage, seed_only: true} # ~337
+- {name: SpaceX,      ats: greenhouse, board: spacex, seed_only: true}       # ~1884 (per-location dupes like Anduril)
+- {name: xAI,         ats: greenhouse, board: xai, seed_only: true}          # ~209
+# Cloudflare's location.name holds policy strings ("Hybrid"/"Distributed"); the real city
+# lives in job metadata "Job Posting Location" -> location_metadata tells the fetcher to
+# append it, otherwise PreFilter drops nearly every US role.
+- {name: Cloudflare,  ats: greenhouse, board: cloudflare, seed_only: true, location_metadata: "Job Posting Location"}  # ~245
+
 # CV wave 2 (2026-07-10; startups incl.). All boards live-verified; only Saronic tops the
 # ~100-role seed_only line. Voxel51's board is live but 0 openings right now (harmless).
 - {name: Outrider,        ats: greenhouse, board: outrider}              # autonomous yard trucks; ~9
@@ -112,6 +133,9 @@
 - {name: Aeva,       ats: lever, org: aeva}        # FMCW lidar (Mountain View); ~41
 # MicroVision bought bankrupt Luminar's lidar assets 2026-02; luminartech.com 301s here.
 - {name: MicroVision, ats: lever, org: microvision}  # lidar (Orlando FL = ex-Luminar site); ~12
+# FAANG-tier batch (2026-07-10). NOTE: Lever "atlassian" is an EMPTY decoy (200, zero jobs).
+- {name: Palantir,   ats: lever, org: palantir, seed_only: true}  # ~270 (Palo Alto/DC/NYC + EU)
+- {name: Spotify,    ats: lever, org: spotify, seed_only: true}   # ~103 global (Stockholm-heavy; PreFilter keeps US)
 # CV wave 2. NOTE: Lever org slugs are CASE-SENSITIVE (Burro/ChefRobotics verified; lowercase 404s).
 - {name: Toyota Research Institute, ats: lever, org: tri}  # robotics/driving research (Los Altos, Cambridge); ~17
 - {name: PlusAI,         ats: lever, org: plus-2}          # AV trucking; org is plus-2 NOT plusai; ~49, CV intern roles
@@ -181,16 +205,37 @@
 # Rare wd504 shard; tenant only appears in per-req apply links, not the WP careers pages.
 - {name: Symbotic, ats: workday, host: symbotic.wd504.myworkdayjobs.com, tenant: symbotic, site: Symbotic, seed_only: true}  # warehouse robots; ~163
 - {name: Snap, ats: workday, host: snapchat.wd1.myworkdayjobs.com, tenant: snapchat, site: snap, seed_only: true}  # AR/cameras; ~162 (LA/Bellevue/PA)
+# FAANG-tier batch (2026-07-10). Several giants hide an open Workday CXS behind a Phenom or
+# Eightfold front-end (the Adobe pattern): Cisco, eBay, HPE, Philips, Micron, PayPal.
+- {name: PayPal, ats: workday, host: paypal.wd1.myworkdayjobs.com, tenant: paypal, site: jobs, seed_only: true}  # ~158; careers.pypl.com Eightfold is gated, CXS open
+- {name: eBay, ats: workday, host: ebay.wd5.myworkdayjobs.com, tenant: ebay, site: apply, seed_only: true}  # ~525; site is literally "apply"
+- {name: Cisco, ats: workday, host: cisco.wd5.myworkdayjobs.com, tenant: cisco, site: Cisco_Careers, seed_only: true}  # ~981
+- {name: Broadcom, ats: workday, host: broadcom.wd1.myworkdayjobs.com, tenant: broadcom, site: External_Career, seed_only: true}  # ~312 incl. VMware
+- {name: Workday, ats: workday, host: workday.wd5.myworkdayjobs.com, tenant: workday, site: Workday, seed_only: true}  # dogfoods own tenant; ~373
+- {name: Unity, ats: workday, host: unitytech.wd1.myworkdayjobs.com, tenant: unitytech, site: Unity, seed_only: true}  # ~130; moved OFF Greenhouse (unity3d board is dead)
+- {name: Zoom, ats: workday, host: zoom.wd5.myworkdayjobs.com, tenant: zoom, site: Zoom, seed_only: true}  # ~100
+- {name: Micron, ats: workday, host: micron.wd1.myworkdayjobs.com, tenant: micron, site: External, seed_only: true}  # ~2861 global fabs
+- {name: Analog Devices, ats: workday, host: analogdevices.wd1.myworkdayjobs.com, tenant: analogdevices, site: External, seed_only: true}  # ~974
+- {name: NXP, ats: workday, host: nxp.wd3.myworkdayjobs.com, tenant: nxp, site: careers, seed_only: true}  # ~712 (careers.nxp.com itself times out; CXS open)
+- {name: HPE, ats: workday, host: hpe.wd5.myworkdayjobs.com, tenant: hpe, site: Jobsathpe, seed_only: true}  # ~1128
+- {name: Expedia Group, ats: workday, host: expedia.wd108.myworkdayjobs.com, tenant: expedia, site: search, seed_only: true}  # ~155; rare wd108 shard, site literally "search"
+- {name: Philips, ats: workday, host: philips.wd3.myworkdayjobs.com, tenant: philips, site: jobs-and-careers, seed_only: true}  # ~1115
 
 # --- Oracle Recruiting (Fusion HCM candidate-experience API; newest-first, paginated) ---
 - {name: Ford, ats: oracle, host: efds.fa.em5.oraclecloud.com, site: CX_1}       # referral
 - {name: Dell, ats: oracle, host: iawmqy.fa.ocs.oraclecloud.com, site: CX_1001}  # referral (jobs.dell.com redirects here)
 # ~1478 global reqs (seed_only). CX_1 verified: its JD URL 200s, CX_2/CX_1001 302 (wrong).
 - {name: Honeywell, ats: oracle, host: ibqbjb.fa.ocs.oraclecloud.com, site: CX_1, seed_only: true}
+# FAANG-tier batch (2026-07-10). Use the pod hosts — vanity domains 302 REST calls to 404s.
+- {name: Uber, ats: oracle, host: iaziqy.fa.ocs.oraclecloud.com, site: CX_1, seed_only: true}    # ~592 (jobs.uber.com is a Happydance front)
+- {name: Oracle, ats: oracle, host: eeho.fa.us2.oraclecloud.com, site: CX_45001, seed_only: true} # the vendor itself; ~2127
+- {name: Nokia, ats: oracle, host: fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com, site: CX_1, seed_only: true}  # ~572
 
 # --- SmartRecruiters (public postings API; content[] newest-first by releasedDate) ---
 - {name: Intuitive, ats: smartrecruiters, company: Intuitive, seed_only: true}   # Intuitive Surgical; ~586
 - {name: Bosch,     ats: smartrecruiters, company: BoschGroup, seed_only: true}  # ~4671 global roles
+- {name: ServiceNow, ats: smartrecruiters, company: ServiceNow, seed_only: true} # ~416 (Santa Clara)
+- {name: Western Digital, ats: smartrecruiters, company: WesternDigital, seed_only: true}  # ~286 (newest are MY/TH fabs)
 
 # --- Jibe / iCIMS Talent Cloud (first-party careers-site JSON; newest-first; full descriptions.
 #     Apply links go to icims.com but the JD canonical_url is public) ---
