@@ -59,8 +59,7 @@ def main() -> None:
         scorer_overrides[leveler.senior_group] = KeywordScorer(settings.resume_text)
 
     pipeline = Pipeline(
-        store=CsvStore(root / settings.ledger_dir, track_priority=settings.track_names,
-                       legacy_files=(root / settings.ledger_legacy_file,)),
+        store=CsvStore(root / settings.ledger_dir, track_priority=settings.track_names),
         fetcher=ParallelFetcher(fetchers),
         prefilter=PreFilter(
             include_location_terms=settings.include_location_terms,

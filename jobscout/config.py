@@ -61,7 +61,6 @@ class Settings:
     request_delay_min: float
     request_delay_max: float
     ledger_dir: str
-    ledger_legacy_file: str  # pre-split single-file ledger; absorbed + deleted on sight
     # Secrets may be empty strings; each consuming component validates on first use.
     openai_api_key: str
     resume_text: str
@@ -101,11 +100,9 @@ class Settings:
             user_agent=cfg.get("user_agent", "job-scout/1.0"),
             request_delay_min=float(cfg.get("request_delay_min", 1.25)),
             request_delay_max=float(cfg.get("request_delay_max", 2.0)),
-            # LEDGER_DIR/LEDGER_LEGACY override config so local and cloud runs use
-            # separate ledgers (scan.yml points both into its data-branch checkout).
+            # LEDGER_DIR overrides config so local and cloud runs use separate
+            # ledgers (scan.yml points it into its data-branch checkout).
             ledger_dir=os.getenv("LEDGER_DIR") or cfg.get("ledger_dir", "local_data"),
-            ledger_legacy_file=os.getenv("LEDGER_LEGACY")
-            or cfg.get("ledger_legacy_file", "data/seen_jobs.csv"),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             resume_text=os.getenv("RESUME_TEXT", "") or cls._read_resume(root),
             gmail_user=os.getenv("GMAIL_USER", ""),

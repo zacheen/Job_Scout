@@ -106,16 +106,14 @@ class CsvStore:
     ways: by job_key and by canonical URL to detect the same opening across sources,
     and by original source uid so the pipeline can keep addressing rows with Job.job_uid.
 
-    NOTE: an existing shard (or absorbed legacy file) is the 'seeded' signal. First run
-    creates the shards and records the current backlog without scoring or emailing.
+    NOTE: an existing shard is the 'seeded' signal. First run creates the shards and
+    records the current backlog without scoring or emailing.
 
-    `legacy_files` = pre-split single-file ledgers: absorbed on load and deleted by
-    the next save() so old checkouts self-migrate. A legacy-SCHEMA file (job_uid
-    column) is likewise migrated in memory; save() always writes the current schema.
+    Absorbing a legacy-SCHEMA csv (job_uid column) still migrates it in memory;
+    save() always writes the current schema.
     """
 
-    def __init__(self, dir_path: Path, track_priority: Sequence[str] = (),
-                 legacy_files: Sequence[Path] = ()):
+    def __init__(self, dir_path: Path, track_priority: Sequence[str] = ()):
         self._dir = dir_path
         # Lower index = higher priority on track conflicts (config.yaml tracks order).
         self._track_rank = {name: i for i, name in enumerate(track_priority)}
@@ -126,10 +124,7 @@ class CsvStore:
         shards = sorted(dir_path.glob("*.csv")) if dir_path.is_dir() else []
         for shard in shards:
             self.absorb(shard)
-        self._legacy = [f for f in legacy_files if f.exists()]
-        for legacy in self._legacy:
-            self.absorb(legacy)
-        self._seeded = bool(shards) or bool(self._legacy)
+        self._seeded = bool(shards)
 
     # ---- queries -------------------------------------------------------------
 
@@ -235,19 +230,6 @@ class CsvStore:
             if stale.stem not in by_slug:
                 log.warning("deleting orphan shard %s (no rows reference it after save)", stale)
                 stale.unlink()
-        # Shards now hold everything the legacy files did; a leftover just gets
-        # re-absorbed on the next load (an idempotent union), so deletion is
-        # best-effort — a GUI git client holding the file open (Windows sharing
-        # violation) must not fail the whole save.
-        remaining = []
-        for legacy in self._legacy:
-            try:
-                legacy.unlink(missing_ok=True)
-            except OSError as exc:
-                log.warning("could not delete legacy ledger %s (%s); retrying next save",
-                            legacy, exc)
-                remaining.append(legacy)
-        self._legacy = remaining
 
     # ---- internals -----------------------------------------------------------
 
@@ -345,13 +327,11 @@ class CsvStore:
 
 
 def union_merge(primary_dir: Path, track_priority: Sequence[str] = (), *,
-                extra_dirs: Sequence[Path] = (), extra_files: Sequence[Path] = (),
-                legacy_files: Sequence[Path] = ()) -> CsvStore:
+                extra_dirs: Sequence[Path] = (), extra_files: Sequence[Path] = ()) -> CsvStore:
     """Fold other ledgers into `primary_dir` and save the union back to it: every
-    shard of each extra_dir, each extra csv file, and any still-existing legacy
-    single-file ledger (deleted after the save). The ONE union-merge used by both
-    local_run.py and scan.yml's push-race retry — keep them behaviorally identical."""
-    store = CsvStore(primary_dir, track_priority, legacy_files=legacy_files)
+    shard of each extra_dir, then each extra csv file. The ONE union-merge used by
+    both local_run.py and scan.yml's push-race retry — keep them behaviorally identical."""
+    store = CsvStore(primary_dir, track_priority)
     for extra_dir in extra_dirs:
         for shard in sorted(extra_dir.glob("*.csv")):
             store.absorb(shard)

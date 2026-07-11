@@ -1,11 +1,8 @@
 # Local-only resume used for development runs; the cloud run reads RESUME_TEXT secret.
 resume.txt
 .env
-# Legacy single-file ledgers (pre per-company split) are ignored below. The shard
-# dirs that replaced them (local_data/, cloud_data/) are NOT ignored — must stay
-# `git add`-able — but belong only on the `data` branch; never commit from main.
-data/*.csv
-*.local.csv
+# Ledger shard dirs (local_data/, cloud_data/) are NOT ignored — new shards must
+# stay `git add`-able — but belong only on the `data` branch; never commit from main.
 .ledger/
 __pycache__/
 *.pyc
