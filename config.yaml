@@ -118,9 +118,12 @@ exclude_terms:
   - "physics"
   - "chemistry" # won't match "chemical" (different stem)
   - "drug" # pharma / drug-discovery domain
+  - "environmental" # environmental science / sustainability field
   - "mechanical" # different engineering discipline (also matches "electromechanical")
   - "safety"
   - "network"
+  - "cybersecurity"
+  - "cyber security" # separate entry: substring won't unify it with the one-word spelling
   - "data center" # infra / facilities ops
   - "datacenter" # one-word spelling of the above
   - "gpu" # usually is related to CUDA or kernel
@@ -133,6 +136,8 @@ exclude_terms:
   - "recruiter"
   - "account executive"
   - "designer"
+  - "artist" # 3D / concept / technical / VFX artist
+  - "animator"
   - "finance"
   - "banking"
   - "legal"
@@ -144,6 +149,7 @@ exclude_terms:
   - "business" # broad: subsumes "business development"; also drops "Business Intelligence/Analyst" titles
   - "supply" # subsumes "supply chain"; also supplier / procurement / power-supply roles
   - "buyer"
+  - "merchandising"
   - "people partner"
   # Trailing space is deliberate: matches "partner <role>" (e.g. partner marketing/solutions)
   # but NOT "partnership(s)".
