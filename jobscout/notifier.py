@@ -56,7 +56,12 @@ class EmailNotifier:
                         f"  location: {job.location or '?'} | dept: {job.department or '?'} | "
                         f"posted: {job.date_posted or '?'}"
                     )
-                    lines.append(f"  experience: {score.experience_score}")
+                    # matches is only set for keyword-scored jobs; shown instead of
+                    # experience_score, which clamps to 100 there and carries no signal.
+                    if score.matches is not None:
+                        lines.append(f"  keyword matches: {score.matches}")
+                    else:
+                        lines.append(f"  experience: {score.experience_score}")
                     if job.note:
                         lines.append(f"  ⚠ {job.note}")
                     lines.append(f"  why: {score.reason}")

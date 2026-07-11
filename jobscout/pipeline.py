@@ -228,7 +228,10 @@ class Pipeline:
                 section_items = track_map.get(track_name)
                 if not section_items:
                     continue
-                section_items.sort(key=lambda pair: pair[1].experience_score, reverse=True)
+                # Tie-break on matches: keyword-scored items' experience_score all
+                # clamp to 100, so this must match what the email displays.
+                section_items.sort(key=lambda pair: (pair[1].experience_score,
+                                                     pair[1].matches or 0), reverse=True)
                 sections.append((track_name, section_items))
             if sections:
                 digest.append((group_name, sections))
