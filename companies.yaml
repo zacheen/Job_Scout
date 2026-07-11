@@ -88,7 +88,7 @@
 - {name: Roblox,      ats: greenhouse, board: roblox, seed_only: true}       # ~230
 - {name: Epic Games,  ats: greenhouse, board: epicgames, seed_only: true}    # ~127 (Cary NC)
 - {name: Riot Games,  ats: greenhouse, board: riotgames, seed_only: true}    # ~162 (LA)
-- {name: Nintendo,    ats: greenhouse, board: nintendo}                      # Nintendo of America + subsidiaries; ~51 (Redmond WA)
+- {name: Nintendo,    ats: greenhouse, board: nintendo, jd_url: "https://careers.nintendo.com/jobs/{id}/"}  # ~51 (Redmond WA); jd_url = branded link, not the API's ?gh_jid= embed
 - {name: PlayStation, ats: greenhouse, board: sonyinteractiveentertainmentglobal, seed_only: true}  # SIE global; ~190
 - {name: Twilio,      ats: greenhouse, board: twilio, seed_only: true}       # ~154 (mostly Remote-US)
 - {name: Datadog,     ats: greenhouse, board: datadog, seed_only: true}      # ~426

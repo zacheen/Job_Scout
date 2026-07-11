@@ -272,6 +272,9 @@ class GreenhouseFetcher(AtsFetcher):
         # location.name is a policy string ("Hybrid"/"Distributed" — Cloudflare) that
         # PreFilter's location terms would reject.
         metadata_field = self._company.params.get("location_metadata", "")
+        # Optional {id} template for a branded JD link (e.g. Nintendo's careers.nintendo.com/jobs/{id}/);
+        # the API's absolute_url is the ?gh_jid= embed form on boards fronted by a custom careers site.
+        jd_url = self._company.params.get("jd_url", "")
         data = self._http.get_json(
             f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs",
             params={"content": "true"},
@@ -285,7 +288,7 @@ class GreenhouseFetcher(AtsFetcher):
                     company=self._company.name,
                     title=item.get("title", ""),
                     location=self._location(item, metadata_field),
-                    url=item.get("absolute_url", ""),
+                    url=jd_url.replace("{id}", str(item["id"])) if jd_url else item.get("absolute_url", ""),
                     description=strip_html(item.get("content", "")),
                     department=departments[0]["name"] if departments else "",
                     date_posted=item.get("updated_at", ""),
