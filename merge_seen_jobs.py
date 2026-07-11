@@ -12,8 +12,10 @@ the ledger the next cloud/local run reads, which would make that run treat the
 whole ledger as unseeded.
 
 The result is STAGED but never committed: a commit message ("update from cloud
-to local" / the reverse) is prepared in .git/MERGE_MSG, which git and GUI
-clients (GitKraken) pre-fill into the next commit for the user to fire.
+to local" / the reverse) is prepared as a commit.template, which GitKraken
+auto-loads into its message box; a one-shot post-commit hook clears the
+template after the user fires the commit. (CLI users: `git commit` opens the
+editor pre-filled — git insists the template be edited, so tweak it or -m.)
 """
 from __future__ import annotations
 
@@ -31,8 +33,27 @@ ROOT = Path(__file__).resolve().parent
 CLOUD_DIR = ROOT / "cloud_data"
 
 
+# Marks our one-shot cleanup hook so a foreign post-commit hook is never touched.
+_HOOK_MARKER = "installed by merge_seen_jobs.py"
+_CLEANUP_HOOK = f"""#!/bin/sh
+# {_HOOK_MARKER}: one-shot cleanup — drop the prepared ledger commit template
+# after the next commit (any commit), then remove this hook.
+git config --unset commit.template 2>/dev/null || true
+rm -f "$(git rev-parse --git-dir)/gkcommittemplate.txt"
+rm -f -- "$0"
+"""
+
+
 def _stage(dest: Path, source: Path, source_deleted: bool, message: str) -> None:
-    """git add the merge result and pre-fill the next commit's message."""
+    """git add the merge result and pre-fill the next commit's message.
+
+    commit.template -> .git/gkcommittemplate.txt is what GitKraken reads to
+    auto-populate its message box (it ignores MERGE_MSG outside merge states,
+    and MERGE_MSG can't coexist with the template anyway: a message equal to
+    the template makes git abort with "you did not edit the message"). The
+    one-shot post-commit hook unsets the template again, so later unrelated
+    commits don't keep inheriting the ledger message.
+    """
     subprocess.run(["git", "-C", str(ROOT), "add", "-A", "--",
                     dest.relative_to(ROOT).as_posix()], check=True)
     if source_deleted:
@@ -43,7 +64,17 @@ def _stage(dest: Path, source: Path, source_deleted: bool, message: str) -> None
                                   check=True, capture_output=True, text=True).stdout.strip())
     if not git_dir.is_absolute():
         git_dir = ROOT / git_dir
-    (git_dir / "MERGE_MSG").write_text(message + "\n", encoding="utf-8")
+    template = git_dir / "gkcommittemplate.txt"
+    template.write_text(message + "\n", encoding="utf-8", newline="\n")
+    subprocess.run(["git", "-C", str(ROOT), "config", "commit.template", str(template)],
+                   check=True)
+    hook = git_dir / "hooks" / "post-commit"
+    if hook.exists() and _HOOK_MARKER not in hook.read_text(encoding="utf-8", errors="replace"):
+        print(f"NOT installing cleanup hook ({hook} already exists); after committing, "
+              "run: git config --unset commit.template")
+    else:
+        # LF endings are mandatory: sh chokes on CRLF hook scripts.
+        hook.write_text(_CLEANUP_HOOK, encoding="utf-8", newline="\n")
     print(f"staged {dest.name}/; commit message prepared: {message!r}")
 
 
