@@ -17,6 +17,8 @@ reasoning_effort: "medium"
 # is appended last. If gpt_cli isn't found, scoring drops to keyword-only.
 # `-c model_reasoning_effort=low` overrides codex's own config.toml default (e.g. xhigh) —
 # a simple rating doesn't need more, and low is far faster/cheaper.
+# Senior-group roles (see senior_terms) skip the CLI even locally — keyword heuristic
+# instead (wired in __main__).
 gpt_cli: "codex"
 gpt_cli_args: ["exec", "-c", "model_reasoning_effort=low"]
 
@@ -105,6 +107,7 @@ exclude_terms:
   - "staff"
   - "lead" # safe as substring: its matches (lead/leader/leadership/leading) are all senior
   - "vice president"
+  - "head of " # "Head of X" senior roles; trailing space avoids "head office". NOT bare "head" — even whole-word it hits CV terms (head pose/detection/tracking, head-mounted)
   # requires an advanced degree — both "PhD" and "Ph.D." spellings (substring, lowercased)
   - "phd"
   - "ph.d"
