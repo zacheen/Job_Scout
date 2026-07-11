@@ -50,8 +50,8 @@ conda run -n ML python run.py     # or: python -m jobscout
 Run `run.py` directly (or point the VS Code debugger at it) — do **not** run
 `jobscout/__main__.py` by path, or relative imports fail with no package context.
 
-`.env` is loaded automatically. The first invocation seeds `data/seen_jobs.csv`
-and exits without scoring (so no OpenAI key is needed just to seed).
+`.env` is loaded automatically. The first invocation seeds `local_data/` (one CSV
+per company) and exits without scoring (so no OpenAI key is needed just to seed).
 
 ## Notes / limitations
 

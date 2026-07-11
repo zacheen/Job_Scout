@@ -13,6 +13,7 @@ from .config import Track
 from .models import Job, Score
 from .protocols import (Annotator, Digest, Fetcher, JobFilter, JobScorer, JobStore, Leveler,
                         Notifier, Router)
+from .urls import canon_url
 
 log = logging.getLogger(__name__)
 
@@ -196,17 +197,19 @@ class Pipeline:
     @staticmethod
     def _emailable(candidates: list[Job], known_urls: set[str]) -> list[Job]:
         # Email a role once per URL, even across sources: skip a candidate whose URL is
-        # already in the ledger or already kept this run. Empty URLs are never deduped
-        # (would merge distinct rows). Assumes a URL's keep/drop outcome is source-independent
-        # — if two sources disagree on a role's location, one recorded as a non-candidate
-        # could block its candidate twin (revisit if that ever bites).
+        # already in the ledger or already kept this run (compared via canon_url, matching
+        # known_urls' keys). Empty URLs are never deduped (would merge distinct rows).
+        # Assumes a URL's keep/drop outcome is source-independent — if two sources
+        # disagree on a role's location, one recorded as a non-candidate could block its
+        # candidate twin (revisit if that ever bites).
         out: list[Job] = []
         urls: set[str] = set()
         for job in candidates:
             if job.url:
-                if job.url in known_urls or job.url in urls:
+                key = canon_url(job.url)
+                if key in known_urls or key in urls:
                     continue
-                urls.add(job.url)
+                urls.add(key)
             out.append(job)
         return out
 

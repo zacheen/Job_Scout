@@ -2,17 +2,25 @@
 
 One row = one opening. The same opening fetched from several sources is merged into
 a single row: rows are identified by job_key ("{company}:{ats_job_id}") OR by any
-shared URL, since aggregator sources assign their own ids but link the same posting.
+shared URL (compared via urls.canon_url), since aggregator sources assign their own
+ids but link the same posting.
+
+The ledger is a DIRECTORY of per-company CSV shards ("{company-slug}.csv") — small
+enough for GUI diff viewers and easy to locate a company — but stays ONE table in
+memory: every shard is absorbed on load, so cross-company URL dedup (same opening,
+differently spelled company) keeps working.
 """
 from __future__ import annotations
 
 import csv
 import logging
+import re
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import Job, Score
+from .urls import canon_url
 
 log = logging.getLogger(__name__)
 
@@ -70,34 +78,58 @@ def _score_rank(row: dict) -> int:
     return _METHOD_RANK.get(row.get("score_method", ""), _METHOD_RANK[""])
 
 
-def row_sort_key(row: dict) -> tuple[str, str, str]:
-    """Canonical CSV row order; first_seen is ISO so plain string sort == chronological order."""
-    return (row.get("company", "").casefold(), row.get("first_seen", ""), row.get("job_key", ""))
+def row_sort_key(row: dict) -> tuple[str, str, str, str]:
+    """Canonical CSV row order: company, title, then first_seen (ISO, so plain string
+    sort == chronological). job_key tie-breaks identical triples — without it two
+    same-titled same-day rows would swap freely between saves, producing fake diffs."""
+    return (row.get("company", "").casefold(), row.get("title", "").casefold(),
+            row.get("first_seen", ""), row.get("job_key", ""))
+
+
+# Windows-reserved device names can't be created as files there; suffix them.
+_RESERVED_SLUGS = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
+)
+
+
+def _company_slug(company: str) -> str:
+    """Shard filename for a company: lowercase alnum runs joined by '-', so name
+    variants that differ only in case/punctuation share a file, and the result is
+    safe on both Windows (case-insensitive FS) and the Linux runner."""
+    slug = re.sub(r"[^a-z0-9]+", "-", company.casefold()).strip("-")[:80] or "unknown"
+    return f"{slug}-co" if slug in _RESERVED_SLUGS else slug
 
 
 class CsvStore:
-    """In-memory rows persisted to one CSV file, indexed three ways: by job_key and by
-    URL to detect the same opening across sources, and by original source uid so the
-    pipeline can keep addressing rows with Job.job_uid.
+    """In-memory rows persisted to a directory of per-company CSV shards, indexed three
+    ways: by job_key and by canonical URL to detect the same opening across sources,
+    and by original source uid so the pipeline can keep addressing rows with Job.job_uid.
 
-    NOTE: file existence is the 'seeded' signal. First run creates the file and
-    records the current backlog without scoring or emailing anything.
+    NOTE: an existing shard (or absorbed legacy file) is the 'seeded' signal. First run
+    creates the shards and records the current backlog without scoring or emailing.
 
-    Loading a legacy-schema file (with a job_uid column) migrates it in memory;
-    the next save() writes the current schema.
+    `legacy_files` = pre-split single-file ledgers: absorbed on load and deleted by
+    the next save() so old checkouts self-migrate. A legacy-SCHEMA file (job_uid
+    column) is likewise migrated in memory; save() always writes the current schema.
     """
 
-    def __init__(self, path: Path, track_priority: Sequence[str] = ()):
-        self._path = path
+    def __init__(self, dir_path: Path, track_priority: Sequence[str] = (),
+                 legacy_files: Sequence[Path] = ()):
+        self._dir = dir_path
         # Lower index = higher priority on track conflicts (config.yaml tracks order).
         self._track_rank = {name: i for i, name in enumerate(track_priority)}
         self._rows: list[dict] = []
         self._by_key: dict[str, dict] = {}
         self._by_url: dict[str, dict] = {}
         self._by_uid: dict[str, dict] = {}
-        self._seeded = path.exists()
-        if self._seeded:
-            self.absorb(path)
+        shards = sorted(dir_path.glob("*.csv")) if dir_path.is_dir() else []
+        for shard in shards:
+            self.absorb(shard)
+        self._legacy = [f for f in legacy_files if f.exists()]
+        for legacy in self._legacy:
+            self.absorb(legacy)
+        self._seeded = bool(shards) or bool(self._legacy)
 
     # ---- queries -------------------------------------------------------------
 
@@ -114,7 +146,8 @@ class CsvStore:
 
     def known_urls(self) -> set[str]:
         # Cross-source email dedup: same role from two sources shares a URL but has
-        # different uids. Empty URLs are never indexed, so distinct roles can't merge.
+        # different uids. Keys are CANONICAL (urls.canon_url) — callers must canonicalize
+        # before membership tests. Empty URLs are never indexed, so distinct roles can't merge.
         return set(self._by_url)
 
     def exists(self, job: Job) -> dict | None:
@@ -183,15 +216,30 @@ class CsvStore:
         return existing
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        rows = sorted(self._rows, key=row_sort_key)
-        with self._path.open("w", newline="", encoding="utf-8") as fh:
-            # lineterminator: csv defaults to CRLF; LF keeps local (Windows) and cloud
-            # (Linux runner) commits byte-identical, avoiding whole-file EOL diffs.
-            writer = csv.DictWriter(fh, fieldnames=_FIELDS, extrasaction="ignore",
-                                    lineterminator="\n")
-            writer.writeheader()
-            writer.writerows(rows)
+        self._dir.mkdir(parents=True, exist_ok=True)
+        by_slug: dict[str, list[dict]] = {}
+        for row in self._rows:
+            by_slug.setdefault(_company_slug(row["company"]), []).append(row)
+        for slug, rows in by_slug.items():
+            rows.sort(key=row_sort_key)
+            with (self._dir / f"{slug}.csv").open("w", newline="", encoding="utf-8") as fh:
+                # lineterminator: csv defaults to CRLF; LF keeps local (Windows) and cloud
+                # (Linux runner) commits byte-identical, avoiding whole-file EOL diffs.
+                writer = csv.DictWriter(fh, fieldnames=_FIELDS, extrasaction="ignore",
+                                        lineterminator="\n")
+                writer.writeheader()
+                writer.writerows(rows)
+        # A merge can re-attribute rows to another company (content fields: newest wins),
+        # emptying a shard. Delete it, or the next load resurrects the stale rows.
+        for stale in self._dir.glob("*.csv"):
+            if stale.stem not in by_slug:
+                log.warning("deleting orphan shard %s (no rows reference it after save)", stale)
+                stale.unlink()
+        # Shards now hold everything the legacy files did; leaving one would re-absorb
+        # (and resurrect merged-away rows) on every future load.
+        for legacy in self._legacy:
+            legacy.unlink(missing_ok=True)
+        self._legacy = []
 
     # ---- internals -----------------------------------------------------------
 
@@ -199,8 +247,9 @@ class CsvStore:
         row = self._by_key.get(job_key.casefold())
         if row is None:
             for url in urls:
-                if url in self._by_url:
-                    return self._by_url[url]
+                match = self._by_url.get(canon_url(url))
+                if match is not None:
+                    return match
         return row
 
     def _insert(self, row: dict) -> None:
@@ -214,7 +263,7 @@ class CsvStore:
         # Not auto-merged (a bad/generic URL could chain-merge distinct roles) — warn
         # so it can be resolved by hand; never observed in real data so far.
         for url in urls:
-            other = self._by_url.get(url)
+            other = self._by_url.get(canon_url(url))
             if other is not None and other is not existing:
                 log.warning("row %r also matches %r via url %s; merged into the former only",
                             existing["job_key"], other["job_key"], url)
@@ -223,7 +272,8 @@ class CsvStore:
     def _index(self, row: dict) -> None:
         self._by_key[row["job_key"].casefold()] = row
         for url in _split_multi(row["urls"]):
-            self._by_url[url] = row
+            # Indexed under the canonical form; the row keeps the original strings.
+            self._by_url[canon_url(url)] = row
         for uid in _split_multi(row["source_uids"]):
             self._by_uid[uid] = row
 
@@ -238,7 +288,8 @@ class CsvStore:
                     existing["job_key"], old, new, keep)
         return keep
 
-    def _row_from_job(self, job: Job) -> dict:
+    @staticmethod
+    def _row_from_job(job: Job) -> dict:
         company = job.company.strip()
         return {
             "job_key": _job_key(company, _uid_suffix(job.job_uid)),
@@ -283,3 +334,20 @@ class CsvStore:
     @staticmethod
     def _normalize(raw: dict) -> dict:
         return {field: (raw.get(field) or "") for field in _FIELDS}
+
+
+def union_merge(primary_dir: Path, track_priority: Sequence[str] = (), *,
+                extra_dirs: Sequence[Path] = (), extra_files: Sequence[Path] = (),
+                legacy_files: Sequence[Path] = ()) -> CsvStore:
+    """Fold other ledgers into `primary_dir` and save the union back to it: every
+    shard of each extra_dir, each extra csv file, and any still-existing legacy
+    single-file ledger (deleted after the save). The ONE union-merge used by both
+    local_run.py and scan.yml's push-race retry — keep them behaviorally identical."""
+    store = CsvStore(primary_dir, track_priority, legacy_files=legacy_files)
+    for extra_dir in extra_dirs:
+        for shard in sorted(extra_dir.glob("*.csv")):
+            store.absorb(shard)
+    for path in extra_files:
+        store.absorb(path)
+    store.save()
+    return store
