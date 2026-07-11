@@ -194,11 +194,12 @@ class KeywordScorer:
         if self._resume_tokens:
             text = f"{job.title} {job.description}".lower()
             overlap = len(self._resume_tokens & set(self._WORD_RE.findall(text)))
-            experience = _clamp(40 + 3 * overlap)
-        else:
-            # No resume: constant score means every role lands on the same side of the threshold.
-            experience = 50
-        return Score(experience, "keyword-only heuristic")
+            # experience still gates the track threshold (>50 needs overlap >= 4); the
+            # raw count rides along because the clamp saturates at overlap 20.
+            return Score(_clamp(40 + 3 * overlap), "keyword-only heuristic", matches=overlap)
+        # No resume: constant score puts every role on the same side of the
+        # threshold, so matches stays None — there's no meaningful count to report.
+        return Score(50, "keyword-only heuristic")
 
 
 def build_scorer(settings) -> JobScorer:

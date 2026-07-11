@@ -32,3 +32,7 @@ class Job:
 class Score:
     experience_score: int   # 0-100, candidate-resume fit to this specific role
     reason: str
+    # Raw keyword-overlap count; set only by KeywordScorer with a resume (None for
+    # LLM scorers and the no-resume path). Needed because clamped experience_score
+    # saturates at 100 on real resumes — email and section sort use this instead.
+    matches: int | None = None
