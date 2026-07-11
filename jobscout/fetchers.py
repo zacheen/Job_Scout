@@ -106,6 +106,23 @@ def _paginate_new(
     return jobs
 
 
+def _paginate_bounded(
+    fetch_page: Callable[[int], tuple[list[Job], int | None]],
+    page_size: int,
+    max_pages: int,
+) -> tuple[list[Job], bool]:
+    """Collect ALL pages of a source with no usable ordering (early-stop invalid),
+    bounded by `max_pages`. Returns (jobs, exhausted); a False `exhausted` means the
+    cap was hit first — the caller should warn, or results silently truncate."""
+    jobs: list[Job] = []
+    for index in range(max_pages):
+        page_jobs, total = fetch_page(index)
+        jobs.extend(page_jobs)
+        if not page_jobs or (total and (index + 1) * page_size >= total):
+            return jobs, True
+    return jobs, False
+
+
 def _throttled(method):
     """Wrap an HttpClient request method so every outbound connection is paced first.
     The one place to add per-connection behaviour later (logging, auth, metrics)."""
@@ -331,22 +348,42 @@ class AshbyFetcher(AtsFetcher):
 
 
 class WorkdayFetcher(PaginatedFetcher):
-    """Workday CXS `jobs` endpoint; default order is newest-first, so early-stop applies."""
+    """Workday CXS `jobs` endpoint; default order is newest-first, so early-stop applies.
+
+    Optional `searchText` param scopes a shared tenant to one brand (Matterport inside
+    CoStar) — but a text search returns RELEVANCE order, which breaks the early-stop
+    assumption, so those companies do a bounded full pull instead (scoped boards are
+    small)."""
 
     ats_name = "workday"
     _PAGE = 20
     _SEED_MAX_PAGES = 10
+    _MAX_SEARCH_PAGES = 25  # hard bound for the searchText (relevance-ordered) mode
 
     @property
     def host(self) -> str:
         return self._param("host")
+
+    def __init__(self, company: Company, http: HttpClient):
+        super().__init__(company, http)
+        self._search_text = company.params.get("searchText", "")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        if self._search_text:
+            jobs, exhausted = _paginate_bounded(self._fetch_page, self._PAGE,
+                                                self._MAX_SEARCH_PAGES)
+            if not exhausted:
+                log.warning("workday %s: hit _MAX_SEARCH_PAGES (%d) before the search was "
+                            "exhausted — raise the cap", self.host, self._MAX_SEARCH_PAGES)
+            return jobs
+        return super().fetch(seen)
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         host, tenant, site = self._param("host"), self._param("tenant"), self._param("site")
         data = self._http.post_json(
             f"https://{host}/wday/cxs/{tenant}/{site}/jobs",
             {"appliedFacets": {}, "limit": self._PAGE,
-             "offset": index * self._PAGE, "searchText": ""},
+             "offset": index * self._PAGE, "searchText": self._search_text},
         )
         jobs = [
             Job(
@@ -859,6 +896,325 @@ class GemFetcher(AtsFetcher):
         return "; ".join(p for p in parts if p)
 
 
+class ByteDanceFetcher(AtsFetcher):
+    """The ByteDance "atsx" portal family: defaults target the corporate portal
+    (jobs.bytedance.com); TikTok's lifeattiktok.com runs the SAME gateway, selected via
+    the `host`/`website_path`/`jd_base` params. Anonymous POST, but the gateway 400s
+    ("invalid request", plain text) unless BOTH the `website-path` and
+    `accept-language: en-US` headers are sent; the CSRF token endpoint exists but reads
+    don't need it. No date field and unknown ordering -> single-shot full-board fetch,
+    bounded by _MAX_PAGES."""
+
+    ats_name = "bytedance"
+    _PAGE = 100  # verified accepted; keeps full boards to count/100 requests
+    _MAX_PAGES = 50  # hard bound: full-board paging with no early-stop (TikTok ~3600)
+
+    def __init__(self, company: Company, http: HttpClient):
+        super().__init__(company, http)
+        self._headers = {"website-path": company.params.get("website_path", "en"),
+                         "accept-language": "en-US"}
+        self._jd_base = company.params.get("jd_base", "https://joinbytedance.com/search")
+
+    @property
+    def host(self) -> str:
+        return self._company.params.get("host", "jobs.bytedance.com")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        jobs, exhausted = _paginate_bounded(self._fetch_page, self._PAGE, self._MAX_PAGES)
+        if not exhausted:
+            log.warning("bytedance %s: hit _MAX_PAGES (%d) without an empty batch — "
+                        "board may exceed the cap; re-check pagination",
+                        self.host, self._MAX_PAGES)
+        return jobs
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        data = self._http.post_json(
+            f"https://{self.host}/api/v1/public/supplier/search/job/posts",
+            {"recruitment_id_list": [], "keyword": "",
+             "limit": self._PAGE, "offset": index * self._PAGE},
+            headers=self._headers,
+        )
+        payload = data.get("data") or {}
+        batch = payload.get("job_post_list") or []
+        # A missing/0 count means UNKNOWN (None) — _paginate_bounded then stops on the
+        # empty-batch check only. (A 0 sentinel would read as "done" after one page.)
+        return ([self._to_job(item) for item in batch if item.get("id")],
+                payload.get("count") or None)
+
+    def _to_job(self, item: dict) -> Job:
+        return Job(
+            job_uid=self._uid(item["id"]),
+            company=self._company.name,
+            title=item.get("title", ""),
+            location=self._location(item.get("city_info") or {}),
+            url=f"{self._jd_base}/{item['id']}",
+            description=strip_html(
+                f"{item.get('description', '')}\n{item.get('requirement', '')}"
+            ),
+            department=(item.get("job_category") or {}).get("en_name", ""),
+            date_posted="",  # API carries no posting date
+        )
+
+    @staticmethod
+    def _location(city_info: dict) -> str:
+        # city_info nests city -> state -> country via `parent`; walk to the top so the
+        # location carries the country name PreFilter's US terms can match.
+        names = []
+        node = city_info
+        for _ in range(6):  # city -> state -> country + slack; guards a cyclic/malformed chain
+            if not isinstance(node, dict) or not node:
+                break
+            name = node.get("en_name")
+            if name and name not in names:
+                names.append(name)
+            node = node.get("parent")
+        return ", ".join(names)
+
+
+class IbmFetcher(AtsFetcher):
+    """IBM's first-party Elasticsearch proxy (www-api.ibm.com/search/api/v2). Anonymous
+    POST; `_source` must be an explicit field whitelist ("*"/true are rejected) and the
+    index has no sortable date field -> country-filtered single-shot (the US slice is
+    ~92 of ~1102 global, so server-side filtering keeps the pull small)."""
+
+    ats_name = "ibm"
+    _API = "https://www-api.ibm.com/search/api/v2"
+    _PAGE = 100
+    _MAX_PAGES = 10  # hard bound: no dates, no early-stop
+    _FIELDS = ["title", "url", "description", "field_keyword_05", "field_keyword_08",
+               "field_keyword_19"]
+    _JOB_ID_RE = re.compile(r"jobId=(\d+)")
+
+    @property
+    def host(self) -> str:
+        return "www-api.ibm.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        jobs, exhausted = _paginate_bounded(self._fetch_page, self._PAGE, self._MAX_PAGES)
+        if not exhausted:
+            log.warning("ibm %s: hit _MAX_PAGES (%d) before the results were exhausted — "
+                        "re-check pagination", self.host, self._MAX_PAGES)
+        return jobs
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        country = self._company.params.get("country", "United States")
+        data = self._http.post_json(
+            self._API,
+            {"appId": "careers", "scopes": ["careers2"],
+             "query": {"bool": {"must": [{"match": {"field_keyword_05": country}}]}},
+             "size": self._PAGE, "from": index * self._PAGE, "_source": self._FIELDS},
+        )
+        hits_wrapper = data.get("hits") or {}
+        jobs = []
+        for hit in hits_wrapper.get("hits") or []:
+            source = hit.get("_source") or {}
+            url = source.get("url", "")
+            job_id = self._JOB_ID_RE.search(url)
+            city = source.get("field_keyword_19", "")
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id.group(1) if job_id else hit.get("_id", "")),
+                    company=self._company.name,
+                    title=source.get("title", ""),
+                    # field_keyword_19 is "City, US" — the bare country code misses
+                    # PreFilter's include terms, so the spelled-out country is appended.
+                    location=f"{city}, {country}" if city else country,
+                    url=url,
+                    description=source.get("description", ""),
+                    department=source.get("field_keyword_08", ""),
+                    date_posted="",  # index exposes no date field
+                )
+            )
+        return jobs, (hits_wrapper.get("total") or {}).get("value")
+
+
+class AtlassianFetcher(AtsFetcher):
+    """Atlassian's first-party listings endpoint: one GET returns the whole board as a
+    bare array. The posting page (portalJobPost.portalUrl, on icims) is used for the
+    email link — applyUrl jumps straight to the application form. Note the Lever org
+    `atlassian` is an EMPTY decoy (200, zero jobs); this endpoint is the real source."""
+
+    ats_name = "atlassian"
+
+    @property
+    def host(self) -> str:
+        return "www.atlassian.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        data = self._http.get_json("https://www.atlassian.com/endpoint/careers/listings")
+        jobs = []
+        for item in data:
+            if not item.get("id"):
+                continue
+            portal = item.get("portalJobPost") or {}
+            jobs.append(
+                Job(
+                    job_uid=self._uid(item["id"]),
+                    company=self._company.name,
+                    title=item.get("title", ""),
+                    location="; ".join(item.get("locations") or []),
+                    url=portal.get("portalUrl") or item.get("applyUrl", ""),
+                    description=strip_html(item.get("overview", "")),
+                    department=item.get("category", ""),
+                    date_posted=str(portal.get("updatedDate") or ""),
+                )
+            )
+        return jobs
+
+
+class ShopifyFetcher(AtsFetcher):
+    """Shopify's careers page server-renders the whole board: one anchor per job,
+    href `/careers/{slug}_{uuid}`, with the title and location as the first two text
+    nodes inside. Small board, no dates -> single-shot."""
+
+    ats_name = "shopify"
+
+    _JOB_RE = re.compile(r'href="(?P<href>/careers/[a-z0-9-]+_(?P<id>[a-f0-9-]{36}))"[^>]*>(?P<inner>.*?)</a>',
+                         re.DOTALL)
+
+    @property
+    def host(self) -> str:
+        return "www.shopify.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        body = self._http.get_text("https://www.shopify.com/careers")
+        jobs = []
+        seen_ids = set()
+        for match in self._JOB_RE.finditer(body):
+            if match.group("id") in seen_ids:
+                continue
+            seen_ids.add(match.group("id"))
+            texts = [t.strip() for t in _TAG_RE.split(match.group("inner")) if t.strip()]
+            jobs.append(
+                Job(
+                    job_uid=self._uid(match.group("id")),
+                    company=self._company.name,
+                    title=html.unescape(texts[0]) if texts else "",
+                    location=html.unescape(texts[1]) if len(texts) > 1 else "",
+                    url=f"https://www.shopify.com{match.group('href')}",
+                    description="",  # board page carries no description
+                    department="",
+                    date_posted="",  # board page carries no posting date
+                )
+            )
+        return jobs
+
+
+class JaneStreetFetcher(AtsFetcher):
+    """Jane Street's first-party positions feed (janestreet.com/jobs/main.json): one GET
+    returns a bare array with full descriptions and salary ranges; internship rows are
+    included. The companion internships.json feed carries NO ids or city codes — its rows
+    can't get stable uids, so it is deliberately not fetched. `city` is an office CODE
+    (NYC/LDN/HKG/SGP); _CITY_MAP spells out the US ones for PreFilter, unmapped codes
+    pass through raw and fail the location include-terms (non-US -> intended drop)."""
+
+    ats_name = "janestreet"
+    _CITY_MAP = {"NYC": "New York, NY, United States"}
+
+    @property
+    def host(self) -> str:
+        return "www.janestreet.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        data = self._http.get_json("https://www.janestreet.com/jobs/main.json")
+        return [
+            Job(
+                job_uid=self._uid(item["id"]),
+                company=self._company.name,
+                title=item.get("position", ""),
+                location=self._CITY_MAP.get(item.get("city", ""), item.get("city", "")),
+                url=f"https://www.janestreet.com/join-jane-street/position/{item['id']}/",
+                description=strip_html(item.get("overview", "")),
+                department=item.get("team") or item.get("category") or "",
+                date_posted="",  # feed carries no posting date
+            )
+            for item in data if item.get("id")
+        ]
+
+
+class TeamtailorFetcher(AtsFetcher):
+    """Teamtailor boards via the public RSS feed ({host}/jobs.rss). The /jobs HTML page
+    is client-rendered (zero anchors), but the feed is complete for small boards and —
+    unusually for the single-shot fetchers — carries pubDate and a full HTML description.
+    uid = the numeric id leading the /jobs/{id}-{slug} link."""
+
+    ats_name = "teamtailor"
+
+    _ITEM_RE = re.compile(r"<item>(.*?)</item>", re.DOTALL)
+    _LINK_ID_RE = re.compile(r"/jobs/(\d+)")
+    # tt:location entries nest a <tt:name> each; CDATA wrapping varies by field.
+    _LOCATION_RE = re.compile(r"<tt:name>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</tt:name>", re.DOTALL)
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        body = self._http.get_text(f"https://{self.host}/jobs.rss")
+        jobs = []
+        for item in self._ITEM_RE.finditer(body):
+            block = item.group(1)
+            link = self._tag(block, "link")
+            job_id = self._LINK_ID_RE.search(link)
+            if not job_id:
+                continue
+            locations = self._LOCATION_RE.findall(block)
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id.group(1)),
+                    company=self._company.name,
+                    title=self._tag(block, "title"),
+                    location="; ".join(loc.strip() for loc in locations),
+                    url=link,
+                    description=strip_html(self._tag(block, "description")),
+                    department=self._tag(block, "tt:department"),
+                    date_posted=self._tag(block, "pubDate"),
+                )
+            )
+        return jobs
+
+    @staticmethod
+    def _tag(block: str, name: str) -> str:
+        match = re.search(rf"<{re.escape(name)}>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</{re.escape(name)}>",
+                          block, re.DOTALL)
+        return match.group(1).strip() if match else ""
+
+
+class BambooHRFetcher(AtsFetcher):
+    """BambooHR hosted boards: `GET {account}.bamboohr.com/careers/list` returns the whole
+    board as {"meta":{"totalCount"},"result":[...]} in one anonymous request. Rows carry
+    no dates or descriptions -> single-shot, title-only matching. JD URL =
+    {account}.bamboohr.com/careers/{id}."""
+
+    ats_name = "bamboohr"
+
+    @property
+    def host(self) -> str:
+        return f"{self._param('account')}.bamboohr.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        data = self._http.get_json(f"https://{self.host}/careers/list")
+        jobs = []
+        for item in data.get("result") or []:
+            if not item.get("id"):
+                continue
+            location = item.get("location") or {}
+            parts = [location.get("city"), location.get("state")]
+            jobs.append(
+                Job(
+                    job_uid=self._uid(item["id"]),
+                    company=self._company.name,
+                    title=item.get("jobOpeningName", ""),
+                    location=", ".join(p for p in parts if p),
+                    url=f"https://{self.host}/careers/{item['id']}",
+                    description="",  # list API carries no job-ad body
+                    department=item.get("departmentLabel") or "",
+                    date_posted="",  # list API carries no posting date
+                )
+            )
+        return jobs
+
+
 class GithubRepoFetcher(AtsFetcher):
     """Base for aggregator sources whose postings live in a GitHub repo, read from
     raw.githubusercontent.com. All subclasses share that host, so ParallelFetcher runs
@@ -986,6 +1342,17 @@ class FetcherFactory:
         OracleFetcher.ats_name: OracleFetcher,
         SmartRecruitersFetcher.ats_name: SmartRecruitersFetcher,
         JibeFetcher.ats_name: JibeFetcher,
+        EightfoldFetcher.ats_name: EightfoldFetcher,
+        RadancyFetcher.ats_name: RadancyFetcher,
+        ByteDanceFetcher.ats_name: ByteDanceFetcher,
+        SuccessFactorsFetcher.ats_name: SuccessFactorsFetcher,
+        AvatureFetcher.ats_name: AvatureFetcher,
+        IbmFetcher.ats_name: IbmFetcher,
+        AtlassianFetcher.ats_name: AtlassianFetcher,
+        ShopifyFetcher.ats_name: ShopifyFetcher,
+        JaneStreetFetcher.ats_name: JaneStreetFetcher,
+        TeamtailorFetcher.ats_name: TeamtailorFetcher,
+        BambooHRFetcher.ats_name: BambooHRFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
         GoogleFetcher.ats_name: GoogleFetcher,
         TinderFetcher.ats_name: TinderFetcher,
