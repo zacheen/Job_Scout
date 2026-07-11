@@ -3,10 +3,7 @@
 # Dedupe ledger DIRECTORY (one CSV per company, kept small for diffing). Override
 # per-machine with LEDGER_DIR so a local run keeps a separate "seen" list from the
 # committed cloud ledger (cloud_data/ on the data branch).
-# ledger_legacy_file = pre-split single-file ledger; if present it's absorbed into
-# the shards and DELETED on the next save (LEDGER_LEGACY overrides).
 ledger_dir: "local_data"
-ledger_legacy_file: "data/seen_jobs.csv"
 
 # OpenAI model used for scoring.
 model: "gpt-5.5"

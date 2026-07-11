@@ -78,9 +78,7 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
-          # Per-company shard dir; a leftover pre-split single csv is absorbed + deleted by the store.
-          LEDGER_DIR: .ledger/cloud_data
-          LEDGER_LEGACY: .ledger/seen_jobs.csv
+          LEDGER_DIR: .ledger/cloud_data   # per-company shard dir in the data-branch checkout
         run: python run.py
 
       - name: Commit ledger to the data branch
@@ -89,7 +87,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # -A is safe: this is a fresh checkout only the scan writes to, so it stages
-          # exactly the ledger work (new/changed/orphan-deleted shards, legacy csv removal).
+          # exactly the ledger work (new/changed/orphan-deleted shards).
           git add -A
           git diff --cached --quiet && exit 0
           git commit -m "update job ledger [skip ci]"
@@ -113,8 +111,7 @@ jobs:
 
           settings = Settings.load(Path(os.environ["GITHUB_WORKSPACE"]))
           union_merge(Path("cloud_data"), settings.track_names,
-                      extra_dirs=[Path("/tmp/run_ledger")],
-                      legacy_files=[Path("seen_jobs.csv")])
+                      extra_dirs=[Path("/tmp/run_ledger")])
           EOF
             git add -A
             git diff --cached --quiet || git commit -m "update job ledger [skip ci]"
