@@ -1,7 +1,7 @@
 """Immutable value objects passed between pipeline stages."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,14 @@ class Job:
     # Pipeline-derived caveat shown in the email (e.g. "possibly no visa sponsorship");
     # never persisted (CsvStore's fixed _FIELDS ignore it).
     note: str = ""
+
+    def __post_init__(self):
+        # ATS JSON can carry explicit nulls (e.g. "department": null) that
+        # item.get(key, "") won't catch since the key exists — None then
+        # crashes downstream .lower()/regex. Coerce here once for every fetcher.
+        for f in fields(self):
+            if getattr(self, f.name) is None:
+                object.__setattr__(self, f.name, "")
 
 
 @dataclass(frozen=True)
