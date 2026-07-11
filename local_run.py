@@ -1,22 +1,20 @@
 """Local wrapper around run.py that keeps the git-hosted ledger in sync.
 
-Cloud runs (scan.yml) keep their ledger in seen_jobs.csv at the ROOT of the
-`data` branch; local runs use data/seen_jobs.csv (config default). Running
-either side without syncing re-emails roles the other side already saw, so
-this script wraps a scan with a pull / union-merge / push cycle:
+Cloud runs (scan.yml) keep their ledger in cloud_data/ at the ROOT of the `data`
+branch; local runs use local_data/ (config default). Both are directories of
+per-company CSV shards. Running either side without syncing re-emails roles the
+other side already saw, so this script wraps a scan with a pull / union-merge /
+push cycle:
 
     1. refuse to run unless the checkout is on the `data` branch
-    2. fetch + fast-forward to origin/data (grabs the cloud's latest csv)
-    3. union-merge root csv <-> data/ csv (CsvStore.absorb) into BOTH files,
-       so the scan knows every role the cloud has seen or emailed
+    2. fetch + fast-forward to origin/data (grabs the cloud's latest shards)
+    3. union-merge local_data/ <-> cloud_data/ (CsvStore.absorb) into BOTH dirs,
+       so the scan knows every role the cloud has seen or emailed; any pre-split
+       single-file ledgers (seen_jobs.csv, data/seen_jobs.csv) are absorbed and
+       deleted here too
     4. run the normal scan (jobscout main, same as run.py)
-    5. merge again and commit + push both csvs; if the cloud pushed while we
+    5. merge again and commit + push both dirs; if the cloud pushed while we
        were scanning, re-merge and retry the push once
-
-NOT merge_seen_jobs.py: that script is a one-shot migration — it folds one csv
-into the other (direction via --to) but rewrites only the destination, leaving
-the source stale (or deleted, with --delete-source) instead of keeping both
-csvs identical as step 3 requires.
 """
 from __future__ import annotations
 
@@ -33,11 +31,14 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
 from jobscout.config import Settings
-from jobscout.store import CsvStore
+from jobscout.store import union_merge
 
 ROOT = Path(__file__).resolve().parent
 BRANCH = "data"
-CLOUD_CSV = ROOT / "seen_jobs.csv"  # scan.yml's LEDGER_FILE, at the data-branch root
+CLOUD_DIR = ROOT / "cloud_data"  # scan.yml's LEDGER_DIR, at the data-branch root
+# Pre-split single-file ledgers (cloud csv at the root, local csv under data/):
+# absorbed into the shard dirs and deleted wherever they still exist.
+_LEGACY_FILES = (ROOT / "seen_jobs.csv", ROOT / "data" / "seen_jobs.csv")
 
 log = logging.getLogger("local_run")
 
@@ -59,55 +60,91 @@ def _ensure_data_branch() -> None:
     branch = _git_out("rev-parse", "--abbrev-ref", "HEAD")
     if branch != BRANCH:
         raise SystemExit(f"local_run.py must run on the {BRANCH!r} branch "
-                         f"(currently on {branch!r}); the ledger csvs only live there")
+                         f"(currently on {branch!r}); the ledger shards only live there")
 
 
-def _ledger_csvs(settings: Settings) -> list[Path]:
-    """The local ledger first, then the cloud csv (deduped when they coincide)."""
-    local = ROOT / settings.ledger_path
-    return [local] if local == CLOUD_CSV else [local, CLOUD_CSV]
+def _ledger_dirs(settings: Settings) -> list[Path]:
+    """The local shard dir first, then the cloud dir (deduped when they coincide)."""
+    local = ROOT / settings.ledger_dir
+    return [local] if local == CLOUD_DIR else [local, CLOUD_DIR]
 
 
-def _merge_ledgers(settings: Settings, extra: list[Path] = []) -> None:
-    """CsvStore.absorb dedupes by job_key/URL and keeps emailed=true on merge,
-    so this is idempotent regardless of which csv is treated as primary."""
-    csvs = _ledger_csvs(settings)
-    store = CsvStore(csvs[0], track_priority=settings.track_names)
-    for path in csvs[1:] + extra:
-        if path.exists():
-            store.absorb(path)
-    store.save()
-    for path in csvs[1:]:
-        shutil.copyfile(csvs[0], path)
+def _mirror_dir(src: Path, dst: Path) -> None:
+    """Make dst's shard set byte-identical to src's (copy all, delete strays)."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for stale in dst.glob("*.csv"):
+        if not (src / stale.name).exists():
+            stale.unlink()
+    for shard in src.glob("*.csv"):
+        shutil.copyfile(shard, dst / shard.name)
+
+
+def _merge_ledgers(settings: Settings, extra: list[Path] = ()) -> None:
+    """union_merge dedupes by job_key/canonical URL and keeps emailed=true on merge,
+    so this is idempotent regardless of which dir is treated as primary. It also
+    folds in (then deletes) any remaining pre-split single-file ledgers."""
+    dirs = _ledger_dirs(settings)
+    union_merge(dirs[0], settings.track_names, extra_dirs=dirs[1:], extra_files=extra,
+                legacy_files=_LEGACY_FILES)
+    for d in dirs[1:]:
+        _mirror_dir(dirs[0], d)
 
 
 def _sync_with_remote(settings: Settings) -> None:
     """Fast-forward to origin/data without losing local ledger rows: snapshot the
-    csvs, restore the committed versions (so the merge can't hit conflicts), then
-    fold the snapshots back into the fast-forwarded files."""
+    shard dirs (and legacy csvs), reset them to the committed state — deleting
+    untracked shards, which would otherwise abort the merge on a name collision —
+    then fold the snapshots back into the fast-forwarded ledger."""
     _git("fetch", "origin", BRANCH)
-    snapshots: list[Path] = []
     tmp = Path(tempfile.mkdtemp(prefix="jobscout_ledger_"))
-    for i, path in enumerate(_ledger_csvs(settings)):
-        if path.exists():
-            snap = tmp / f"snapshot_{i}.csv"
-            shutil.copyfile(path, snap)
+    snapshots: list[Path] = []
+    for i, d in enumerate(_ledger_dirs(settings)):
+        if d.is_dir():
+            snap_dir = tmp / f"dir_{i}"
+            shutil.copytree(d, snap_dir)
+            snapshots.extend(sorted(snap_dir.glob("*.csv")))
+            shutil.rmtree(d)
+        # check=False: an untracked dir (first run ever) has nothing to restore
+        _git("checkout", "--", str(d), check=False)
+    for i, f in enumerate(_LEGACY_FILES):
+        if f.exists():
+            snap = tmp / f"legacy_{i}.csv"
+            shutil.copyfile(f, snap)
             snapshots.append(snap)
-            # check=False: an untracked csv (first run ever) has nothing to restore
-            _git("checkout", "--", str(path), check=False)
+            _git("checkout", "--", str(f), check=False)
     _git("merge", "--ff-only", f"origin/{BRANCH}")
     _merge_ledgers(settings, extra=snapshots)
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _tracked(rel_path: str) -> bool:
+    return subprocess.run(["git", "-C", str(ROOT), "ls-files", "--error-unmatch", rel_path],
+                          capture_output=True).returncode == 0
+
+
+def _ledger_pathspecs(settings: Settings) -> list[str]:
+    """Commit pathspecs: the shard dirs, plus each legacy csv while it still exists
+    or is still tracked (so its one-time deletion lands in a commit) — a pathspec
+    unknown to git would make add/commit fail outright."""
+    paths = [d.relative_to(ROOT).as_posix() for d in _ledger_dirs(settings)]
+    for legacy in _LEGACY_FILES:
+        rel = legacy.relative_to(ROOT).as_posix()
+        if legacy.exists() or _tracked(rel):
+            paths.append(rel)
+    return paths
+
+
 def _commit_and_push(settings: Settings) -> None:
-    rel_paths = [str(p.relative_to(ROOT)) for p in _ledger_csvs(settings)]
     for attempt in (1, 2):
-        if not _git_out("status", "--porcelain", "--", *rel_paths):
+        paths = _ledger_pathspecs(settings)
+        if not _git_out("status", "--porcelain", "--", *paths):
             log.info("ledger unchanged; nothing to push")
             return
-        # pathspec commit: only the ledger csvs, never other staged/dirty files
-        _git("commit", "-m", "update job ledger (local run)", "--", *rel_paths)
+        # add first: new per-company shards are untracked, and a pathspec commit
+        # only picks up files git already knows about
+        _git("add", "-A", "--", *paths)
+        # pathspec commit: only the ledger, never other staged/dirty files
+        _git("commit", "-m", "update job ledger (local run)", "--", *paths)
         if _git("push", "origin", BRANCH, check=False).returncode == 0:
             log.info("ledger pushed to origin/%s", BRANCH)
             return
@@ -125,7 +162,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     _ensure_data_branch()
     if load_dotenv is not None:
-        load_dotenv(ROOT / ".env")  # before Settings.load so LEDGER_FILE etc. apply
+        load_dotenv(ROOT / ".env")  # before Settings.load so LEDGER_DIR etc. apply
     settings = Settings.load(ROOT)
 
     _sync_with_remote(settings)  # pre-scan: learn what the cloud already saw/emailed
