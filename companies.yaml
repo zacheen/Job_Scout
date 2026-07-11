@@ -4,7 +4,8 @@
 #   greenhouse: board            -> boards-api.greenhouse.io/v1/boards/{board}/jobs
 #   lever:      org              -> api.lever.co/v0/postings/{org}
 #   ashby:      org              -> api.ashbyhq.com/posting-api/job-board/{org}
-#   workday:    host, tenant, site
+#   workday:    host, tenant, site; searchText (optional — scopes a shared tenant, but
+#               switches to relevance order -> bounded full pull instead of early-stop)
 #   amazon:     query (optional keyword search)
 #   google:     query (optional), location (optional; default "United States")
 #   oracle:     host, site (the CX_N siteNumber from the Oracle candidate-experience URL)
@@ -16,12 +17,16 @@
 #   gem:        board            -> jobs.gem.com/{board} (anonymous GraphQL; no dates)
 #   eightfold:  host, domain     -> {host}/api/pcsx/search?domain={domain} (newest-first)
 #   radancy:    host, path (optional, default /search-jobs/results) -> JSON w/ HTML cards
-#   bytedance:  (no params) jobs.bytedance.com atsx portal
+#   bytedance:  atsx portal family; host (optional, default jobs.bytedance.com),
+#               website_path (optional, default "en"), jd_base (optional) — TikTok uses all three
 #   successfactors: host         -> {host}/search/ HTML rows, referencedate desc (newest-first)
-#   avature:    host             -> {host}/en_US/careers/SearchJobs/ HTML cards (full-board)
+#   avature:    host, newest_first (optional) -> {host}/en_US/careers/SearchJobs/ HTML cards
 #   ibm:        country (optional, default "United States") -> www-api.ibm.com ES proxy
 #   atlassian:  (no params) atlassian.com/endpoint/careers/listings
 #   shopify:    (no params) shopify.com/careers server-rendered board
+#   janestreet: (no params) janestreet.com/jobs/main.json
+#   teamtailor: host             -> {host}/jobs.rss
+#   bamboohr:   account          -> {account}.bamboohr.com/careers/list
 #   tinder:     (no params) first-party proxy for Tinder-only roles
 #   simplify:   repo (owner/name); optional path, branch  -> parses .github/scripts/listings.json
 #   speedyapply:repo (owner/name); optional files (comma-separated .md tables), branch
@@ -186,6 +191,9 @@
 - {name: Intel, ats: workday, host: intel.wd1.myworkdayjobs.com, tenant: intel, site: External}            # referral
 - {name: Applied Materials, ats: workday, host: amat.wd1.myworkdayjobs.com, tenant: amat, site: External}  # referral
 - {name: ASML, ats: workday, host: asml.wd3.myworkdayjobs.com, tenant: asml, site: ASMLEXT1}                # fetched, not referral
+# Confirmed RELEVANCE order via probe (30+/30+/11-day interleaved) — see the workday
+# searchText note above.
+- {name: Matterport, ats: workday, host: costar.wd1.myworkdayjobs.com, tenant: costar, site: CoStarCareers, searchText: Matterport, seed_only: true}  # 3D capture CV; ~109
 # careers.adobe.com front-end is Phenom, but the underlying Workday CXS is open (~1000 roles ->
 # seed_only). Site external_university exists but returns 0 anonymously — don't add it.
 - {name: Adobe, ats: workday, host: adobe.wd5.myworkdayjobs.com, tenant: adobe, site: external_experienced, seed_only: true}
@@ -259,8 +267,10 @@
 - {name: Disney, ats: radancy, host: www.disneycareers.com, path: /en/search-jobs/results, seed_only: true}  # ~777
 - {name: Arm, ats: radancy, host: careers.arm.com, seed_only: true}                                          # ~258
 
-# --- ByteDance (own atsx portal; no dates -> bounded single-shot; TikTok SPA still deferred) ---
+# --- ByteDance atsx portal family (no dates -> bounded single-shot) ---
 - {name: ByteDance, ats: bytedance, seed_only: true}     # ~1178 (San Jose/Seattle US + SG/global)
+# Solved 2026-07-11 — the lifeattiktok.com SPA needed no browser after all.
+- {name: TikTok, ats: bytedance, host: api.lifeattiktok.com, website_path: tiktok, jd_base: "https://lifeattiktok.com/search", seed_only: true}  # ~3594
 
 # --- SuccessFactors CSB (server-rendered rows; referencedate desc -> early-stop works) ---
 - {name: SAP, ats: successfactors, host: jobs.sap.com, seed_only: true}                       # ~1224 global
@@ -282,6 +292,15 @@
 
 # --- Shopify (server-rendered careers page; ~33 roles) ---
 - {name: Shopify, ats: shopify}
+
+# --- Jane Street (first-party main.json; internships.json has no ids -> not fetched) ---
+- {name: Jane Street, ats: janestreet, seed_only: true}  # ~215 (NYC/LDN/HKG/SGP; US = NYC)
+
+# --- Teamtailor (public RSS; has dates + full descriptions) ---
+- {name: Spot AI, ats: teamtailor, host: jobs.spot.ai}   # camera CV; ~8
+
+# --- BambooHR (single-request board list; no dates/descriptions) ---
+- {name: Plus One Robotics, ats: bamboohr, account: plusonerobotics}  # parcel CV; ~4 (San Antonio)
 
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
@@ -313,7 +332,4 @@
 #     it with headless Chrome), Tesla (cua-api behind Akamai; scrapers use stealth
 #     Playwright/nodriver). Apple also deferred (CSRF handshake). ---
 
-# --- Deferred (reachable anonymously but need a NEW fetcher — method-E first-party JSON,
-#     see notes/job-source-methods.md):
-#     TikTok (lifeattiktok.com SPA, no embedded JSON; jobs load from a client-side API,
-#     unprobed). ---
+# (The former "deferred: TikTok" note is resolved — see the ByteDance atsx family above.)
