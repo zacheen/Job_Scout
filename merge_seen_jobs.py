@@ -10,12 +10,17 @@ local -> cloud on every run). Rewrites only the destination; the source dir is
 kept by default, --delete-source removes it. WARNING: the deleted source may be
 the ledger the next cloud/local run reads, which would make that run treat the
 whole ledger as unseeded.
+
+The result is STAGED but never committed: a commit message ("update from cloud
+to local" / the reverse) is prepared in .git/MERGE_MSG, which git and GUI
+clients (GitKraken) pre-fill into the next commit for the user to fire.
 """
 from __future__ import annotations
 
 import argparse
 import logging
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,6 +29,22 @@ from jobscout.store import union_merge
 
 ROOT = Path(__file__).resolve().parent
 CLOUD_DIR = ROOT / "cloud_data"
+
+
+def _stage(dest: Path, source: Path, source_deleted: bool, message: str) -> None:
+    """git add the merge result and pre-fill the next commit's message."""
+    subprocess.run(["git", "-C", str(ROOT), "add", "-A", "--",
+                    dest.relative_to(ROOT).as_posix()], check=True)
+    if source_deleted:
+        # check=False: nothing to stage when the deleted source was never tracked.
+        subprocess.run(["git", "-C", str(ROOT), "add", "-A", "--",
+                        source.relative_to(ROOT).as_posix()], check=False)
+    git_dir = Path(subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--git-dir"],
+                                  check=True, capture_output=True, text=True).stdout.strip())
+    if not git_dir.is_absolute():
+        git_dir = ROOT / git_dir
+    (git_dir / "MERGE_MSG").write_text(message + "\n", encoding="utf-8")
+    print(f"staged {dest.name}/; commit message prepared: {message!r}")
 
 
 def main() -> int:
@@ -54,9 +75,14 @@ def main() -> int:
     print(f"wrote {dest}: {len(store)} rows, {len(store.known_uids())} source uids, "
           f"{len(store.known_urls())} urls")
 
-    if source.is_dir() and args.delete_source:
+    source_deleted = source.is_dir() and args.delete_source
+    if source_deleted:
         shutil.rmtree(source)
         print(f"deleted {source}")
+
+    message = ("update from cloud to local" if args.to == "local"
+               else "update from local to cloud")
+    _stage(dest, source, source_deleted, message)
     return 0
 
 
