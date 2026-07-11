@@ -235,11 +235,19 @@ class CsvStore:
             if stale.stem not in by_slug:
                 log.warning("deleting orphan shard %s (no rows reference it after save)", stale)
                 stale.unlink()
-        # Shards now hold everything the legacy files did; leaving one would re-absorb
-        # (and resurrect merged-away rows) on every future load.
+        # Shards now hold everything the legacy files did; a leftover just gets
+        # re-absorbed on the next load (an idempotent union), so deletion is
+        # best-effort — a GUI git client holding the file open (Windows sharing
+        # violation) must not fail the whole save.
+        remaining = []
         for legacy in self._legacy:
-            legacy.unlink(missing_ok=True)
-        self._legacy = []
+            try:
+                legacy.unlink(missing_ok=True)
+            except OSError as exc:
+                log.warning("could not delete legacy ledger %s (%s); retrying next save",
+                            legacy, exc)
+                remaining.append(legacy)
+        self._legacy = remaining
 
     # ---- internals -----------------------------------------------------------
 
