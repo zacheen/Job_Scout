@@ -89,11 +89,30 @@ jobs:
           git add seen_jobs.csv
           git diff --cached --quiet && exit 0
           git commit -m "update job ledger [skip ci]"
-          # A human push to data during the run makes this push non-fast-forward;
-          # merge theirs in and retry (bot only touches seen_jobs.csv, so no conflict).
+          # A human push to data during the run (e.g. local_run.py) makes this push
+          # non-fast-forward — and since BOTH sides rewrite the whole sorted csv, a
+          # `git pull` text merge conflicts and can never recover (proven 2026-07-11).
+          # Retry by resetting to the new remote tip and union-merging our rows back
+          # in via CsvStore.absorb, the same semantics local_run.py uses.
           for i in 1 2 3; do
             if git push -u origin "$LEDGER_BRANCH"; then exit 0; fi
-            git pull --no-rebase --no-edit origin "$LEDGER_BRANCH"
+            cp seen_jobs.csv /tmp/run_ledger.csv
+            git fetch origin "$LEDGER_BRANCH"
+            git reset --hard FETCH_HEAD
+            PYTHONPATH="$GITHUB_WORKSPACE" python - <<'EOF'
+          import os
+          from pathlib import Path
+
+          from jobscout.config import Settings
+          from jobscout.store import CsvStore
+
+          settings = Settings.load(Path(os.environ["GITHUB_WORKSPACE"]))
+          store = CsvStore(Path("seen_jobs.csv"), track_priority=settings.track_names)
+          store.absorb(Path("/tmp/run_ledger.csv"))
+          store.save()
+          EOF
+            git add seen_jobs.csv
+            git diff --cached --quiet || git commit -m "update job ledger [skip ci]"
           done
           exit 1
 
