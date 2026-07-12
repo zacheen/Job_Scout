@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-KRAFTON:7445221a-4683-4040-9ebb-25e29d31c57f,KRAFTON,Programming Intern,"Montreal, QC, Canada",Software,https://job-boards.greenhouse.io/studiokraftonboard/jobs/8613468002,2026-06-30,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:7445221a-4683-4040-9ebb-25e29d31c57f
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+KRAFTON:7445221a-4683-4040-9ebb-25e29d31c57f,KRAFTON,Programming Intern,"Montreal, QC, Canada",Software,https://job-boards.greenhouse.io/studiokraftonboard/jobs/8613468002,2026-06-30,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:7445221a-4683-4040-9ebb-25e29d31c57f

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Lennox International:d565c190-51ef-4bd5-af51-6c97526c1a1a,Lennox International,IT Co-Op,"Letchworth, AR",Software,https://uscareers-lennox.icims.com/jobs/52439/job?mobile=true&needsRedirect=false,2026-04-16,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:d565c190-51ef-4bd5-af51-6c97526c1a1a
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Lennox International:d565c190-51ef-4bd5-af51-6c97526c1a1a,Lennox International,IT Co-Op,"Letchworth, AR",Software,https://uscareers-lennox.icims.com/jobs/52439/job?mobile=true&needsRedirect=false,2026-04-16,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:d565c190-51ef-4bd5-af51-6c97526c1a1a

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Akumen:https://akumeninc.com/career/?gh_jid=4308114009,Akumen,Junior Software Developer,"Washington, DC",,https://akumeninc.com/career/?gh_jid=4308114009,,2026-07-09T15:36:11+00:00,,false,,,,false,speedyapply:SpeedyApply SWE:https://akumeninc.com/career/?gh_jid=4308114009
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Akumen:https://akumeninc.com/career/?gh_jid=4308114009,Akumen,Junior Software Developer,"Washington, DC",,https://akumeninc.com/career/?gh_jid=4308114009,,2026-07-09T15:36:11+00:00,2026-07-09 08:36 Thu,,false,,,,false,speedyapply:SpeedyApply SWE:https://akumeninc.com/career/?gh_jid=4308114009

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Cole Engineering Services:208b5435-9c9d-4ee0-becd-6a2fb1192865,Cole Engineering Services,AI Intern,"Hanover, MD","Data Science, AI & Machine Learning",https://jobs-cesi.icims.com/jobs/10965/ai-intern/job,2026-05-07,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:208b5435-9c9d-4ee0-becd-6a2fb1192865
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Cole Engineering Services:208b5435-9c9d-4ee0-becd-6a2fb1192865,Cole Engineering Services,AI Intern,"Hanover, MD","Data Science, AI & Machine Learning",https://jobs-cesi.icims.com/jobs/10965/ai-intern/job,2026-05-07,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:208b5435-9c9d-4ee0-becd-6a2fb1192865

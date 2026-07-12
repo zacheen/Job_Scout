@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Reacher:7268da41-7d8d-4639-8007-09b1e8a2aeb9,Reacher,Software Engineering Intern,"San Francisco, CA",Software Engineering,https://jobs.ashbyhq.com/reacher/99eb7e94-ebde-41c6-acae-efef58d3babe,2025-11-19,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:7268da41-7d8d-4639-8007-09b1e8a2aeb9
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Reacher:7268da41-7d8d-4639-8007-09b1e8a2aeb9,Reacher,Software Engineering Intern,"San Francisco, CA",Software Engineering,https://jobs.ashbyhq.com/reacher/99eb7e94-ebde-41c6-acae-efef58d3babe,2025-11-19,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:7268da41-7d8d-4639-8007-09b1e8a2aeb9

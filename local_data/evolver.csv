@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Evolver:2283b39a-bd55-4fc6-8bb7-6e3a6a999b59,Evolver,Applied Data Science Intern,"Palo Alto, CA",AI/ML/Data,https://job-boards.greenhouse.io/evolver/jobs/4254540009,2026-06-10,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:2283b39a-bd55-4fc6-8bb7-6e3a6a999b59
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Evolver:2283b39a-bd55-4fc6-8bb7-6e3a6a999b59,Evolver,Applied Data Science Intern,"Palo Alto, CA",AI/ML/Data,https://job-boards.greenhouse.io/evolver/jobs/4254540009,2026-06-10,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:2283b39a-bd55-4fc6-8bb7-6e3a6a999b59

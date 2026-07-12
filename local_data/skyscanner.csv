@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Skyscanner:816ebfe9-3db3-4901-8673-2bf1e96e730e,Skyscanner,Software Engineering Apprentice,"Glasgow, UK",Software,http://www.skyscanner.net/jobs/job/7956291?gh_jid=7956291,2026-06-01,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:816ebfe9-3db3-4901-8673-2bf1e96e730e
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Skyscanner:816ebfe9-3db3-4901-8673-2bf1e96e730e,Skyscanner,Software Engineering Apprentice,"Glasgow, UK",Software,http://www.skyscanner.net/jobs/job/7956291?gh_jid=7956291,2026-06-01,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:816ebfe9-3db3-4901-8673-2bf1e96e730e

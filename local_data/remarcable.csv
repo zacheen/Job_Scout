@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Remarcable:6d922f2a-8b5e-4ae7-adb7-688c70b424a1,Remarcable,Full Stack Developer Co-op,"Vancouver, BC, Canada",Software,https://jobs.ashbyhq.com/remarcable-inc/38e76aaf-d0b3-40c7-8055-cb7e11ed26cd/application,2026-06-29,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:6d922f2a-8b5e-4ae7-adb7-688c70b424a1
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Remarcable:6d922f2a-8b5e-4ae7-adb7-688c70b424a1,Remarcable,Full Stack Developer Co-op,"Vancouver, BC, Canada",Software,https://jobs.ashbyhq.com/remarcable-inc/38e76aaf-d0b3-40c7-8055-cb7e11ed26cd/application,2026-06-29,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:6d922f2a-8b5e-4ae7-adb7-688c70b424a1

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-BlinqLABS:8adf8a0f-8e62-4272-a4ac-197b91e8bb67,BlinqLABS,Java Web Development Intern,"Southfield, MI",Software,https://jobs.smartrecruiters.com/Blinqlabs/743999734120603,2026-02-19,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:8adf8a0f-8e62-4272-a4ac-197b91e8bb67
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+BlinqLABS:8adf8a0f-8e62-4272-a4ac-197b91e8bb67,BlinqLABS,Java Web Development Intern,"Southfield, MI",Software,https://jobs.smartrecruiters.com/Blinqlabs/743999734120603,2026-02-19,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:8adf8a0f-8e62-4272-a4ac-197b91e8bb67

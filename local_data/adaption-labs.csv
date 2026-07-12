@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Adaption Labs:9999c788-4faa-43a0-9300-8fef2f45873d,Adaption Labs,Modelling Resident,Remote in USA,AI/ML/Data,https://jobs.ashbyhq.com/adaption/3acd56ba-3085-441e-ba75-e6252ce3d566/application,2026-06-17,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:9999c788-4faa-43a0-9300-8fef2f45873d
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Adaption Labs:9999c788-4faa-43a0-9300-8fef2f45873d,Adaption Labs,Modelling Resident,Remote in USA,AI/ML/Data,https://jobs.ashbyhq.com/adaption/3acd56ba-3085-441e-ba75-e6252ce3d566/application,2026-06-17,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:9999c788-4faa-43a0-9300-8fef2f45873d

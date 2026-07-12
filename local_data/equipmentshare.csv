@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-EquipmentShare:fe925a08-6009-425a-b112-6e80d0c715d0,EquipmentShare,Uptime Management Center Intern,"Columbia, MO",AI/ML/Data,https://www.equipmentshare.com/careers/openings/?gh_jid=7623013,2026-07-07,2026-07-08T02:45:08+00:00,,false,,,,false,simplify:Simplify Internships:fe925a08-6009-425a-b112-6e80d0c715d0
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+EquipmentShare:fe925a08-6009-425a-b112-6e80d0c715d0,EquipmentShare,Uptime Management Center Intern,"Columbia, MO",AI/ML/Data,https://www.equipmentshare.com/careers/openings/?gh_jid=7623013,2026-07-07,2026-07-08T02:45:08+00:00,2026-07-07 19:45 Tue,,false,,,,false,simplify:Simplify Internships:fe925a08-6009-425a-b112-6e80d0c715d0

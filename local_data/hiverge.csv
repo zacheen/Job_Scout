@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Hiverge:2c50d66a-bdb8-46dc-8a47-f505dcf9f116,Hiverge,Research Engineer Intern,"Cambridge, UK",AI/ML/Data,https://jobs.ashbyhq.com/hiverge/ea6edea4-5216-4cdc-b368-909ba91c78a3/application,2026-06-24,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:2c50d66a-bdb8-46dc-8a47-f505dcf9f116
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Hiverge:2c50d66a-bdb8-46dc-8a47-f505dcf9f116,Hiverge,Research Engineer Intern,"Cambridge, UK",AI/ML/Data,https://jobs.ashbyhq.com/hiverge/ea6edea4-5216-4cdc-b368-909ba91c78a3/application,2026-06-24,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:2c50d66a-bdb8-46dc-8a47-f505dcf9f116

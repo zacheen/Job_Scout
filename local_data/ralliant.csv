@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Ralliant:f8fcecf4-292f-4454-96c1-543908950dfe,Ralliant,Software Engineer Intern - Mecop,"Beaverton, OR",Hardware,https://ibwujb.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/8465,2026-06-18,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:f8fcecf4-292f-4454-96c1-543908950dfe
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Ralliant:f8fcecf4-292f-4454-96c1-543908950dfe,Ralliant,Software Engineer Intern - Mecop,"Beaverton, OR",Hardware,https://ibwujb.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/8465,2026-06-18,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:f8fcecf4-292f-4454-96c1-543908950dfe

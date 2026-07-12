@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Mindsmith:d5f656c8-3f10-4705-8103-f3f7a76b54b1,Mindsmith,Software Engineering Intern,"Lehi, UT",Software Engineering,https://app.dover.com/apply/mindsmith/e0ca8149-6811-4de9-ba38-65a0244a2b7e,2026-06-24,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:d5f656c8-3f10-4705-8103-f3f7a76b54b1
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Mindsmith:d5f656c8-3f10-4705-8103-f3f7a76b54b1,Mindsmith,Software Engineering Intern,"Lehi, UT",Software Engineering,https://app.dover.com/apply/mindsmith/e0ca8149-6811-4de9-ba38-65a0244a2b7e,2026-06-24,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:d5f656c8-3f10-4705-8103-f3f7a76b54b1

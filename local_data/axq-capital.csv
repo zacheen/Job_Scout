@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-AXQ Capital:50b74e7f-6fd6-4664-990a-0cf32bb4f58f,AXQ Capital,Quantitative Research Intern,NYC,Quant,https://job-boards.greenhouse.io/axq/jobs/5575450004,2026-03-02,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:50b74e7f-6fd6-4664-990a-0cf32bb4f58f
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+AXQ Capital:50b74e7f-6fd6-4664-990a-0cf32bb4f58f,AXQ Capital,Quantitative Research Intern,NYC,Quant,https://job-boards.greenhouse.io/axq/jobs/5575450004,2026-03-02,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:50b74e7f-6fd6-4664-990a-0cf32bb4f58f

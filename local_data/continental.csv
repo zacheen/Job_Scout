@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Continental:341f6a28-e5b1-43f7-8f46-276d37527c38,Continental,Engineering Analyst Intern,"Leakey, TX",AI/ML/Data,https://jobs.smartrecruiters.com/Continental/744000132913026,2026-06-18,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:341f6a28-e5b1-43f7-8f46-276d37527c38
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Continental:341f6a28-e5b1-43f7-8f46-276d37527c38,Continental,Engineering Analyst Intern,"Leakey, TX",AI/ML/Data,https://jobs.smartrecruiters.com/Continental/744000132913026,2026-06-18,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:341f6a28-e5b1-43f7-8f46-276d37527c38

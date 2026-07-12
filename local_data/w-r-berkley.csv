@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-W.R. Berkley:0df4093f-ef9b-4ac3-a0aa-1d74ee3664ce,W.R. Berkley,Business and Data Analyst Intern,"Farmington, CT",AI/ML/Data,https://careers-berkley.icims.com/jobs/13507/job?mobile=true&needsRedirect=false,2026-02-02,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:0df4093f-ef9b-4ac3-a0aa-1d74ee3664ce
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+W.R. Berkley:0df4093f-ef9b-4ac3-a0aa-1d74ee3664ce,W.R. Berkley,Business and Data Analyst Intern,"Farmington, CT",AI/ML/Data,https://careers-berkley.icims.com/jobs/13507/job?mobile=true&needsRedirect=false,2026-02-02,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:0df4093f-ef9b-4ac3-a0aa-1d74ee3664ce

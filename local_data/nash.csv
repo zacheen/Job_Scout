@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Nash:https://jobs.ashbyhq.com/nash/5d2387ea-c478-433b-b3db-30115d1984c5,Nash,Full Stack Engineering Intern,San Francisco,,https://jobs.ashbyhq.com/nash/5d2387ea-c478-433b-b3db-30115d1984c5,,2026-07-07T05:59:38+00:00,,false,,,,false,speedyapply:SpeedyApply SWE:https://jobs.ashbyhq.com/nash/5d2387ea-c478-433b-b3db-30115d1984c5
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Nash:https://jobs.ashbyhq.com/nash/5d2387ea-c478-433b-b3db-30115d1984c5,Nash,Full Stack Engineering Intern,San Francisco,,https://jobs.ashbyhq.com/nash/5d2387ea-c478-433b-b3db-30115d1984c5,,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,speedyapply:SpeedyApply SWE:https://jobs.ashbyhq.com/nash/5d2387ea-c478-433b-b3db-30115d1984c5

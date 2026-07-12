@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-SA Technologies:40b3806c-fa11-45ec-b641-43558f1402ee,SA Technologies,Python Developer,NYC,Software,https://jobs.smartrecruiters.com/SATechnologiesInc4/84631481,2026-02-26,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:40b3806c-fa11-45ec-b641-43558f1402ee
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+SA Technologies:40b3806c-fa11-45ec-b641-43558f1402ee,SA Technologies,Python Developer,NYC,Software,https://jobs.smartrecruiters.com/SATechnologiesInc4/84631481,2026-02-26,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:40b3806c-fa11-45ec-b641-43558f1402ee

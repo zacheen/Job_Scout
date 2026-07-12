@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Apex:b545f882-0812-48eb-b468-4550581dc0c8,Apex,Software Engineering Intern - Embedded Systems,LA,Hardware,https://jobs.ashbyhq.com/apex-technology-inc/5ec2dfa9-724d-4ce4-ab97-5067ec747f11/application,2026-05-11,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:b545f882-0812-48eb-b468-4550581dc0c8
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Apex:b545f882-0812-48eb-b468-4550581dc0c8,Apex,Software Engineering Intern - Embedded Systems,LA,Hardware,https://jobs.ashbyhq.com/apex-technology-inc/5ec2dfa9-724d-4ce4-ab97-5067ec747f11/application,2026-05-11,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:b545f882-0812-48eb-b468-4550581dc0c8

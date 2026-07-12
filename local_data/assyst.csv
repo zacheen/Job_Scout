@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Assyst:https://job-boards.greenhouse.io/assystinc/jobs/4301083009,Assyst,Junior Full Stack Developer,"Sterling, VA",,https://job-boards.greenhouse.io/assystinc/jobs/4301083009,,2026-07-07T05:59:38+00:00,,false,,,,false,speedyapply:SpeedyApply SWE:https://job-boards.greenhouse.io/assystinc/jobs/4301083009
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Assyst:https://job-boards.greenhouse.io/assystinc/jobs/4301083009,Assyst,Junior Full Stack Developer,"Sterling, VA",,https://job-boards.greenhouse.io/assystinc/jobs/4301083009,,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,speedyapply:SpeedyApply SWE:https://job-boards.greenhouse.io/assystinc/jobs/4301083009

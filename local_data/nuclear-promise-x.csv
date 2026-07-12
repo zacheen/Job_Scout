@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Nuclear Promise X:fdc57d4b-e57d-4e3b-8233-f69ec9f3a128,Nuclear Promise X,AI Developer Co-op,Canada,Software,https://jobs.ashbyhq.com/NPX/4a250618-dcfb-4ec9-8687-b2be9e2d6ef2/application,2026-05-19,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:fdc57d4b-e57d-4e3b-8233-f69ec9f3a128
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Nuclear Promise X:fdc57d4b-e57d-4e3b-8233-f69ec9f3a128,Nuclear Promise X,AI Developer Co-op,Canada,Software,https://jobs.ashbyhq.com/NPX/4a250618-dcfb-4ec9-8687-b2be9e2d6ef2/application,2026-05-19,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:fdc57d4b-e57d-4e3b-8233-f69ec9f3a128

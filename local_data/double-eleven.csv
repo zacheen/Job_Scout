@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Double Eleven:25a8a293-3253-46d3-a3ea-1b9cba805bc8,Double Eleven,Graphics Programmer Intern,"Durham, UK",Software,https://apply.workable.com/double-eleven/j/B75CF905CC/apply,2026-05-22,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:25a8a293-3253-46d3-a3ea-1b9cba805bc8
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Double Eleven:25a8a293-3253-46d3-a3ea-1b9cba805bc8,Double Eleven,Graphics Programmer Intern,"Durham, UK",Software,https://apply.workable.com/double-eleven/j/B75CF905CC/apply,2026-05-22,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:25a8a293-3253-46d3-a3ea-1b9cba805bc8

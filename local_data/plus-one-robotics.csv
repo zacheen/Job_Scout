@@ -1,5 +1,5 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Plus One Robotics:105,Plus One Robotics,Account Executive,,Sales & Marketing,https://plusonerobotics.bamboohr.com/careers/105,,2026-07-11T03:36:34+00:00,,false,,,,false,bamboohr:Plus One Robotics:105
-Plus One Robotics:102,Plus One Robotics,Controls Engineer,"San Antonio, Texas",Product,https://plusonerobotics.bamboohr.com/careers/102,,2026-07-11T03:36:34+00:00,,false,,,,false,bamboohr:Plus One Robotics:102
-Plus One Robotics:107,Plus One Robotics,Partner Sales Manager,,Sales,https://plusonerobotics.bamboohr.com/careers/107,,2026-07-11T03:36:34+00:00,,false,,,,false,bamboohr:Plus One Robotics:107
-Plus One Robotics:103,Plus One Robotics,Project Manager,"San Antonio, Texas",Operations,https://plusonerobotics.bamboohr.com/careers/103,,2026-07-11T03:36:34+00:00,,false,,,,false,bamboohr:Plus One Robotics:103
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Plus One Robotics:105,Plus One Robotics,Account Executive,,Sales & Marketing,https://plusonerobotics.bamboohr.com/careers/105,,2026-07-11T03:36:34+00:00,2026-07-10 20:36 Fri,,false,,,,false,bamboohr:Plus One Robotics:105
+Plus One Robotics:102,Plus One Robotics,Controls Engineer,"San Antonio, Texas",Product,https://plusonerobotics.bamboohr.com/careers/102,,2026-07-11T03:36:34+00:00,2026-07-10 20:36 Fri,,false,,,,false,bamboohr:Plus One Robotics:102
+Plus One Robotics:107,Plus One Robotics,Partner Sales Manager,,Sales,https://plusonerobotics.bamboohr.com/careers/107,,2026-07-11T03:36:34+00:00,2026-07-10 20:36 Fri,,false,,,,false,bamboohr:Plus One Robotics:107
+Plus One Robotics:103,Plus One Robotics,Project Manager,"San Antonio, Texas",Operations,https://plusonerobotics.bamboohr.com/careers/103,,2026-07-11T03:36:34+00:00,2026-07-10 20:36 Fri,,false,,,,false,bamboohr:Plus One Robotics:103

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-10a Labs:a1bc5739-2d47-4f6c-8627-5b11e873e160,10a Labs,Engineering Fellow,SF,Software,https://job-boards.greenhouse.io/10alabs/jobs/4203095009,2026-03-27,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:a1bc5739-2d47-4f6c-8627-5b11e873e160
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+10a Labs:a1bc5739-2d47-4f6c-8627-5b11e873e160,10a Labs,Engineering Fellow,SF,Software,https://job-boards.greenhouse.io/10alabs/jobs/4203095009,2026-03-27,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:a1bc5739-2d47-4f6c-8627-5b11e873e160

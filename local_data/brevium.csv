@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Brevium:6de13808-7632-4d90-b7bb-993b55170ec7,Brevium,Data Analyst Assistant,"American Fork, UT",AI/ML/Data,https://job-boards.greenhouse.io/brevium/jobs/4326783006,2026-07-09,2026-07-09T22:36:17+00:00,,false,,,,false,simplify:Simplify Internships:6de13808-7632-4d90-b7bb-993b55170ec7
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Brevium:6de13808-7632-4d90-b7bb-993b55170ec7,Brevium,Data Analyst Assistant,"American Fork, UT",AI/ML/Data,https://job-boards.greenhouse.io/brevium/jobs/4326783006,2026-07-09,2026-07-09T22:36:17+00:00,2026-07-09 15:36 Thu,,false,,,,false,simplify:Simplify Internships:6de13808-7632-4d90-b7bb-993b55170ec7

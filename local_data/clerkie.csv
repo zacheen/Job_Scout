@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Clerkie:71f5d4c0-dc9d-4fe6-afcc-6d0735570374,Clerkie,Software Engineer Internship,Remote,,http://getfiber.ai/careers?gh_jid=5152467007,,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:71f5d4c0-dc9d-4fe6-afcc-6d0735570374|speedyapply:SpeedyApply SWE:http://getfiber.ai/careers?gh_jid=5152467007
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Clerkie:71f5d4c0-dc9d-4fe6-afcc-6d0735570374,Clerkie,Software Engineer Internship,Remote,,http://getfiber.ai/careers?gh_jid=5152467007,,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:71f5d4c0-dc9d-4fe6-afcc-6d0735570374|speedyapply:SpeedyApply SWE:http://getfiber.ai/careers?gh_jid=5152467007

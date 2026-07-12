@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-TMX Group:9d1b3f92-c2d1-40af-9fb0-c1c0a2f03de9,TMX Group,AI Intern,"Toronto, ON, Canada",AI/ML/Data,https://tmx.wd3.myworkdayjobs.com/TMX_Careers/job/Toronto---100-Adelaide-St-W/AI-Intern_R-5994-1,2026-06-24,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:9d1b3f92-c2d1-40af-9fb0-c1c0a2f03de9
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+TMX Group:9d1b3f92-c2d1-40af-9fb0-c1c0a2f03de9,TMX Group,AI Intern,"Toronto, ON, Canada",AI/ML/Data,https://tmx.wd3.myworkdayjobs.com/TMX_Careers/job/Toronto---100-Adelaide-St-W/AI-Intern_R-5994-1,2026-06-24,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:9d1b3f92-c2d1-40af-9fb0-c1c0a2f03de9
