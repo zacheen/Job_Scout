@@ -25,6 +25,11 @@
 #   ibm:        country (optional, default "United States") -> www-api.ibm.com ES proxy
 #   atlassian:  (no params) atlassian.com/endpoint/careers/listings
 #   shopify:    (no params) shopify.com/careers server-rendered board
+#   goldman:    (no params) api-higher.gs.com GraphQL (prof + early-career + campus)
+#   jobvite:    company (the static c= id from the careers page)
+#   whatnot:    (no params) jobs.whatnot.com/api/jobs
+#   deshaw:     (no params) deshaw.com/careers __NEXT_DATA__
+#   visa:       (no params) search.visa.com single POST
 #   janestreet: (no params) janestreet.com/jobs/main.json
 #   teamtailor: host             -> {host}/jobs.rss
 #   bamboohr:   account          -> {account}.bamboohr.com/careers/list
@@ -75,6 +80,36 @@
 - {name: Riot Games University, ats: greenhouse, board: riotgamesup}          # ALL Riot interns post here; main board has none
 - {name: Twilio University, ats: greenhouse, board: twiliostudents}           # SWE-intern reqs that never hit the main board
 - {name: Axon Talent Community, ats: greenhouse, board: axontalentcommunity}  # ~7; disjoint from main; hosted the 2026 SWE internships
+# Samsung Research America (separate US entity from the sec.wd3 Samsung entry); its intern
+# board is a Tenstorrent-style separate board.
+- {name: Samsung Research America, ats: greenhouse, board: samsungresearchamerica}   # ~17 (Mountain View)
+- {name: SRA Internships, ats: greenhouse, board: samsungresearchamericainternship}  # ~6 Fall-2026 interns
+# Intern-sheet batch (2026-07-12): software/internet. NOTE: SmartRecruiters "Zscaler" is an
+# EMPTY decoy (200/totalFound=0); "toastcampus" answers 200 with 0 jobs (possibly seasonal).
+- {name: Roku,        ats: greenhouse, board: roku, seed_only: true}          # ~231; Clinch front weareroku.com
+- {name: Okta,        ats: greenhouse, board: okta, seed_only: true}          # ~346 global
+- {name: Duolingo,    ats: greenhouse, board: duolingo}                       # ~66 (Pittsburgh/NYC)
+- {name: Toast,       ats: greenhouse, board: toast, seed_only: true}         # ~303; Clinch front careers.toasttab.com
+- {name: Chime,       ats: greenhouse, board: chime}                          # ~72 (SF)
+- {name: SoFi,        ats: greenhouse, board: sofi}                           # ~70
+- {name: SoFi University, ats: greenhouse, board: sofiuniversity}             # separate uni board; 2 live externships
+- {name: Flexport,    ats: greenhouse, board: flexport, seed_only: true}      # ~144 global
+- {name: Affirm,      ats: greenhouse, board: affirm, seed_only: true}        # ~175 Remote-US
+- {name: Zscaler,     ats: greenhouse, board: zscaler, seed_only: true}       # ~340
+# Nutanix (Jobvite XML) + Whatnot (first-party API; underlying Ashby posting-api is disabled).
+- {name: Nutanix, ats: jobvite, company: qKr9VfwZ, seed_only: true}           # ~275 (Jobvite c= id)
+- {name: Whatnot, ats: whatnot, seed_only: true}                              # ~133 (SF/NY/LA)
+# Intern-sheet batch: quant shops. Bare "optiver" is a live-but-EMPTY decoy — use optiverus.
+- {name: Hudson River Trading, ats: greenhouse, board: wehrtyou}              # ~73
+- {name: Jump Trading, ats: greenhouse, board: jumptrading}                   # ~78 (Chicago/NY)
+- {name: Akuna Capital, ats: greenhouse, board: akunacapital}                 # ~27 (Chicago)
+- {name: Optiver,      ats: greenhouse, board: optiverus, seed_only: true}    # ~192 global
+
+# --- Intern-sheet quant/finance NEW-FETCHER cases (2026-07-12) ---
+- {name: Goldman Sachs, ats: goldman, seed_only: true}   # ~1322 prof+early + 151 campus; GraphQL
+- {name: Two Sigma, ats: avature, host: careers.twosigma.com, path: /careers/OpenRoles}  # ~100 (NYC); Avature w/ custom path
+- {name: D.E. Shaw, ats: deshaw}                          # ~91 external (NYC); __NEXT_DATA__
+- {name: Visa, ats: visa, seed_only: true}                # first-party search.visa.com (SmartRecruiters "Visa" is a stale decoy)
 # CV batch 2026-07-10 (robotics / drones / AV theme; all boards live-verified). seed_only
 # where the backlog is ~100+. Several slugs differ from the company name (noted inline).
 - {name: Nuro,             ats: greenhouse, board: nuro}                              # AV delivery; ~93
@@ -189,6 +224,7 @@
 # Bookmark batch (2026-07-12).
 - {name: Zello,  ats: ashby, org: zello}            # push-to-talk; AI/ML intern roles; ~12
 - {name: Genies, ats: ashby, org: genies}           # avatar/image-gen ML; ~4
+- {name: Benchling, ats: ashby, org: benchling}     # biotech R&D software; ~51 (SF)
 # CV wave 2. Ashby orgs may contain literal dots/capitals — keep them verbatim.
 - {name: Helm.ai,        ats: ashby, org: helm-ai}             # AV software; moved off Greenhouse (old board 404s); ~7
 - {name: Saronic,        ats: ashby, org: saronic, seed_only: true}  # autonomous naval vessels (Austin); ~279. Lever "saronic" is an EMPTY decoy
@@ -218,12 +254,38 @@
 - {name: F5, ats: workday, host: ffive.wd5.myworkdayjobs.com, tenant: ffive, site: f5jobs, seed_only: true}  # ~266 roles ("F5 Tower" = Seattle)
 - {name: Boston Dynamics, ats: workday, host: bostondynamics.wd1.myworkdayjobs.com, tenant: bostondynamics, site: Boston_Dynamics}  # ~73 (Waltham MA)
 - {name: Cognex, ats: workday, host: cognex.wd1.myworkdayjobs.com, tenant: cognex, site: External_Career_Site}  # machine vision; ~89 global
+# Intern-sheet batch (2026-07-12): hardware/semi. Bose is a RARE wd503 shard (wd1 422s);
+# GE HealthCare = another "Phenom front, open Workday CXS" case. Samsung Semiconductor US
+# needs no entry (its jobs resolve into the monitored sec.wd3 Samsung entry); Juniper is
+# folded into the monitored HPE tenant.
+- {name: Motorola Solutions, ats: workday, host: motorolasolutions.wd5.myworkdayjobs.com, tenant: motorolasolutions, site: Careers, seed_only: true}  # ~936
+# Intern-sheet batch software Workday adds. Splunk needs NO entry (absorbed into the
+# monitored Cisco tenant); Grubhub's tenant is owner Wonder Group with a Grubhub-scoped site.
+- {name: Red Hat, ats: workday, host: redhat.wd5.myworkdayjobs.com, tenant: redhat, site: jobs, seed_only: true}  # own Workday despite IBM ownership; ~239
+- {name: CrowdStrike, ats: workday, host: crowdstrike.wd5.myworkdayjobs.com, tenant: crowdstrike, site: crowdstrikecareers, seed_only: true}  # ~411
+- {name: Chewy, ats: workday, host: chewy.wd5.myworkdayjobs.com, tenant: chewy, site: External, seed_only: true}  # ~213; Phenom front leaks CXS
+- {name: Grubhub, ats: workday, host: wonder.wd1.myworkdayjobs.com, tenant: wonder, site: Grubhub_Careers}  # ~43 (NY/Chicago)
+- {name: Tempus, ats: workday, host: tempus.wd5.myworkdayjobs.com, tenant: tempus, site: Tempus_Careers, seed_only: true}  # medical AI; ~151
+- {name: FactSet, ats: workday, host: factset.wd108.myworkdayjobs.com, tenant: factset, site: FactSetCareers}  # ~56; rare wd108 shard
+# Intern-sheet batch: banks (Phenom fronts, open CXS underneath). BofA's tenant is "ghr";
+# Capital One replaces Discover (acquired — jobs.discover.com 301s there).
+- {name: Mastercard, ats: workday, host: mastercard.wd1.myworkdayjobs.com, tenant: mastercard, site: CorporateCareers, seed_only: true}  # ~1153
+- {name: U.S. Bank, ats: workday, host: usbank.wd1.myworkdayjobs.com, tenant: usbank, site: US_Bank_Careers, seed_only: true}  # ~1398
+- {name: Bank of America, ats: workday, host: ghr.wd1.myworkdayjobs.com, tenant: ghr, site: lateral-us, seed_only: true}  # ~1724 (US lateral site)
+- {name: Capital One, ats: workday, host: capitalone.wd12.myworkdayjobs.com, tenant: capitalone, site: Capital_One, seed_only: true}  # ~1548; incl. ex-Discover
+- {name: Cadence, ats: workday, host: cadence.wd1.myworkdayjobs.com, tenant: cadence, site: External_Careers, seed_only: true}  # EDA; ~595
+- {name: GE HealthCare, ats: workday, host: gehc.wd5.myworkdayjobs.com, tenant: gehc, site: GEHC_ExternalSite, seed_only: true}  # medical imaging; ~1002 (315 US)
+- {name: Bose, ats: workday, host: boseallaboutme.wd503.myworkdayjobs.com, tenant: boseallaboutme, site: Bose_Careers}  # ~97 (Framingham MA)
+- {name: Ciena, ats: workday, host: ciena.wd5.myworkdayjobs.com, tenant: ciena, site: Careers, seed_only: true}  # optical networking; ~152 (44 US)
 # Bookmark batch (2026-07-12): companies the user applied to / browsed — direct interest.
 # Salesforce's MAIN board is Eightfold with both APIs gated (browser-only, see fail.md), but
 # the Futureforce INTERNSHIP Workday site is open — interns are all the user targets anyway.
 # US cohorts post seasonally; currently mostly EMEA/LATAM.
 - {name: Salesforce, ats: workday, host: salesforce.wd12.myworkdayjobs.com, tenant: salesforce, site: Futureforce_Internships}  # ~16
 - {name: KLA, ats: workday, host: kla.wd1.myworkdayjobs.com, tenant: kla, site: Search, seed_only: true}  # semiconductor inspection CV; ~892
+# Full diff 2026-07-12: `AnnArbor` shares 51/52 reqs with `Search`; 1 exclusive is a live
+# Software Engineering Intern (2531653). Same user rule as Snap Sourced above.
+- {name: KLA Ann Arbor, ats: workday, host: kla.wd1.myworkdayjobs.com, tenant: kla, site: AnnArbor, seed_only: true}  # ~52
 - {name: GSK, ats: workday, host: gsk.wd5.myworkdayjobs.com, tenant: gsk, site: GSKCareers, seed_only: true}  # pharma AI/ML; ~754 global
 - {name: Nextracker, ats: workday, host: nextracker.wd5.myworkdayjobs.com, tenant: nextracker, site: nextpower_careers, seed_only: true}  # solar robotics; ~202
 - {name: Arlo, ats: workday, host: arlo.wd12.myworkdayjobs.com, tenant: arlo, site: external_careers}  # camera AI; ~37
@@ -236,6 +298,11 @@
 # Rare wd504 shard; tenant only appears in per-req apply links, not the WP careers pages.
 - {name: Symbotic, ats: workday, host: symbotic.wd504.myworkdayjobs.com, tenant: symbotic, site: Symbotic, seed_only: true}  # warehouse robots; ~163
 - {name: Snap, ats: workday, host: snapchat.wd1.myworkdayjobs.com, tenant: snapchat, site: snap, seed_only: true}  # AR/cameras; ~162 (LA/Bellevue/PA)
+# Full diff 2026-07-12: `sourced` shares 137/142 reqs with `snap` but carries ~5 exclusives
+# incl. a LIVE Security Engineer Intern (R0044499), and Snap's flagship campus SWE-intern
+# reqs (H-prefix ids) post HERE. User rule: proven exclusives -> list it; shared new reqs
+# will email twice (accepted trade-off).
+- {name: Snap Sourced, ats: workday, host: snapchat.wd1.myworkdayjobs.com, tenant: snapchat, site: sourced, seed_only: true}  # ~142
 # FAANG-tier batch (2026-07-10). Several giants hide an open Workday CXS behind a Phenom or
 # Eightfold front-end (the Adobe pattern): Cisco, eBay, HPE, Philips, Micron, PayPal.
 - {name: PayPal, ats: workday, host: paypal.wd1.myworkdayjobs.com, tenant: paypal, site: jobs, seed_only: true}  # ~158; careers.pypl.com Eightfold is gated, CXS open
@@ -261,6 +328,33 @@
 - {name: Uber, ats: oracle, host: iaziqy.fa.ocs.oraclecloud.com, site: CX_1, seed_only: true}    # ~592 (jobs.uber.com is a Happydance front)
 - {name: Oracle, ats: oracle, host: eeho.fa.us2.oraclecloud.com, site: CX_45001, seed_only: true} # the vendor itself; ~2127
 - {name: Nokia, ats: oracle, host: fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com, site: CX_1, seed_only: true}  # ~572
+# Intern-sheet batch: JPMC ignores unknown siteNumbers (Honeywell-style) — CX_1001 from page
+# HTML; Amex's careers site literally IS the Oracle CX UI.
+# (gaming/retail Workday adds are grouped below the oracle section)
+- {name: JPMorgan Chase, ats: oracle, host: jpmc.fa.oraclecloud.com, site: CX_1001, seed_only: true}  # ~7188 (largest board)
+- {name: American Express, ats: oracle, host: egug.fa.us2.oraclecloud.com, site: CX_1, seed_only: true}  # ~289
+
+# --- Intern-sheet batch: gaming/media + retail/telecom (2026-07-12). Blizzard's Phenom front
+#     leaks the OPEN xboxgaming Workday tenant — Microsoft's browser-only gate does not apply.
+#     Store-flood boards (CVS/Starbucks/Costco) are accepted: PreFilter drops store roles
+#     cheaply, early-stop bounds each run; ledger churn is the known cost. ---
+- {name: Blizzard, ats: workday, host: xboxgaming.wd1.myworkdayjobs.com, tenant: xboxgaming, site: Blizzard_External_Careers}  # ~54 (Irvine/Santa Monica)
+- {name: NBA, ats: workday, host: nba.wd108.myworkdayjobs.com, tenant: nba, site: nbacareers}  # ~49 (Secaucus NJ); rare wd108 shard
+- {name: Tencent, ats: workday, host: tencent.wd1.myworkdayjobs.com, tenant: tencent, site: Tencent_Careers, seed_only: true}  # ~345 overseas board (Palo Alto/Irvine US)
+- {name: Rockstar Games, ats: greenhouse, board: rockstargames}  # ~75 (~36 US)
+- {name: Sony Music, ats: greenhouse, board: sonymusicentertainment, seed_only: true}  # ~163; "sonymusic" 404s
+- {name: Nike, ats: workday, host: nike.wd1.myworkdayjobs.com, tenant: nike, site: nke, seed_only: true}  # ~736; "nke2" = retail stores, skip
+- {name: Walmart, ats: workday, host: walmart.wd504.myworkdayjobs.com, tenant: walmart, site: WalmartExternal, seed_only: true}  # total caps at 2000; wd5 says ERR_TENANT_MIGRATED
+- {name: CVS Health, ats: workday, host: cvshealth.wd1.myworkdayjobs.com, tenant: cvshealth, site: CVS_Health_Careers, seed_only: true}  # ~16k store-flood
+- {name: T-Mobile, ats: workday, host: tmobile.wd1.myworkdayjobs.com, tenant: tmobile, site: External, seed_only: true}  # ~1948 (careers site WAF-403s; CXS open)
+- {name: Home Depot, ats: workday, host: homedepot.wd5.myworkdayjobs.com, tenant: homedepot, site: CareerDepot, seed_only: true}  # ~942; site literally "CareerDepot"
+- {name: Starbucks, ats: eightfold, host: starbucks.eightfold.ai, domain: starbucks.com, seed_only: true}  # PCSX; ~21k store-flood
+- {name: Verizon, ats: workday, host: verizon.wd12.myworkdayjobs.com, tenant: verizon, site: verizon-careers, seed_only: true}  # ~1086
+- {name: Roche, ats: workday, host: roche.wd3.myworkdayjobs.com, tenant: roche, site: roche-ext, seed_only: true}  # ~1261 global
+- {name: Costco, ats: jibe, host: careers.costco.com, seed_only: true}  # ~26k warehouse-flood
+- {name: Comcast, ats: workday, host: comcast.wd5.myworkdayjobs.com, tenant: comcast, site: Comcast_Careers, seed_only: true}  # ~833
+- {name: Copart, ats: workday, host: copart.wd12.myworkdayjobs.com, tenant: copart, site: Copart, seed_only: true}  # ~295 (Dallas HQ tech)
+- {name: Bayer, ats: eightfold, host: talent.bayer.com, domain: bayer.com, api: legacy, seed_only: true}  # ~679; PCSX gated, legacy open
 
 # --- SmartRecruiters (public postings API; content[] newest-first by releasedDate) ---
 - {name: Intuitive, ats: smartrecruiters, company: Intuitive, seed_only: true}   # Intuitive Surgical; ~586
@@ -276,6 +370,8 @@
 # atlassian.com listings endpoint has ZERO intern/grad titles, disjoint req-id space.
 # The board also carries a stale experienced backlog -> seed_only swallows it.
 - {name: Atlassian Early Careers, ats: jibe, host: join.atlassian.com, seed_only: true}  # ~466 total, ~18 intern/grad live
+- {name: Garmin, ats: jibe, host: careers.garmin.com, seed_only: true}  # ~316 (Olathe KS, Cary NC)
+- {name: DocuSign, ats: jibe, host: careers.docusign.com, seed_only: true}  # ~313
 
 # --- Workable (anonymous v1 widget; one request, full descriptions) ---
 - {name: Pony.ai, ats: workable, account: pony-dot-ai}  # AV; US board (Fremont CA), ~7 roles
@@ -298,10 +394,12 @@
 - {name: Qualcomm, ats: eightfold, host: careers.qualcomm.com, domain: qualcomm.com, seed_only: true}  # PCSX; ~1811 (San Diego)
 - {name: HP, ats: eightfold, host: hp.eightfold.ai, domain: hp.com, seed_only: true}                   # PCSX; HP Inc; ~724 (Spring TX)
 - {name: Netflix, ats: eightfold, host: explore.jobs.netflix.net, domain: netflix.com, api: legacy, seed_only: true}  # ~482; replaced the dead Lever entry
+- {name: NetApp, ats: eightfold, host: netapp.eightfold.ai, domain: netapp.com, api: legacy, seed_only: true}  # ~266 (109 US); third legacy-only tenant
 
 # --- Radancy / TalentBrew (method G; JSON with server-rendered HTML cards; newest-first) ---
 - {name: Disney, ats: radancy, host: www.disneycareers.com, path: /en/search-jobs/results, seed_only: true}  # ~777
 - {name: Arm, ats: radancy, host: careers.arm.com, seed_only: true}                                          # ~258
+- {name: Intuit, ats: radancy, host: jobs.intuit.com, seed_only: true}  # ~357; cards carry no date spans
 
 # --- ByteDance atsx portal family (no dates -> bounded single-shot) ---
 - {name: ByteDance, ats: bytedance, seed_only: true}     # ~1178 (San Jose/Seattle US + SG/global)
