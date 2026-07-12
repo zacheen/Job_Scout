@@ -224,6 +224,9 @@
 # US cohorts post seasonally; currently mostly EMEA/LATAM.
 - {name: Salesforce, ats: workday, host: salesforce.wd12.myworkdayjobs.com, tenant: salesforce, site: Futureforce_Internships}  # ~16
 - {name: KLA, ats: workday, host: kla.wd1.myworkdayjobs.com, tenant: kla, site: Search, seed_only: true}  # semiconductor inspection CV; ~892
+# Full diff 2026-07-12: `AnnArbor` shares 51/52 reqs with `Search`; 1 exclusive is a live
+# Software Engineering Intern (2531653). Same user rule as Snap Sourced above.
+- {name: KLA Ann Arbor, ats: workday, host: kla.wd1.myworkdayjobs.com, tenant: kla, site: AnnArbor, seed_only: true}  # ~52
 - {name: GSK, ats: workday, host: gsk.wd5.myworkdayjobs.com, tenant: gsk, site: GSKCareers, seed_only: true}  # pharma AI/ML; ~754 global
 - {name: Nextracker, ats: workday, host: nextracker.wd5.myworkdayjobs.com, tenant: nextracker, site: nextpower_careers, seed_only: true}  # solar robotics; ~202
 - {name: Arlo, ats: workday, host: arlo.wd12.myworkdayjobs.com, tenant: arlo, site: external_careers}  # camera AI; ~37
@@ -236,6 +239,11 @@
 # Rare wd504 shard; tenant only appears in per-req apply links, not the WP careers pages.
 - {name: Symbotic, ats: workday, host: symbotic.wd504.myworkdayjobs.com, tenant: symbotic, site: Symbotic, seed_only: true}  # warehouse robots; ~163
 - {name: Snap, ats: workday, host: snapchat.wd1.myworkdayjobs.com, tenant: snapchat, site: snap, seed_only: true}  # AR/cameras; ~162 (LA/Bellevue/PA)
+# Full diff 2026-07-12: `sourced` shares 137/142 reqs with `snap` but carries ~5 exclusives
+# incl. a LIVE Security Engineer Intern (R0044499), and Snap's flagship campus SWE-intern
+# reqs (H-prefix ids) post HERE. User rule: proven exclusives -> list it; shared new reqs
+# will email twice (accepted trade-off).
+- {name: Snap Sourced, ats: workday, host: snapchat.wd1.myworkdayjobs.com, tenant: snapchat, site: sourced, seed_only: true}  # ~142
 # FAANG-tier batch (2026-07-10). Several giants hide an open Workday CXS behind a Phenom or
 # Eightfold front-end (the Adobe pattern): Cisco, eBay, HPE, Philips, Micron, PayPal.
 - {name: PayPal, ats: workday, host: paypal.wd1.myworkdayjobs.com, tenant: paypal, site: jobs, seed_only: true}  # ~158; careers.pypl.com Eightfold is gated, CXS open
