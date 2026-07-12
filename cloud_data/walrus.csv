@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Walrus:ea4a1ec2-be57-42a0-b019-7e37d08513b1,Walrus,Full Stack Developer Intern,"New York, NY",Software Engineering,https://jobs.ashbyhq.com/walrusfi/99c93c0e-ed9a-4e41-862a-0cdbe71d7d54,2025-11-24,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:ea4a1ec2-be57-42a0-b019-7e37d08513b1
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Walrus:ea4a1ec2-be57-42a0-b019-7e37d08513b1,Walrus,Full Stack Developer Intern,"New York, NY",Software Engineering,https://jobs.ashbyhq.com/walrusfi/99c93c0e-ed9a-4e41-862a-0cdbe71d7d54,2025-11-24,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:ea4a1ec2-be57-42a0-b019-7e37d08513b1

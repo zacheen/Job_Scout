@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Verisign:https://job-boards.greenhouse.io/verisign/jobs/7766899003,Verisign,Junior Software Engineer,"Reston,Virginia,United States",,https://job-boards.greenhouse.io/verisign/jobs/7766899003,,2026-07-07T05:59:38+00:00,,false,,,,false,speedyapply:SpeedyApply SWE:https://job-boards.greenhouse.io/verisign/jobs/7766899003
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Verisign:https://job-boards.greenhouse.io/verisign/jobs/7766899003,Verisign,Junior Software Engineer,"Reston,Virginia,United States",,https://job-boards.greenhouse.io/verisign/jobs/7766899003,,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,speedyapply:SpeedyApply SWE:https://job-boards.greenhouse.io/verisign/jobs/7766899003

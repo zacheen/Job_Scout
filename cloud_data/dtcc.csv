@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-DTCC:f6cb85ff-6c83-4b8d-b3eb-d0ae180c4820,DTCC,Product Management Intern,"Tampa, FL; NYC",Product,https://ebxr.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/214160,2026-07-08,2026-07-08T22:36:08+00:00,,false,,,,false,simplify:Simplify Internships:f6cb85ff-6c83-4b8d-b3eb-d0ae180c4820
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+DTCC:f6cb85ff-6c83-4b8d-b3eb-d0ae180c4820,DTCC,Product Management Intern,"Tampa, FL; NYC",Product,https://ebxr.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/214160,2026-07-08,2026-07-08T22:36:08+00:00,2026-07-08 15:36 Wed,,false,,,,false,simplify:Simplify Internships:f6cb85ff-6c83-4b8d-b3eb-d0ae180c4820

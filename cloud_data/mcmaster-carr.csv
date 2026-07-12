@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-McMaster-Carr:4dd6c156-2cf7-47e3-a050-40fc952ae8ea,McMaster-Carr,Management Track,"Cleveland, OH; Fort Worth, TX; Atlanta, GA",Product,https://job-boards.greenhouse.io/mcmastercarr/jobs/4226729009,2026-07-03,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:4dd6c156-2cf7-47e3-a050-40fc952ae8ea
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+McMaster-Carr:4dd6c156-2cf7-47e3-a050-40fc952ae8ea,McMaster-Carr,Management Track,"Cleveland, OH; Fort Worth, TX; Atlanta, GA",Product,https://job-boards.greenhouse.io/mcmastercarr/jobs/4226729009,2026-07-03,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:4dd6c156-2cf7-47e3-a050-40fc952ae8ea

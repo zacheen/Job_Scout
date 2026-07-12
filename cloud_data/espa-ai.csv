@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Espa AI:458415d1-7c6f-417e-9299-30a80dcdf88b,Espa AI,Software Engineer Intern,SF,Software,https://jobs.ashbyhq.com/espa/6fa2d441-971f-44c4-9a4e-3304ea041cc8/application,2026-06-26,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:458415d1-7c6f-417e-9299-30a80dcdf88b
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Espa AI:458415d1-7c6f-417e-9299-30a80dcdf88b,Espa AI,Software Engineer Intern,SF,Software,https://jobs.ashbyhq.com/espa/6fa2d441-971f-44c4-9a4e-3304ea041cc8/application,2026-06-26,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:458415d1-7c6f-417e-9299-30a80dcdf88b

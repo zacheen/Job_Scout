@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Sezzle:136bc4e8-f085-4b75-989c-c73b7f7de779,Sezzle,Product Intern,Remote in Canada,Product,https://job-boards.greenhouse.io/sezzle/jobs/6599073003,2026-05-13,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:136bc4e8-f085-4b75-989c-c73b7f7de779
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Sezzle:136bc4e8-f085-4b75-989c-c73b7f7de779,Sezzle,Product Intern,Remote in Canada,Product,https://job-boards.greenhouse.io/sezzle/jobs/6599073003,2026-05-13,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:136bc4e8-f085-4b75-989c-c73b7f7de779

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-ZURU:https://jobs.ashbyhq.com/zuru/750dea66-6f5a-4622-80d6-b6289954d3d0,ZURU,Data Analyst Intern,"Los Angeles, CA +1",,https://jobs.ashbyhq.com/zuru/750dea66-6f5a-4622-80d6-b6289954d3d0,,2026-07-08T14:36:08+00:00,,false,,,,false,speedyapply:SpeedyApply AI:https://jobs.ashbyhq.com/zuru/750dea66-6f5a-4622-80d6-b6289954d3d0
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+ZURU:https://jobs.ashbyhq.com/zuru/750dea66-6f5a-4622-80d6-b6289954d3d0,ZURU,Data Analyst Intern,"Los Angeles, CA +1",,https://jobs.ashbyhq.com/zuru/750dea66-6f5a-4622-80d6-b6289954d3d0,,2026-07-08T14:36:08+00:00,2026-07-08 07:36 Wed,,false,,,,false,speedyapply:SpeedyApply AI:https://jobs.ashbyhq.com/zuru/750dea66-6f5a-4622-80d6-b6289954d3d0

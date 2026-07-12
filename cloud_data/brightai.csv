@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-BrightAI:88f5a6f1-62c1-4a91-bf47-30e41b086fde,BrightAI,Computer Vision Intern,"Palo Alto, CA",AI/ML/Data,https://job-boards.greenhouse.io/brightai/jobs/6002012004,2026-05-21,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:88f5a6f1-62c1-4a91-bf47-30e41b086fde
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+BrightAI:88f5a6f1-62c1-4a91-bf47-30e41b086fde,BrightAI,Computer Vision Intern,"Palo Alto, CA",AI/ML/Data,https://job-boards.greenhouse.io/brightai/jobs/6002012004,2026-05-21,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:88f5a6f1-62c1-4a91-bf47-30e41b086fde

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-WeRide:f005c46d-145d-47a1-850f-71de322976f9,WeRide,Intern - PhD,"San Jose, CA",AI/ML/Data,https://jobs.lever.co/weride/c7652fd5-65d8-443d-ab4c-5b450acac77d/apply,2026-01-05,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:f005c46d-145d-47a1-850f-71de322976f9
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+WeRide:f005c46d-145d-47a1-850f-71de322976f9,WeRide,Intern - PhD,"San Jose, CA",AI/ML/Data,https://jobs.lever.co/weride/c7652fd5-65d8-443d-ab4c-5b450acac77d/apply,2026-01-05,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:f005c46d-145d-47a1-850f-71de322976f9

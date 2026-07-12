@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Huxley:85e161ce-7df7-4b28-b13e-71f36a0670de,Huxley,Software Engineer 1,"Raleigh, NC",Software,https://jobs.smartrecruiters.com/ComputerFutures3/101016513,2026-02-20,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:85e161ce-7df7-4b28-b13e-71f36a0670de
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Huxley:85e161ce-7df7-4b28-b13e-71f36a0670de,Huxley,Software Engineer 1,"Raleigh, NC",Software,https://jobs.smartrecruiters.com/ComputerFutures3/101016513,2026-02-20,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:85e161ce-7df7-4b28-b13e-71f36a0670de

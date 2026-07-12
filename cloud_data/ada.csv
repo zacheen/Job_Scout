@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Ada:f59e5b11-d1a0-4afa-ac2f-9c1e54ef6179,Ada,Software Engineer Intern,Remote in Canada,Software,https://job-boards.greenhouse.io/ada18/jobs/5180710007,2026-07-06,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:f59e5b11-d1a0-4afa-ac2f-9c1e54ef6179
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Ada:f59e5b11-d1a0-4afa-ac2f-9c1e54ef6179,Ada,Software Engineer Intern,Remote in Canada,Software,https://job-boards.greenhouse.io/ada18/jobs/5180710007,2026-07-06,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:f59e5b11-d1a0-4afa-ac2f-9c1e54ef6179

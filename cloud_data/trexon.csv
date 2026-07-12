@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Trexon:6104e4ee-d7df-4d66-a955-a31dd4b15f55,Trexon,Technician Apprentice,"Aberdeen, UK",Hardware,https://job-boards.greenhouse.io/tpcengineeringholdingsllc/jobs/5081859007,2026-06-17,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:6104e4ee-d7df-4d66-a955-a31dd4b15f55
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Trexon:6104e4ee-d7df-4d66-a955-a31dd4b15f55,Trexon,Technician Apprentice,"Aberdeen, UK",Hardware,https://job-boards.greenhouse.io/tpcengineeringholdingsllc/jobs/5081859007,2026-06-17,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:6104e4ee-d7df-4d66-a955-a31dd4b15f55

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Anima:51bded9f-eacd-40b1-aac6-c782f03da04b,Anima,Intern/New Grad Software Engineer,Remote in USA,Software Engineering,https://jobs.ashbyhq.com/anima/86ddfd6e-6aee-4ded-b9d0-440608763fb0,2025-11-14,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:51bded9f-eacd-40b1-aac6-c782f03da04b
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Anima:51bded9f-eacd-40b1-aac6-c782f03da04b,Anima,Intern/New Grad Software Engineer,Remote in USA,Software Engineering,https://jobs.ashbyhq.com/anima/86ddfd6e-6aee-4ded-b9d0-440608763fb0,2025-11-14,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:51bded9f-eacd-40b1-aac6-c782f03da04b

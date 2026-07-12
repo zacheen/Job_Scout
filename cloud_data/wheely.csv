@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Wheely:6c648ad7-f6a2-48f0-b056-2315c6a1f377,Wheely,Associate Product Manager,"London, UK",Product,https://boards.greenhouse.io/wheely/jobs/7608395003,2026-01-29,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:6c648ad7-f6a2-48f0-b056-2315c6a1f377
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Wheely:6c648ad7-f6a2-48f0-b056-2315c6a1f377,Wheely,Associate Product Manager,"London, UK",Product,https://boards.greenhouse.io/wheely/jobs/7608395003,2026-01-29,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:6c648ad7-f6a2-48f0-b056-2315c6a1f377

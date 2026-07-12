@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Faculty AI:f5e510ee-4c7f-4a0b-b009-217ae6e5b564,Faculty AI,UK Defence Veterans - Civilian Work Attachment,"London, UK",AI/ML/Data,https://jobs.ashbyhq.com/faculty/b0001741-61ad-49c6-b3e1-91922f7d4026/application,2026-02-10,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:f5e510ee-4c7f-4a0b-b009-217ae6e5b564
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Faculty AI:f5e510ee-4c7f-4a0b-b009-217ae6e5b564,Faculty AI,UK Defence Veterans - Civilian Work Attachment,"London, UK",AI/ML/Data,https://jobs.ashbyhq.com/faculty/b0001741-61ad-49c6-b3e1-91922f7d4026/application,2026-02-10,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:f5e510ee-4c7f-4a0b-b009-217ae6e5b564

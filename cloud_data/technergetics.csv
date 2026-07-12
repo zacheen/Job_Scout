@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Technergetics:243bb608-6df0-439e-aba6-649ae9e8de1f,Technergetics,R&D Engineer Intern,Remote in USA,Hardware,https://job-boards.greenhouse.io/technergetics/jobs/4681908006,2026-05-15,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:243bb608-6df0-439e-aba6-649ae9e8de1f
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Technergetics:243bb608-6df0-439e-aba6-649ae9e8de1f,Technergetics,R&D Engineer Intern,Remote in USA,Hardware,https://job-boards.greenhouse.io/technergetics/jobs/4681908006,2026-05-15,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:243bb608-6df0-439e-aba6-649ae9e8de1f

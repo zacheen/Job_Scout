@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Four Hands:86bafca9-f202-4817-8184-32aabc6ac975,Four Hands,Product Development Intern,"Austin, TX",Product,https://job-boards.greenhouse.io/fourhands/jobs/4272048009,2026-06-08,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:86bafca9-f202-4817-8184-32aabc6ac975
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Four Hands:86bafca9-f202-4817-8184-32aabc6ac975,Four Hands,Product Development Intern,"Austin, TX",Product,https://job-boards.greenhouse.io/fourhands/jobs/4272048009,2026-06-08,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:86bafca9-f202-4817-8184-32aabc6ac975

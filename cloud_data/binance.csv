@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Binance:9ef328e9-1153-41e5-a037-2d1748c0288c,Binance,Software Engineer Intern,Remote in USA,Software,https://jobs.ashbyhq.com/binance.us/c23e9aa3-0daa-4170-a5a7-b03aaa031895/application,2026-06-25,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:9ef328e9-1153-41e5-a037-2d1748c0288c
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Binance:9ef328e9-1153-41e5-a037-2d1748c0288c,Binance,Software Engineer Intern,Remote in USA,Software,https://jobs.ashbyhq.com/binance.us/c23e9aa3-0daa-4170-a5a7-b03aaa031895/application,2026-06-25,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:9ef328e9-1153-41e5-a037-2d1748c0288c

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-CVector Energy:https://apply.workable.com/cvector/j/0D0DE27033/,CVector Energy,Full Stack Software Engineer I or II,"New York, New York, US",,https://apply.workable.com/cvector/j/0D0DE27033/,,2026-07-07T05:59:38+00:00,,false,,,,false,speedyapply:SpeedyApply SWE:https://apply.workable.com/cvector/j/0D0DE27033/
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+CVector Energy:https://apply.workable.com/cvector/j/0D0DE27033/,CVector Energy,Full Stack Software Engineer I or II,"New York, New York, US",,https://apply.workable.com/cvector/j/0D0DE27033/,,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,speedyapply:SpeedyApply SWE:https://apply.workable.com/cvector/j/0D0DE27033/

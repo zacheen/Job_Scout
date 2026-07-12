@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Maxima:da228603-aa5d-4d28-94e6-89b4d8db92e7,Maxima,Software Engineer Intern,"San Mateo, CA",Software,https://jobs.ashbyhq.com/maxima/c0204f04-af26-4a57-9658-64ee6d4beb74/application,2026-06-26,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:da228603-aa5d-4d28-94e6-89b4d8db92e7
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Maxima:da228603-aa5d-4d28-94e6-89b4d8db92e7,Maxima,Software Engineer Intern,"San Mateo, CA",Software,https://jobs.ashbyhq.com/maxima/c0204f04-af26-4a57-9658-64ee6d4beb74/application,2026-06-26,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:da228603-aa5d-4d28-94e6-89b4d8db92e7

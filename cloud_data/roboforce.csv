@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-RoboForce:cb8969ea-a048-45c2-8ba6-f00ae4e5743a,RoboForce,AI Resident Intern,"Milpitas, CA",AI/ML/Data,https://job-boards.greenhouse.io/roboforce/jobs/5196164008,2026-04-22,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:cb8969ea-a048-45c2-8ba6-f00ae4e5743a
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+RoboForce:cb8969ea-a048-45c2-8ba6-f00ae4e5743a,RoboForce,AI Resident Intern,"Milpitas, CA",AI/ML/Data,https://job-boards.greenhouse.io/roboforce/jobs/5196164008,2026-04-22,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:cb8969ea-a048-45c2-8ba6-f00ae4e5743a

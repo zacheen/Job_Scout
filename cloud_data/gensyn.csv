@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Gensyn:f77cdfb9-e8db-45de-82ea-2c529cd2f8f8,Gensyn,Research Intern,Remote in UK,AI/ML/Data,https://job-boards.eu.greenhouse.io/gensyn/jobs/4579609101,2026-03-27,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:f77cdfb9-e8db-45de-82ea-2c529cd2f8f8
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Gensyn:f77cdfb9-e8db-45de-82ea-2c529cd2f8f8,Gensyn,Research Intern,Remote in UK,AI/ML/Data,https://job-boards.eu.greenhouse.io/gensyn/jobs/4579609101,2026-03-27,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:f77cdfb9-e8db-45de-82ea-2c529cd2f8f8

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-RWS:7a3377ca-626a-4cad-b254-aa29218eeac8,RWS,AI Data Specialist - North Carolina - US,North Carolina,AI/ML/Data,https://jobs.lever.co/rws/b181fd3b-a1e6-4c95-a2d9-4ec756ccd948/apply,2026-01-13,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:7a3377ca-626a-4cad-b254-aa29218eeac8
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+RWS:7a3377ca-626a-4cad-b254-aa29218eeac8,RWS,AI Data Specialist - North Carolina - US,North Carolina,AI/ML/Data,https://jobs.lever.co/rws/b181fd3b-a1e6-4c95-a2d9-4ec756ccd948/apply,2026-01-13,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:7a3377ca-626a-4cad-b254-aa29218eeac8

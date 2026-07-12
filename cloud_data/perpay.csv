@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Perpay:https://job-boards.greenhouse.io/perpay/jobs/4034578007,Perpay,Software Engineer - New Grad,"Marquette, MI +1",,https://job-boards.greenhouse.io/perpay/jobs/4034578007,,2026-07-08T14:36:08+00:00,,false,,,,false,speedyapply:SpeedyApply SWE:https://job-boards.greenhouse.io/perpay/jobs/4034578007
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Perpay:https://job-boards.greenhouse.io/perpay/jobs/4034578007,Perpay,Software Engineer - New Grad,"Marquette, MI +1",,https://job-boards.greenhouse.io/perpay/jobs/4034578007,,2026-07-08T14:36:08+00:00,2026-07-08 07:36 Wed,,false,,,,false,speedyapply:SpeedyApply SWE:https://job-boards.greenhouse.io/perpay/jobs/4034578007

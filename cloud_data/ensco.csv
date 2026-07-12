@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-ENSCO:https://job-boards.greenhouse.io/ensco/jobs/5228037008,ENSCO,Junior Machine Learning Engineer,"Melbourne, FL",,https://job-boards.greenhouse.io/ensco/jobs/5228037008,,2026-07-08T14:36:08+00:00,,false,,,,false,speedyapply:SpeedyApply AI:https://job-boards.greenhouse.io/ensco/jobs/5228037008
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+ENSCO:https://job-boards.greenhouse.io/ensco/jobs/5228037008,ENSCO,Junior Machine Learning Engineer,"Melbourne, FL",,https://job-boards.greenhouse.io/ensco/jobs/5228037008,,2026-07-08T14:36:08+00:00,2026-07-08 07:36 Wed,,false,,,,false,speedyapply:SpeedyApply AI:https://job-boards.greenhouse.io/ensco/jobs/5228037008

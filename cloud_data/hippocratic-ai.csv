@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Hippocratic AI:8d8d890a-4546-432f-a432-8353aa4bbb73,Hippocratic AI,Agent Deployment Engineer,"Palo Alto, CA",Software,https://jobs.ashbyhq.com/Hippocratic%20AI/0437c678-bd5a-429d-b34b-bfd3b70d1793/application,2026-03-24,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:8d8d890a-4546-432f-a432-8353aa4bbb73
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Hippocratic AI:8d8d890a-4546-432f-a432-8353aa4bbb73,Hippocratic AI,Agent Deployment Engineer,"Palo Alto, CA",Software,https://jobs.ashbyhq.com/Hippocratic%20AI/0437c678-bd5a-429d-b34b-bfd3b70d1793/application,2026-03-24,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:8d8d890a-4546-432f-a432-8353aa4bbb73

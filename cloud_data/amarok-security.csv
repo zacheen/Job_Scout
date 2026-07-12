@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-AMAROK Security:cae7ba56-b661-44a0-ad83-07cbc36b4ca4,AMAROK Security,Research and Development Intern,"Columbia, SC",Hardware,https://job-boards.greenhouse.io/amarok/jobs/6018661004,2026-06-11,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:cae7ba56-b661-44a0-ad83-07cbc36b4ca4
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+AMAROK Security:cae7ba56-b661-44a0-ad83-07cbc36b4ca4,AMAROK Security,Research and Development Intern,"Columbia, SC",Hardware,https://job-boards.greenhouse.io/amarok/jobs/6018661004,2026-06-11,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:cae7ba56-b661-44a0-ad83-07cbc36b4ca4

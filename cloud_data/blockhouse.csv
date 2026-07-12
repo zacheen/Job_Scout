@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Blockhouse:5fd9c494-f770-4b60-8ebc-a384213edb6e,Blockhouse,Rust Developer Intern,"Detroit, MI; NYC",Software,https://jobs.ashbyhq.com/blockhouse/42a3066f-683c-4b32-b097-5047e89dd12c/application,2026-04-21,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:5fd9c494-f770-4b60-8ebc-a384213edb6e
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Blockhouse:5fd9c494-f770-4b60-8ebc-a384213edb6e,Blockhouse,Rust Developer Intern,"Detroit, MI; NYC",Software,https://jobs.ashbyhq.com/blockhouse/42a3066f-683c-4b32-b097-5047e89dd12c/application,2026-04-21,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:5fd9c494-f770-4b60-8ebc-a384213edb6e

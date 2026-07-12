@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Apera AI:44e23e3b-4471-48d6-b46f-01544b865f39,Apera AI,Software Developer Co-op - C++,"Vancouver, BC, Canada",Software,https://job-boards.greenhouse.io/aperaaiinc/jobs/5151788007,2026-06-01,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:44e23e3b-4471-48d6-b46f-01544b865f39
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Apera AI:44e23e3b-4471-48d6-b46f-01544b865f39,Apera AI,Software Developer Co-op - C++,"Vancouver, BC, Canada",Software,https://job-boards.greenhouse.io/aperaaiinc/jobs/5151788007,2026-06-01,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:44e23e3b-4471-48d6-b46f-01544b865f39

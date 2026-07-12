@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Ontic:f5f1dcf1-49eb-4ce8-9868-0a412ac7b641,Ontic,Data Migration Analyst Intern,Remote in USA,AI/ML/Data,https://jobs.ashbyhq.com/Ontic/20af94c6-329e-45f5-b02b-4be582b5dee3/application,2026-07-08,2026-07-08T23:12:06+00:00,,false,,,,false,simplify:Simplify Internships:f5f1dcf1-49eb-4ce8-9868-0a412ac7b641
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Ontic:f5f1dcf1-49eb-4ce8-9868-0a412ac7b641,Ontic,Data Migration Analyst Intern,Remote in USA,AI/ML/Data,https://jobs.ashbyhq.com/Ontic/20af94c6-329e-45f5-b02b-4be582b5dee3/application,2026-07-08,2026-07-08T23:12:06+00:00,2026-07-08 16:12 Wed,,false,,,,false,simplify:Simplify Internships:f5f1dcf1-49eb-4ce8-9868-0a412ac7b641

@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,track,scored,score_method,experience_score,reason,emailed,source_uids
-Quest Global:71d9d436-8094-473a-8b79-b53c84ea4647,Quest Global,Software Engineer,"Wichita, KS",Software,https://careers.quest-global.com/global/en/job/P-120293,2026-07-06,2026-07-07T05:59:38+00:00,,false,,,,false,simplify:Simplify Internships:71d9d436-8094-473a-8b79-b53c84ea4647
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Quest Global:71d9d436-8094-473a-8b79-b53c84ea4647,Quest Global,Software Engineer,"Wichita, KS",Software,https://careers.quest-global.com/global/en/job/P-120293,2026-07-06,2026-07-07T05:59:38+00:00,2026-07-06 22:59 Mon,,false,,,,false,simplify:Simplify Internships:71d9d436-8094-473a-8b79-b53c84ea4647
