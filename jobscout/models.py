@@ -36,3 +36,6 @@ class Score:
     # LLM scorers and the no-resume path). Needed because clamped experience_score
     # saturates at 100 on real resumes — email and section sort use this instead.
     matches: int | None = None
+    # Per-keyword breakdown behind `matches`: (keyword, occurrences in the job text),
+    # ordered by count desc. Same None semantics as `matches`; email display only.
+    match_counts: tuple[tuple[str, int], ...] | None = None
