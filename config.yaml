@@ -276,6 +276,10 @@ exclude_location_terms:
   - "pakistan"
   - "paraguay"
   - "azerbaijan"
+  # Backstop for the ", ma" (Massachusetts) include term, which substring-hits ", Masovian
+  # Voivodeship" (Warsaw, PL). Whole-word "poland" can't clip a US name. KNOWN edge: also kills
+  # the tiny US towns "Poland, OH"/"Poland, ME" — accepted, no target roles there.
+  - "poland"
 
 # A job is kept only if its location string contains any of these (allowed regions:
 # US + Taiwan). Heuristic and imperfect: bare "remote" also matches remote roles
