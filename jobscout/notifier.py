@@ -59,7 +59,11 @@ class EmailNotifier:
                     # matches is only set for keyword-scored jobs; shown instead of
                     # experience_score, which clamps to 100 there and carries no signal.
                     if score.matches is not None:
-                        lines.append(f"  keyword matches: {score.matches}")
+                        detail = ""
+                        if score.match_counts:
+                            detail = " (" + ", ".join(
+                                f"{kw} x{n}" for kw, n in score.match_counts) + ")"
+                        lines.append(f"  keyword matches: {score.matches}{detail}")
                     else:
                         lines.append(f"  experience: {score.experience_score}")
                     if job.note:

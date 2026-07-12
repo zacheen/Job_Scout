@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
+from collections import Counter
 
 from .models import Job, Score
 from .protocols import JobScorer
@@ -193,10 +194,15 @@ class KeywordScorer:
     def score(self, job: Job) -> Score:
         if self._resume_tokens:
             text = f"{job.title} {job.description}".lower()
-            overlap = len(self._resume_tokens & set(self._WORD_RE.findall(text)))
-            # experience still gates the track threshold (>50 needs overlap >= 4); the
-            # raw count rides along because the clamp saturates at overlap 20.
-            return Score(_clamp(40 + 3 * overlap), "keyword-only heuristic", matches=overlap)
+            counts = Counter(t for t in self._WORD_RE.findall(text)
+                             if t in self._resume_tokens)
+            # experience scores the DISTINCT overlap (still gates the track threshold:
+            # >50 needs overlap >= 4; the clamp saturates at 20); match_counts adds the
+            # per-keyword occurrence breakdown for the email.
+            return Score(_clamp(40 + 3 * len(counts)), "keyword-only heuristic",
+                         matches=len(counts),
+                         match_counts=tuple(sorted(counts.items(),
+                                                   key=lambda kv: (-kv[1], kv[0]))))
         # No resume: constant score puts every role on the same side of the
         # threshold, so matches stays None — there's no meaningful count to report.
         return Score(50, "keyword-only heuristic")
