@@ -569,21 +569,38 @@ class JibeFetcher(PaginatedFetcher):
 
 
 class EightfoldFetcher(PaginatedFetcher):
-    """Eightfold PCSX careers sites (Qualcomm, HP). `GET {host}/api/pcsx/search` with
-    sort_by=timestamp returns data.positions[] newest-first by postedTs, so the seen-based
-    early-stop applies. Anonymous; the LEGACY `/api/apply/v2/jobs` route 403s
-    ("Not authorized for PCSX") on these tenants — don't fall back to it. `host` is the
-    careers host, `domain` the tenant's Eightfold domain key."""
+    """Eightfold careers sites. Two anonymous API flavors, gated INDEPENDENTLY per tenant,
+    both newest-first with sort_by=timestamp (early-stop applies):
+    - default PCSX: `GET {host}/api/pcsx/search` -> data.positions[] (Qualcomm, HP —
+      their legacy route 403s "Not authorized for PCSX");
+    - `api: legacy`: `GET {host}/api/apply/v2/jobs` -> top-level positions[] (Netflix —
+      its PCSX 403s "not enabled"). Salesforce gates BOTH (browser-only).
+    `host` is the careers host, `domain` the tenant's Eightfold domain key."""
 
     ats_name = "eightfold"
     _PAGE = 10
     _SEED_MAX_PAGES = 10
+
+    def __init__(self, company: Company, http: HttpClient):
+        super().__init__(company, http)
+        api = company.params.get("api", "pcsx")
+        # Fail loud on a typo'd mode: it would silently fall back to PCSX, which the
+        # legacy-only tenants gate — turning into a permanent "0 jobs" warning downstream.
+        if api not in ("pcsx", "legacy"):
+            raise ValueError(f"{company.name}: eightfold api must be 'pcsx' or 'legacy', "
+                             f"got {api!r}")
+        self._legacy = api == "legacy"
 
     @property
     def host(self) -> str:
         return self._param("host")
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        if self._legacy:
+            return self._fetch_legacy_page(index)
+        return self._fetch_pcsx_page(index)
+
+    def _fetch_pcsx_page(self, index: int) -> tuple[list[Job], int | None]:
         host = self._param("host")
         data = self._http.get_json(
             f"https://{host}/api/pcsx/search",
@@ -605,6 +622,29 @@ class EightfoldFetcher(PaginatedFetcher):
             for item in payload.get("positions", []) if item.get("id")
         ]
         return jobs, payload.get("count")
+
+    def _fetch_legacy_page(self, index: int) -> tuple[list[Job], int | None]:
+        data = self._http.get_json(
+            f"https://{self._param('host')}/api/apply/v2/jobs",
+            params={"domain": self._param("domain"), "start": index * self._PAGE,
+                    "num": self._PAGE, "sort_by": "timestamp"},
+        )
+        jobs = [
+            Job(
+                job_uid=self._uid(item["id"]),
+                company=self._company.name,
+                title=item.get("name", ""),
+                # Legacy payloads carry both a `locations` list and a singular display
+                # `location`; the list can be empty on some entries -> fall back.
+                location="; ".join(item.get("locations") or []) or item.get("location", ""),
+                url=item.get("canonicalPositionUrl", ""),
+                description="",  # listing carries no job-ad body
+                department=item.get("department") or "",
+                date_posted=_unix_to_date(item.get("t_create")),
+            )
+            for item in data.get("positions") or [] if item.get("id")
+        ]
+        return jobs, data.get("count")
 
 
 class RadancyFetcher(PaginatedFetcher):

@@ -15,7 +15,8 @@
 #   jazzhr:     account          -> {account}.applytojob.com/apply (server-rendered HTML board)
 #   rippling:   board            -> api.rippling.com/platform/api/ats/v1/board/{board}/jobs
 #   gem:        board            -> jobs.gem.com/{board} (anonymous GraphQL; no dates)
-#   eightfold:  host, domain     -> {host}/api/pcsx/search?domain={domain} (newest-first)
+#   eightfold:  host, domain; api (optional "legacy" -> /api/apply/v2/jobs for tenants
+#               that gate PCSX — Netflix). Both flavors newest-first.
 #   radancy:    host, path (optional, default /search-jobs/results) -> JSON w/ HTML cards
 #   bytedance:  atsx portal family; host (optional, default jobs.bytedance.com),
 #               website_path (optional, default "en"), jd_base (optional) — TikTok uses all three
@@ -66,6 +67,14 @@
 - {name: Zipline,     ats: greenhouse, board: flyzipline, jd_url: "https://www.zipline.com/open-roles/{id}"}  # slug flyzipline (zipline 404s); jd_url = path-form JD link, API's ?gh_jid= embed only lands on the generic listing
 - {name: Zuora,       ats: greenhouse, board: zuora}
 - {name: Tenstorrent, ats: greenhouse, board: tenstorrent, seed_only: true}  # AI-chip; ~123 roles
+# Tenstorrent's intern/new-grad roles live on a SEPARATE board (bookmark batch 2026-07-12).
+- {name: Tenstorrent University, ats: greenhouse, board: tenstorrentuniversity}  # ~54
+# University-board audit (2026-07-12): three more Tenstorrent-style separate boards. Riot and
+# Twilio are seasonally EMPTY in July (intern cycles open ~September) — an empty board is
+# harmless and catches the new season automatically.
+- {name: Riot Games University, ats: greenhouse, board: riotgamesup}          # ALL Riot interns post here; main board has none
+- {name: Twilio University, ats: greenhouse, board: twiliostudents}           # SWE-intern reqs that never hit the main board
+- {name: Axon Talent Community, ats: greenhouse, board: axontalentcommunity}  # ~7; disjoint from main; hosted the 2026 SWE internships
 # CV batch 2026-07-10 (robotics / drones / AV theme; all boards live-verified). seed_only
 # where the backlog is ~100+. Several slugs differ from the company name (noted inline).
 - {name: Nuro,             ats: greenhouse, board: nuro}                              # AV delivery; ~93
@@ -124,7 +133,8 @@
 - {name: Magic Leap,       ats: greenhouse, board: magicleap}                         # AR; ~11 (mostly fab roles currently)
 
 # --- Lever ---
-- {name: Netflix,    ats: lever, org: netflix}
+# Netflix migrated Lever -> Eightfold; the Lever "netflix" org still answers 200 but with
+# an EMPTY array (dead decoy, caught 2026-07-12). Entry moved to the Eightfold section.
 - {name: Zoox,       ats: lever, org: zoox}        # referral
 - {name: Rigetti,    ats: lever, org: rigetti}     # quantum computing, Berkeley/Fremont CA
 - {name: Shield AI,  ats: lever, org: shieldai, seed_only: true}  # defense drones/AI pilots; ~416 (Greenhouse "shieldai" 404s)
@@ -136,6 +146,9 @@
 # FAANG-tier batch (2026-07-10). NOTE: Lever "atlassian" is an EMPTY decoy (200, zero jobs).
 - {name: Palantir,   ats: lever, org: palantir, seed_only: true}  # ~270 (Palo Alto/DC/NYC + EU)
 - {name: Spotify,    ats: lever, org: spotify, seed_only: true}   # ~103 global (Stockholm-heavy; PreFilter keeps US)
+# Mercedes-Benz R&D North America (cover-letter #17!) — the corporate careers site is
+# WAF-blocked but the US R&D subsidiary hires on Lever. CASE-SENSITIVE org.
+- {name: MBRDNA, ats: lever, org: MBRDNA}          # ~2 currently; ML/AV roles appear here
 # CV wave 2. NOTE: Lever org slugs are CASE-SENSITIVE (Burro/ChefRobotics verified; lowercase 404s).
 - {name: Toyota Research Institute, ats: lever, org: tri}  # robotics/driving research (Los Altos, Cambridge); ~17
 - {name: PlusAI,         ats: lever, org: plus-2}          # AV trucking; org is plus-2 NOT plusai; ~49, CV intern roles
@@ -173,6 +186,9 @@
 # The games studio went to Scopely (careers.scopely.com, Phenom); the CV/AR/geospatial
 # remainder is Niantic Spatial on Ashby.
 - {name: Niantic Spatial, ats: ashby, org: niantic-spatial}                # geospatial CV/AR; ~10
+# Bookmark batch (2026-07-12).
+- {name: Zello,  ats: ashby, org: zello}            # push-to-talk; AI/ML intern roles; ~12
+- {name: Genies, ats: ashby, org: genies}           # avatar/image-gen ML; ~4
 # CV wave 2. Ashby orgs may contain literal dots/capitals — keep them verbatim.
 - {name: Helm.ai,        ats: ashby, org: helm-ai}             # AV software; moved off Greenhouse (old board 404s); ~7
 - {name: Saronic,        ats: ashby, org: saronic, seed_only: true}  # autonomous naval vessels (Austin); ~279. Lever "saronic" is an EMPTY decoy
@@ -202,6 +218,21 @@
 - {name: F5, ats: workday, host: ffive.wd5.myworkdayjobs.com, tenant: ffive, site: f5jobs, seed_only: true}  # ~266 roles ("F5 Tower" = Seattle)
 - {name: Boston Dynamics, ats: workday, host: bostondynamics.wd1.myworkdayjobs.com, tenant: bostondynamics, site: Boston_Dynamics}  # ~73 (Waltham MA)
 - {name: Cognex, ats: workday, host: cognex.wd1.myworkdayjobs.com, tenant: cognex, site: External_Career_Site}  # machine vision; ~89 global
+# Bookmark batch (2026-07-12): companies the user applied to / browsed — direct interest.
+# Salesforce's MAIN board is Eightfold with both APIs gated (browser-only, see fail.md), but
+# the Futureforce INTERNSHIP Workday site is open — interns are all the user targets anyway.
+# US cohorts post seasonally; currently mostly EMEA/LATAM.
+- {name: Salesforce, ats: workday, host: salesforce.wd12.myworkdayjobs.com, tenant: salesforce, site: Futureforce_Internships}  # ~16
+- {name: KLA, ats: workday, host: kla.wd1.myworkdayjobs.com, tenant: kla, site: Search, seed_only: true}  # semiconductor inspection CV; ~892
+- {name: GSK, ats: workday, host: gsk.wd5.myworkdayjobs.com, tenant: gsk, site: GSKCareers, seed_only: true}  # pharma AI/ML; ~754 global
+- {name: Nextracker, ats: workday, host: nextracker.wd5.myworkdayjobs.com, tenant: nextracker, site: nextpower_careers, seed_only: true}  # solar robotics; ~202
+- {name: Arlo, ats: workday, host: arlo.wd12.myworkdayjobs.com, tenant: arlo, site: external_careers}  # camera AI; ~37
+# The "uni" site is a NEAR-subset of Ext: full-board diff 2026-07-12 found 10/11 reqs shared
+# (per-site posting instances, suffix -1/-2) but 1/11 uni-ONLY (26WD98040) — so dropping uni
+# CAN miss jobs. User accepted the trade-off: shared reqs may email twice (URLs differ per
+# site, URL dedup can't collapse them) in exchange for catching uni-only postings.
+- {name: Autodesk, ats: workday, host: autodesk.wd1.myworkdayjobs.com, tenant: autodesk, site: Ext, seed_only: true}  # ~571
+- {name: Autodesk University, ats: workday, host: autodesk.wd1.myworkdayjobs.com, tenant: autodesk, site: uni}  # ~11
 # Rare wd504 shard; tenant only appears in per-req apply links, not the WP careers pages.
 - {name: Symbotic, ats: workday, host: symbotic.wd504.myworkdayjobs.com, tenant: symbotic, site: Symbotic, seed_only: true}  # warehouse robots; ~163
 - {name: Snap, ats: workday, host: snapchat.wd1.myworkdayjobs.com, tenant: snapchat, site: snap, seed_only: true}  # AR/cameras; ~162 (LA/Bellevue/PA)
@@ -241,6 +272,10 @@
 #     Apply links go to icims.com but the JD canonical_url is public) ---
 - {name: AMD,    ats: jibe, host: careers.amd.com, seed_only: true}     # ~1073 roles
 - {name: Rivian, ats: jibe, host: careers.rivian.com, seed_only: true}  # EV + autonomy/CV; ~591 roles
+# Atlassian's intern/grad reqs live ONLY here (Jibe talent community) — the main
+# atlassian.com listings endpoint has ZERO intern/grad titles, disjoint req-id space.
+# The board also carries a stale experienced backlog -> seed_only swallows it.
+- {name: Atlassian Early Careers, ats: jibe, host: join.atlassian.com, seed_only: true}  # ~466 total, ~18 intern/grad live
 
 # --- Workable (anonymous v1 widget; one request, full descriptions) ---
 - {name: Pony.ai, ats: workable, account: pony-dot-ai}  # AV; US board (Fremont CA), ~7 roles
@@ -259,9 +294,10 @@
 # --- Gem (jobs.gem.com; anonymous GraphQL; no dates -> single-shot) ---
 - {name: Luma AI, ats: gem, board: lumalabs-ai}          # 3D/genAI spatial (SF Bay Area); ~59
 
-# --- Eightfold PCSX (newest-first by postedTs; legacy /api/apply/v2 is GATED on these) ---
-- {name: Qualcomm, ats: eightfold, host: careers.qualcomm.com, domain: qualcomm.com, seed_only: true}  # ~1811 (San Diego)
-- {name: HP, ats: eightfold, host: hp.eightfold.ai, domain: hp.com, seed_only: true}                   # HP Inc; ~724 (Spring TX)
+# --- Eightfold (two API flavors, gated per tenant — see fetcher docstring) ---
+- {name: Qualcomm, ats: eightfold, host: careers.qualcomm.com, domain: qualcomm.com, seed_only: true}  # PCSX; ~1811 (San Diego)
+- {name: HP, ats: eightfold, host: hp.eightfold.ai, domain: hp.com, seed_only: true}                   # PCSX; HP Inc; ~724 (Spring TX)
+- {name: Netflix, ats: eightfold, host: explore.jobs.netflix.net, domain: netflix.com, api: legacy, seed_only: true}  # ~482; replaced the dead Lever entry
 
 # --- Radancy / TalentBrew (method G; JSON with server-rendered HTML cards; newest-first) ---
 - {name: Disney, ats: radancy, host: www.disneycareers.com, path: /en/search-jobs/results, seed_only: true}  # ~777
@@ -305,6 +341,10 @@
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
 - {name: Amazon, ats: amazon, query: "engineer"}
+# Second query slice: Amazon abbreviates intern titles ("Software Eng Intern") which the
+# "engineer" query misses — and Twitch's interns hire through amazon.jobs too. Overlapping
+# roles share URLs, so email dedup collapses them; only the ledger holds both uids.
+- {name: Amazon Interns, ats: amazon, query: "intern"}
 
 # --- Google (parses the careers page's embedded JSON; newest-first). No keyword: it
 #     pages through the newest roles and stops once a page has no unseen role (dedup
