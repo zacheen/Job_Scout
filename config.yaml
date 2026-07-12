@@ -6,9 +6,9 @@
 ledger_dir: "local_data"
 
 # OpenAI model used for scoring.
-model: "gpt-5.5"
+model: "gpt-5.6"
 
-# Reasoning effort for reasoning models (gpt-5.5): none | low | medium | high | xhigh.
+# Reasoning effort for reasoning models (gpt-5.6): none | low | medium | high | xhigh.
 # "mid" = medium. Leave blank ("") for non-reasoning models (e.g. gpt-4o-mini).
 reasoning_effort: "medium"
 
@@ -16,12 +16,14 @@ reasoning_effort: "medium"
 # login). gpt_cli is the executable (override per-machine with the GPT_CLI env var,
 # e.g. a full path with spaces); gpt_cli_args are the args before the prompt, which
 # is appended last. If gpt_cli isn't found, scoring drops to keyword-only.
-# `-c model_reasoning_effort=low` overrides codex's own config.toml default (e.g. xhigh) —
-# a simple rating doesn't need more, and low is far faster/cheaper.
+# `-c model=gpt-5.6-luna` pins codex's fast/cheap tier for this rating task, overriding
+# whatever model codex's own config.toml defaults to; `-c model_reasoning_effort=low`
+# likewise overrides its reasoning default (e.g. xhigh) — a simple rating doesn't need
+# more, and low is far faster/cheaper.
 # Senior-group roles (see senior_terms) skip the CLI even locally — keyword heuristic
 # instead (wired in __main__).
 gpt_cli: "codex"
-gpt_cli_args: ["exec", "-c", "model_reasoning_effort=low"]
+gpt_cli_args: ["exec", "-c", "model=gpt-5.6-luna", "-c", "model_reasoning_effort=low"]
 
 # Truncate each job description to this many characters before sending to the LLM.
 max_description_chars: 8000
