@@ -414,19 +414,21 @@ class WorkdayFetcher(PaginatedFetcher):
         )
         jobs = [
             Job(
-                job_uid=self._uid(item.get("externalPath", "")),
+                job_uid=self._uid(item["externalPath"]),
                 company=self._company.name,
                 title=item.get("title", ""),
                 location=item.get("locationsText", ""),
                 # externalPath alone 404s — the JD page only exists under /en-US/{site}.
-                url=f"https://{host}/en-US/{site}{item.get('externalPath', '')}",
+                url=f"https://{host}/en-US/{site}{item['externalPath']}",
                 # Workday listing API omits description; per-job fetches are too
                 # costly, so these roles are matched on title only.
                 description="",
                 department="",
                 date_posted=item.get("postedOn", ""),
             )
-            for item in data.get("jobPostings", [])
+            # externalPath is the job's identity — placeholder postings that lack
+            # it would get a blank job_key and a board-root URL.
+            for item in data.get("jobPostings", []) if item.get("externalPath")
         ]
         # Some tenants (e.g. Adobe) report total=0 after the first page; treat 0 as
         # unknown so pagination doesn't stop early — truly empty boards still
