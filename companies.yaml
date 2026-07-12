@@ -63,7 +63,7 @@
 - {name: Figure,      ats: greenhouse, board: figureai, seed_only: true}     # figureai = humanoid robotics; board "figure" is a different fintech co
 - {name: Motional,    ats: greenhouse, board: motional, seed_only: true}     # AV company; ~110 roles
 - {name: Glydways,    ats: greenhouse, board: glydways}                      # small board (~5)
-- {name: Zipline,     ats: greenhouse, board: flyzipline}                    # slug flyzipline (zipline 404s)
+- {name: Zipline,     ats: greenhouse, board: flyzipline, jd_url: "https://www.zipline.com/open-roles/{id}"}  # slug flyzipline (zipline 404s); jd_url = path-form JD link, API's ?gh_jid= embed only lands on the generic listing
 - {name: Zuora,       ats: greenhouse, board: zuora}
 - {name: Tenstorrent, ats: greenhouse, board: tenstorrent, seed_only: true}  # AI-chip; ~123 roles
 # CV batch 2026-07-10 (robotics / drones / AV theme; all boards live-verified). seed_only

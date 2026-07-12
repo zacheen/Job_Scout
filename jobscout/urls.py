@@ -21,9 +21,10 @@ _ATSX_HOSTS = ("joinbytedance.com", "lifeattiktok.com")
 
 
 def canon_url(url: str) -> str:
-    """Conservative canonical form; validated against the real ledger (2026-07-11:
-    merges 21 proven duplicate groups, splits none — boards like Agility's, where
-    ?gh_jid= is the ONLY thing distinguishing 54 postings, stay distinct)."""
+    """Conservative canonical form, validated against the real ledger (2026-07-11: 21
+    proven duplicate groups merged, none split; 2026-07-12 gh_jid-into-path folding below:
+    ~44k URLs checked, none split, all prior merges preserved). Boards like Agility's,
+    where gh_jid is the only distinguisher, stay distinct as {id}-suffixed paths."""
     parts = urlsplit(url.strip())
     host = parts.netloc.lower()
     path = parts.path.rstrip("/")
@@ -34,15 +35,21 @@ def canon_url(url: str) -> str:
             return f"atsx:{job_id}"
 
     kept = []
+    gh_jid = ""
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
         k = key.lower()
         if k.startswith("utm_") or k in _TRACKING_PARAMS:
             continue
-        # Redundant when the path already carries the id; on embedded boards
-        # without a path id, gh_jid IS the identity and must stay.
-        if k == "gh_jid" and value and value in path:
+        if k == "gh_jid" and value:
+            gh_jid = value  # folded into the path below, never kept as a query param
             continue
         kept.append((key, value))
+    # Custom-careers-site boards expose the same posting two ways: a branded
+    # /roles/{id} (jd_url) and the API's ?gh_jid={id} absolute_url embed. Folding
+    # gh_jid into the path canonicalizes both alike so cross-source dedup holds.
+    # No-op when the path already carries the id (gh_jid was purely redundant).
+    if gh_jid and gh_jid not in path:
+        path = f"{path}/{gh_jid}"
     # sorted + re-encoded: param order and percent-encoding differences can't
     # split identities.
     return urlunsplit((parts.scheme.lower(), host, path, urlencode(sorted(kept)), ""))
