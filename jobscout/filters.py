@@ -17,9 +17,22 @@ def _word_re(terms: list[str]) -> re.Pattern | None:
     return re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b", re.IGNORECASE)
 
 
+def _include_location_re(terms: list[str]) -> re.Pattern | None:
+    r"""Location allowlist matcher: substring match, except a term shaped exactly ", xx"
+    (comma-space + two letters) gets a trailing \b — else ", ca" substring-hits the start
+    of ", Canada"/", Masovian" and leaks other countries. CAVEAT: the \b applies by shape
+    alone; a 3-letter code or stray space silently falls back to an unprotected substring."""
+    parts = []
+    for t in terms:
+        low = t.lower()
+        if low.strip():
+            parts.append(re.escape(low) + (r"\b" if re.fullmatch(r", [a-z]{2}", low) else ""))
+    return re.compile("|".join(parts), re.IGNORECASE) if parts else None
+
+
 def _matches_any(pattern: re.Pattern | None, *texts: str) -> bool:
-    """True if `pattern` is set and hits any of `texts`. `_word_re` returns None for no terms,
-    so folding that guard in here keeps every caller from having to repeat the None check."""
+    """True if `pattern` is set and hits any of `texts`. `_word_re` / `_include_location_re` both
+    return None for no terms, so folding that guard in here keeps callers from repeating the check."""
     return pattern is not None and any(pattern.search(t) for t in texts)
 
 
@@ -41,11 +54,11 @@ class PreFilter:
     def __init__(self, *, include_location_terms: list[str], exclude_location_terms: list[str],
                  exclude_terms: list[str], exclude_dept_terms: list[str],
                  exclude_word_terms: list[str], exclude_description_terms: list[str]):
-        self._include_location_terms = [t.lower() for t in include_location_terms]
-        # Whole-word: location tokens are discrete, so "india" isn't swallowed by "Indiana"/"Indianapolis".
-        # (This also stops matching adjectival forms "Colombian"/"Malaysian"/"Indian" — harmless, since every
-        # fetcher fills `location` from a structured place-name field, not free text.)
-        # Include stays substring (", ca" etc. aren't single words).
+        self._include_location_re = _include_location_re(include_location_terms)
+        # Whole-word backstop for the include allowlist: "india" drops ", India" but not
+        # "Indiana"/"Indianapolis" (whole-word is safe — location is a structured place-name, not
+        # free text). Even after that \b-fix, this still uniquely catches a "Remote, <foreign>"
+        # role, which clears the include side on bare "remote".
         self._exclude_location_re = _word_re(exclude_location_terms)
         self._exclude_terms = [t.lower() for t in exclude_terms]
         self._exclude_dept_terms = [t.lower() for t in exclude_dept_terms]
@@ -75,8 +88,7 @@ class PreFilter:
 
     def _location_included(self, job: Job) -> bool:
         # Empty/unknown location is treated as outside the allowed regions and dropped.
-        loc = job.location.lower()
-        return bool(loc) and any(term in loc for term in self._include_location_terms)
+        return bool(job.location) and _matches_any(self._include_location_re, job.location)
 
     def _role_allowed(self, job: Job) -> bool:
         # Match within each field separately so a multi-word term can't span the title/department join.

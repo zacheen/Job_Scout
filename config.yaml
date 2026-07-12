@@ -258,32 +258,37 @@ senior_terms:
   - "senior"
   - "sr"
 
-# Backstop for include_location_terms below: drop a location even if an include term matched it.
-# Leaks come from short state codes hitting country names (", ca" -> ", Canada"; ", co" -> ", Colombia")
-# and from the broad "remote" include. Matched WHOLE-WORD (see PreFilter) so a country name can't be
-# swallowed by a US one: "india" drops ", India" but NOT "Indiana"/"Indianapolis". "colombia" ('o')
-# still avoids US "Columbia" ('u').
+# Backstop for include_location_terms: still drops a location that matched an include term.
+# Since the whole-word fix (MATCHING NOTE below), ", xx" state codes no longer leak country
+# names at the include layer, so this list is now defense-in-depth — the only still-live
+# vector is the broad "remote" include ("Remote, <foreign>" roles). Matched WHOLE-WORD (see
+# PreFilter) so a country can't be swallowed by a US name: "india" drops ", India" but NOT
+# "Indiana"/"Indianapolis"; "colombia" ('o') avoids US "Columbia" ('u').
 exclude_location_terms:
   - "canada"
   - "colombia"
   - "malaysia"
   - "india"
-  # Backstops for the short state codes below: ", pa" would leak "…, Panama/Pakistan/Paraguay",
-  # ", az" would leak "…, Azerbaijan". Whole-word, so they can't clip US names.
-  # KNOWN edge: "panama" also kills "Panama City, FL" (a real US city, navy UxS R&D area) —
-  # revisit if a company there is ever added.
+  # Defense-in-depth: since the whole-word fix, ", pa"/", az" no longer leak "…, Panama/
+  # Pakistan/Paraguay" or "…, Azerbaijan" at the include layer — this is now a second layer,
+  # not the only one. KNOWN edge: "panama" also kills "Panama City, FL" (real US city, navy
+  # UxS R&D area) — revisit if a company there is ever added.
   - "panama"
   - "pakistan"
   - "paraguay"
   - "azerbaijan"
-  # Backstop for the ", ma" (Massachusetts) include term, which substring-hits ", Masovian
-  # Voivodeship" (Warsaw, PL). Whole-word "poland" can't clip a US name. KNOWN edge: also kills
-  # the tiny US towns "Poland, OH"/"Poland, ME" — accepted, no target roles there.
+  # Defense-in-depth for ", ma" (Massachusetts): since the whole-word fix, it no longer
+  # substring-hits ", Masovian Voivodeship" (Warsaw, PL) at the include layer, and whole-word
+  # "poland" can't clip a US name either. KNOWN edge: it also kills the tiny US towns
+  # "Poland, OH"/"Poland, ME" — accepted, no target roles there.
   - "poland"
 
 # A job is kept only if its location string contains any of these (allowed regions:
 # US + Taiwan). Heuristic and imperfect: bare "remote" also matches remote roles
 # outside these regions, and unknown/empty locations are excluded. Refine to taste.
+# MATCHING NOTE: a term shaped exactly ", xx" (comma-space + two letters) is matched WHOLE-WORD
+# (filters.py::_include_location_re) — so ", ca" won't substring-hit ", Canada"/", Masovian";
+# everything else matches as a raw substring. Keep that shape for new state codes.
 include_location_terms:
   # Google's Taiwan location strings all end in ", Taiwan" (Taipei / New Taipei / Hsinchu).
   - "taiwan"
@@ -312,10 +317,9 @@ include_location_terms:
   - ", or"
   - ", nc"
   # State codes added 2026-07-10 for the CV-company wave (Pittsburgh/Ann Arbor/MD-VA defense
-  # cluster etc.). Collision audit: ", pa"/", az" leaks are backstopped in
-  # exclude_location_terms; ", in" (=", India") and ", la"/", mo" (=", Lagos/Lahore",
-  # ", Morocco/Moldova") are deliberately NOT listed — their cities/states are covered by
-  # the spelled-out names below instead.
+  # cluster). Since the whole-word fix (MATCHING NOTE above), ", pa"/", az" no longer leak
+  # ", Panama"/", Azerbaijan" here either — same defense-in-depth as exclude_location_terms.
+  # ", in"/", la"/", mo" are deliberately not listed; covered by the spelled-out names below.
   - ", pa"
   - ", mi"
   - ", md"
