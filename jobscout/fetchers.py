@@ -846,8 +846,10 @@ class AvatureFetcher(AtsFetcher):
         return jobs
 
     def _get_cards(self, offset: int) -> tuple[list[str], int | None]:
+        # `path` overrides the default search route (Two Sigma uses /careers/OpenRoles).
+        path = self._company.params.get("path", "/en_US/careers/SearchJobs/")
         body = self._http.get_text(
-            f"https://{self.host}/en_US/careers/SearchJobs/",
+            f"https://{self.host}{path}",
             params={"jobRecordsPerPage": self._RPP, "jobOffset": offset},
         )
         found = self._TOTAL_RE.search(body)
@@ -1560,6 +1562,242 @@ class BambooHRFetcher(AtsFetcher):
         return jobs
 
 
+class GoldmanFetcher(PaginatedFetcher):
+    """Goldman Sachs' anonymous careers GraphQL (api-higher.gs.com). `roleSearch` sorted
+    POSTED_DATE DESC is honored server-side, so the seen-based early-stop applies even
+    though items expose no date field (like IBM's index — but IBM can't sort, so it does a
+    bounded full pull whereas this early-stops). `experiences` is a REQUIRED enum list;
+    the default covers professional + early-career + campus (interns/quant). JD URL is
+    higher.gs.com/roles/{externalSource.sourceId}. The `Origin` header was present on every
+    verified 200 — keep it."""
+
+    ats_name = "goldman"
+    _PAGE = 50
+    _SEED_MAX_PAGES = 10
+    _API = "https://api-higher.gs.com/gateway/api/v1/graphql"
+    # Overridable via the `experiences` param (comma-separated) to scope e.g. campus-only.
+    _DEFAULT_EXPERIENCES = "PROFESSIONAL,EARLY_CAREER,CAMPUS"
+    _QUERY = (
+        "query GetRoles($searchQueryInput: RoleSearchQueryInput!) "
+        "{ roleSearch(searchQueryInput: $searchQueryInput) { totalCount items "
+        "{ roleId jobTitle division locations { primary city state country } "
+        "externalSource { sourceId } } } }")
+    _HEADERS = {"Accept": "application/json", "Origin": "https://higher.gs.com"}
+
+    @property
+    def host(self) -> str:
+        return "api-higher.gs.com"
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        experiences = [e.strip() for e in
+                       self._company.params.get("experiences", self._DEFAULT_EXPERIENCES).split(",")
+                       if e.strip()]
+        variables = {"searchQueryInput": {
+            "page": {"pageNumber": index + 1, "pageSize": self._PAGE},
+            "experiences": experiences,
+            "sort": {"sortStrategy": "POSTED_DATE", "sortOrder": "DESC"}}}
+        data = self._http.post_json(
+            self._API,
+            {"operationName": "GetRoles", "variables": variables, "query": self._QUERY},
+            headers=self._HEADERS,
+        )
+        if data.get("errors"):
+            raise ValueError(f"{self._company.name}: goldman GraphQL errors: {data['errors']}")
+        result = (data.get("data") or {}).get("roleSearch") or {}
+        jobs = [
+            Job(
+                job_uid=self._uid(item["roleId"]),
+                company=self._company.name,
+                title=item.get("jobTitle", ""),
+                location=self._location(item.get("locations") or []),
+                url=f"https://higher.gs.com/roles/{(item.get('externalSource') or {}).get('sourceId', '')}",
+                description="",  # search API carries no job-ad body
+                department=item.get("division") or "",
+                date_posted="",  # no per-item date; POSTED_DATE sort drives early-stop
+            )
+            for item in result.get("items", []) if item.get("roleId")
+        ]
+        return jobs, result.get("totalCount")
+
+    @staticmethod
+    def _location(locations: list[dict]) -> str:
+        # Prefer the primary location; join city/state/country of each into a readable string.
+        def fmt(loc):
+            return ", ".join(p for p in (loc.get("city"), loc.get("state"),
+                                         loc.get("country")) if p)
+        primary = [loc for loc in locations if loc.get("primary")] or locations
+        return "; ".join(fmt(loc) for loc in primary if fmt(loc))
+
+
+class JobviteFetcher(AtsFetcher):
+    """Jobvite XML feed: `GET app.jobvite.com/CompanyJobs/Xml.aspx?c={company}` returns the
+    whole board in one anonymous request as <job> elements with a date (M/D/YYYY) and full
+    HTML description. `company` is the static `c=` id from the careers page (Nutanix
+    `qKr9VfwZ`). Single-shot; no reliable ordering, so the pipeline dedupes."""
+
+    ats_name = "jobvite"
+
+    _JOB_RE = re.compile(r"<job>(.*?)</job>", re.DOTALL)
+
+    @property
+    def host(self) -> str:
+        return "app.jobvite.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        body = self._http.get_text(
+            "https://app.jobvite.com/CompanyJobs/Xml.aspx",
+            params={"c": self._param("company")},
+        )
+        jobs = []
+        for match in self._JOB_RE.finditer(body):
+            block = match.group(1)
+            job_id = self._field(block, "id")
+            if not job_id:
+                continue
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id),
+                    company=self._company.name,
+                    title=self._field(block, "title"),
+                    location=self._field(block, "location"),
+                    # detail-url is the public JD page (http:// -> normalize to https).
+                    url=self._field(block, "detail-url").replace("http://", "https://", 1),
+                    description=strip_html(self._field(block, "description")),
+                    department=self._field(block, "category"),
+                    date_posted=self._field(block, "date"),
+                )
+            )
+        return jobs
+
+    @staticmethod
+    def _field(block: str, tag: str) -> str:
+        esc = re.escape(tag)
+        m = re.search(rf"<{esc}>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</{esc}>", block, re.DOTALL)
+        return m.group(1).strip() if m else ""
+
+
+class WhatnotFetcher(AtsFetcher):
+    """Whatnot's first-party board API (jobs.whatnot.com/api/jobs) — the underlying Ashby
+    posting-api is disabled (404), but this endpoint returns the whole board with dates in
+    one request. `externalLink` points at the Ashby JD page. Single-shot."""
+
+    ats_name = "whatnot"
+
+    @property
+    def host(self) -> str:
+        return "jobs.whatnot.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        data = self._http.get_json("https://jobs.whatnot.com/api/jobs")
+        jobs = []
+        for item in data.get("results") or []:
+            if not item.get("id"):
+                continue
+            secondary = item.get("secondaryLocationNames") or []
+            locations = [item.get("locationName")] + list(secondary)
+            jobs.append(
+                Job(
+                    job_uid=self._uid(item["id"]),
+                    company=self._company.name,
+                    title=item.get("title", ""),
+                    location="; ".join(p for p in locations if p),
+                    url=item.get("externalLink") or item.get("applyLink", ""),
+                    description="",  # API carries no job-ad body
+                    department=item.get("departmentName") or item.get("teamName") or "",
+                    date_posted=item.get("publishedDate", ""),
+                )
+            )
+        return jobs
+
+
+class DeShawFetcher(AtsFetcher):
+    """D.E. Shaw embeds its board in the careers page as Next.js __NEXT_DATA__ JSON
+    (method D). `pageProps` carries `regularJobs` + `internships` (both external); the
+    `internalJobs` list is skipped. No dates -> single-shot. JD URL = deshaw.com/careers/{jobUrl}."""
+
+    ats_name = "deshaw"
+
+    _NEXT_RE = re.compile(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL)
+
+    @property
+    def host(self) -> str:
+        return "www.deshaw.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        body = self._http.get_text("https://www.deshaw.com/careers")
+        match = self._NEXT_RE.search(body)
+        if not match:
+            raise ValueError(f"{self._company.name}: deshaw __NEXT_DATA__ not found")
+        props = (json.loads(match.group(1)).get("props") or {}).get("pageProps") or {}
+        jobs = []
+        # internalJobs deliberately skipped (employee-only). Each item's real fields live
+        # under `data`; `office` is a list of {abbreviation, name} used for the location.
+        # NOTE: `data`/`office` are D.E. Shaw's Next.js build props, not a public contract —
+        # re-probe if a site redesign breaks this.
+        for item in (props.get("regularJobs") or []) + (props.get("internships") or []):
+            data = item.get("data") or {}
+            job_url = data.get("jobUrl")
+            if not job_url:
+                continue
+            offices = [o.get("name", "") for o in item.get("office") or []]
+            desc = data.get("jobDescription") or {}
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_url),
+                    company=self._company.name,
+                    title=item.get("displayName", ""),
+                    location="; ".join(p for p in offices if p),
+                    url=f"https://www.deshaw.com/careers/{job_url}",
+                    description=strip_html(desc.get("websiteDescription", "")),
+                    department=(data.get("department") or {}).get("name", ""),
+                    date_posted="",  # payload carries no posting date
+                )
+            )
+        return jobs
+
+
+class VisaFetcher(AtsFetcher):
+    """Visa's first-party search service (search.visa.com) returns the whole board in one
+    anonymous POST (pageSize large). Single-shot; the pipeline dedupes. `createdOn` gives
+    a date but ordering isn't guaranteed, so no early-stop."""
+
+    ats_name = "visa"
+    _API = "https://search.visa.com/CAREERS/careers/jobs"
+    _PAGE_SIZE = 1000  # warn if the board ever reaches this (silent-truncation guard)
+
+    @property
+    def host(self) -> str:
+        return "search.visa.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        data = self._http.post_json(self._API, {"pageSize": self._PAGE_SIZE})
+        items = data.get("jobDetails") or []
+        if len(items) >= self._PAGE_SIZE:
+            log.warning("visa %s: got %d results at the pageSize cap (%d) — board may exceed it",
+                        self.host, len(items), self._PAGE_SIZE)
+        jobs = []
+        for item in items:
+            job_id = item.get("postingId") or item.get("refNumber") or item.get("id")
+            if not job_id:
+                continue
+            location = ", ".join(p for p in (item.get("city"), item.get("region"),
+                                             item.get("country")) if p)
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id),
+                    company=self._company.name,
+                    title=item.get("jobTitle", ""),
+                    location=location,
+                    url=item.get("applyUrl", ""),
+                    description=strip_html(item.get("jobDescription", "")),
+                    department="",
+                    date_posted=str(item.get("createdOn", "")),
+                )
+            )
+        return jobs
+
+
 class GithubRepoFetcher(AtsFetcher):
     """Base for aggregator sources whose postings live in a GitHub repo, read from
     raw.githubusercontent.com. All subclasses share that host, so ParallelFetcher runs
@@ -1705,6 +1943,11 @@ class FetcherFactory:
         JazzHRFetcher.ats_name: JazzHRFetcher,
         RipplingFetcher.ats_name: RipplingFetcher,
         GemFetcher.ats_name: GemFetcher,
+        GoldmanFetcher.ats_name: GoldmanFetcher,
+        JobviteFetcher.ats_name: JobviteFetcher,
+        WhatnotFetcher.ats_name: WhatnotFetcher,
+        DeShawFetcher.ats_name: DeShawFetcher,
+        VisaFetcher.ats_name: VisaFetcher,
         SimplifyFetcher.ats_name: SimplifyFetcher,
         SpeedyApplyFetcher.ats_name: SpeedyApplyFetcher,
     }
