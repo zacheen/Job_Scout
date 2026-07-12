@@ -18,6 +18,7 @@ import re
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from .models import Job, Score
 from .urls import canon_url
@@ -26,7 +27,7 @@ log = logging.getLogger(__name__)
 
 _FIELDS = [
     "job_key", "company", "title", "location", "department", "urls", "date_posted",
-    "first_seen", "track", "scored", "score_method",
+    "first_seen", "first_seen_pt", "track", "scored", "score_method",
     "experience_score", "reason", "emailed", "source_uids",
 ]
 
@@ -44,6 +45,26 @@ _UNSCORED_RANK = 99
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# Deliberately America/Los_Angeles, not a fixed UTC-8: auto-switches PST(-8)/PDT(-7) so
+# the first_seen_pt weekday matches a real California calendar. Needs the tzdata package
+# (Windows has no system copy).
+_DISPLAY_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def _humanize(iso: str) -> str:
+    """first_seen rendered in California local time as "YYYY-MM-DD HH:MM Www" (Www =
+    English weekday, locale-independent since we never setlocale). Recomputed from
+    first_seen on every save, so it can't drift out of sync. Empty/unparseable input
+    -> "" (legacy rows must not crash the save)."""
+    if not iso:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return ""
+    return dt.astimezone(_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M %a")
 
 
 def _uid_suffix(job_uid: str) -> str:
@@ -214,6 +235,8 @@ class CsvStore:
         self._dir.mkdir(parents=True, exist_ok=True)
         by_slug: dict[str, list[dict]] = {}
         for row in self._rows:
+            # Recompute here since merge_rows() can change first_seen after creation.
+            row["first_seen_pt"] = _humanize(row["first_seen"])
             by_slug.setdefault(_company_slug(row["company"]), []).append(row)
         for slug, rows in by_slug.items():
             rows.sort(key=row_sort_key)
