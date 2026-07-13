@@ -1,5 +1,6 @@
 job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
 AMD:87329,AMD,Advanced Package Design Engineer,"San Jose, California",Engineering,https://careers.amd.com/jobs/87329?lang=en-us,2026-07-07T20:35:00+0000,2026-07-10T05:21:53+00:00,2026-07-09 22:21 Thu,,false,,,,false,jibe:AMD:87329
+AMD:87640,AMD,Agentic AI Software Applications Developer,"Austin, Texas",Sales / Marketing,https://careers.amd.com/jobs/87640?lang=en-us,2026-07-13T22:04:00+0000,2026-07-13T22:16:43+00:00,2026-07-13 15:16 Mon,,false,,,,false,jibe:AMD:87640
 AMD:87948,AMD,AI Data Engineer – Platform & Analytics,"Santa Clara, California",Engineering,https://careers.amd.com/jobs/87948?lang=en-us,2026-07-08T11:14:00+0000,2026-07-10T05:21:53+00:00,2026-07-09 22:21 Thu,,false,,,,false,jibe:AMD:87948
 AMD:87873,AMD,"AI Engineer, Recursive Self-Improvement for Compute","Santa Clara, California",Engineering,https://careers.amd.com/jobs/87873?lang=en-us,2026-07-08T22:46:00+0000,2026-07-10T05:21:53+00:00,2026-07-09 22:21 Thu,,false,,,,false,jibe:AMD:87873
 AMD:87746,AMD,AI/ML Platform Engineer,"Santa Clara, California",Engineering,https://careers.amd.com/jobs/87746?lang=en-us,2026-07-08T22:48:00+0000,2026-07-10T05:21:53+00:00,2026-07-09 22:21 Thu,,false,,,,false,jibe:AMD:87746
