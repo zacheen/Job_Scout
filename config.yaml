@@ -228,6 +228,80 @@ warn_description_terms:
   - "without the need for sponsorship"
   - "without the need for visa sponsorship"
 
+# The candidate's real technical skills, used ONLY by the keyword-only scorer (the
+# fallback when no OpenAI key / GPT CLI is available — e.g. cloud runs). Scores DISTINCT
+# terms matched in the title+description, so keep this to meaningful skills, not resume
+# filler. Matching is boundary-aware and case-insensitive:
+# short/symbol tokens are safe ("go" won't hit "google", "ai" won't hit "email", "c++"
+# matches literally) and a trailing plural "s" is absorbed ("api" hits "APIs"), but it
+# does NOT stem — list "go" and "golang" (or "scikit-learn" and "sklearn") separately if
+# a JD may use either. Purely additive: editing this never affects routing or filtering.
+skill_keywords:
+  # Programming languages
+  - "python"
+  - "c++"
+  - "c#"
+  - "java"
+  - "go"
+  - "golang"
+  - "matlab"
+  - "lua"
+  - "bash"
+  # ML / CV frameworks & libraries
+  - "pytorch"
+  - "tensorflow"
+  - "keras"
+  - "tensorboard"
+  - "opencv"
+  - "onnx"
+  - "numpy"
+  - "pandas"
+  - "scikit-learn"
+  - "sklearn"
+  - "selenium"
+  # ML / CV models & concepts (singular form; the "s?" match covers plurals)
+  - "computer vision"
+  - "machine learning"
+  - "deep learning"
+  - "reinforcement learning"
+  - "neural network"
+  - "artificial intelligence"
+  - "ai"
+  - "ml"
+  - "cnn"
+  - "rl"
+  - "yolo"
+  - "transformer"
+  - "transfer learning"
+  - "capsnet"
+  - "stardist"
+  - "object detection"
+  - "segmentation"
+  - "image"
+  - "3d"
+  - "data augmentation"
+  # Backend / infra / tools
+  - "git"
+  - "docker"
+  - "gcp"
+  - "redis"
+  - "mysql"
+  - "nginx"
+  - "linux"
+  - "jira"
+  - "api"
+  - "rpc"
+  - "backend"
+  - "back-end"
+  - "frontend"
+  - "front-end"
+  - "database"
+  - "load balancing"
+  - "algorithm"
+  # CS fundamentals (from the TA role)
+  - "oop"
+  - "design pattern"
+
 # Companies you have a referral at -> their roles form the TOP email group "Referral"
 # (above Intern). Matched against the company NAME (case-insensitive), so each must match
 # the `name:` used in companies.yaml.

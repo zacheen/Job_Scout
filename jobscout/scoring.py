@@ -12,7 +12,6 @@ import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from collections import Counter
 
 from .models import Job, Score
 from .protocols import JobScorer
@@ -182,29 +181,39 @@ class CliScorer(_LlmScorer):
 
 class KeywordScorer:
     """No-LLM fallback: low fidelity by design. Used only when neither API key
-    nor GPT CLI is available."""
+    nor GPT CLI is available.
+
+    Counts occurrences of the configured `skill_keywords`, not every 5+ char word in
+    the resume prose — the latter floods matches with filler ("strong", "experience",
+    "global") and misses short skills like "c++"/"go"/"cnn"/"git".
+    """
 
     method_label = "Keyword"
 
-    _WORD_RE = re.compile(r"[a-z][a-z0-9+#.]{4,}")
-
-    def __init__(self, resume_text: str = ""):
-        self._resume_tokens = set(self._WORD_RE.findall(resume_text.lower()))
+    def __init__(self, skill_keywords: list[str] = ()):
+        # keyword -> boundary-aware pattern. Custom lookarounds (not \b) so "c++"/"c#"/
+        # "3d" still match; the trailing "s?" absorbs plurals ("api" hits "APIs") and, as
+        # a side effect, keeps "java" from bleeding into "javascript". The [a-z0-9]
+        # boundaries keep short tokens (go/ai/ml/rl) out of google/email/html/world.
+        self._patterns = {
+            kw: re.compile(rf"(?<![a-z0-9]){re.escape(kw)}s?(?![a-z0-9])")
+            for kw in (k.strip().lower() for k in skill_keywords) if kw
+        }
 
     def score(self, job: Job) -> Score:
-        if self._resume_tokens:
+        if self._patterns:
             text = f"{job.title} {job.description}".lower()
-            counts = Counter(t for t in self._WORD_RE.findall(text)
-                             if t in self._resume_tokens)
-            # experience scores the DISTINCT overlap (still gates the track threshold:
-            # >50 needs overlap >= 4; the clamp saturates at 20); match_counts adds the
-            # per-keyword occurrence breakdown for the email.
+            counts = {kw: n for kw, pat in self._patterns.items()
+                      if (n := len(pat.findall(text)))}
+            # experience scores the DISTINCT skills matched (still gates the track
+            # threshold: >50 needs >= 4 distinct); match_counts adds the per-keyword
+            # occurrence breakdown for the email.
             return Score(_clamp(40 + 3 * len(counts)), "keyword-only heuristic",
                          matches=len(counts),
                          match_counts=tuple(sorted(counts.items(),
                                                    key=lambda kv: (-kv[1], kv[0]))))
-        # No resume: constant score puts every role on the same side of the
-        # threshold, so matches stays None — there's no meaningful count to report.
+        # No skill_keywords configured: constant score puts every role on the same side
+        # of the threshold, so matches stays None — no meaningful count to report.
         return Score(50, "keyword-only heuristic")
 
 
@@ -220,4 +229,4 @@ def build_scorer(settings) -> JobScorer:
         log.info("scorer: GPT CLI '%s' (no API key found)", " ".join(command))
         return CliScorer(command, settings.resume_text, settings.max_description_chars)
     log.info("scorer: keyword-only fallback (no API key or GPT CLI found)")
-    return KeywordScorer(settings.resume_text)
+    return KeywordScorer(settings.skill_keywords)

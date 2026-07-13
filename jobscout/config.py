@@ -45,6 +45,7 @@ class Settings:
     exclude_word_terms: list[str]
     exclude_description_terms: list[str]
     warn_description_terms: list[str]
+    skill_keywords: list[str]
     intern_terms: list[str]
     senior_terms: list[str]
     referral_companies: list[str]
@@ -85,6 +86,7 @@ class Settings:
             exclude_word_terms=cfg.get("exclude_word_terms", []),
             exclude_description_terms=cfg.get("exclude_description_terms", []),
             warn_description_terms=cfg.get("warn_description_terms", []),
+            skill_keywords=[k.lower() for k in cfg.get("skill_keywords", [])],
             intern_terms=cfg.get("intern_terms", ["intern", "internship", "co-op", "coop"]),
             senior_terms=cfg.get("senior_terms", []),
             referral_companies=cfg.get("referral_companies", []),
