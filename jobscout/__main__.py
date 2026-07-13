@@ -56,7 +56,7 @@ def main() -> None:
     # on the CLI path. API path is unaffected — it scores every group.
     scorer_overrides = {}
     if settings.senior_terms and isinstance(scorer, CliScorer):
-        scorer_overrides[leveler.senior_group] = KeywordScorer(settings.resume_text)
+        scorer_overrides[leveler.senior_group] = KeywordScorer(settings.skill_keywords)
 
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_dir, track_priority=settings.track_names),
