@@ -17,21 +17,36 @@ def _word_re(terms: list[str]) -> re.Pattern | None:
     return re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b", re.IGNORECASE)
 
 
-def _include_location_re(terms: list[str]) -> re.Pattern | None:
-    r"""Location allowlist matcher: substring match, except a term shaped exactly ", xx"
-    (comma-space + two letters) gets a trailing \b — else ", ca" substring-hits the start
-    of ", Canada"/", Masovian" and leaks other countries. CAVEAT: the \b applies by shape
-    alone; a 3-letter code or stray space silently falls back to an unprotected substring."""
+def _region_matcher(terms: list[str], *, allow_state_codes: bool = True) -> re.Pattern | None:
+    r"""Allowlist matcher for US/Taiwan location tokens. Per term:
+      - ", xx" (comma-space + two letters) = a US state code: matches after a comma OR dash
+        separator with a trailing \b ("Boston, MA" / "Remote - CA", but not ", Canada"/", Masovian").
+        Skipped when allow_state_codes=False (for titles, where ", or"/", in" would hit "or"/"in").
+      - a bare 2-3 letter token ("us"/"usa"): whole-word, so "us" won't hit "Belarus"/"Houston".
+      - anything longer: raw substring (", CA, USA" still contains "usa").
+    CAVEAT: the state-code rule keys on SHAPE; a 3-letter code or a stray space silently degrades to
+    a substring — harmless for long names, but for a 2-letter code it reintroduces the prefix leak.
+    KNOWN edge: a 2-letter code can coincide with a foreign admin-region abbreviation — "Co." (Irish
+    county) -> ", co", "MD" (Madrid) -> ", md", or a hyphen-in-compound "Mexico - co-lo". Such a
+    location leaks unless its country is in exclude_location_terms (several are listed there); a regex
+    guard can't separate these from legit US "…, FL-Jacksonville"."""
     parts = []
     for t in terms:
         low = t.lower()
-        if low.strip():
-            parts.append(re.escape(low) + (r"\b" if re.fullmatch(r", [a-z]{2}", low) else ""))
+        if not low.strip():
+            continue
+        if re.fullmatch(r", [a-z]{2}", low):
+            if allow_state_codes:
+                parts.append(r"[,\-] " + low[2:] + r"\b")
+        elif re.fullmatch(r"[a-z]{2,3}", low):
+            parts.append(r"\b" + re.escape(low) + r"\b")
+        else:
+            parts.append(re.escape(low))
     return re.compile("|".join(parts), re.IGNORECASE) if parts else None
 
 
 def _matches_any(pattern: re.Pattern | None, *texts: str) -> bool:
-    """True if `pattern` is set and hits any of `texts`. `_word_re` / `_include_location_re` both
+    """True if `pattern` is set and hits any of `texts`. `_word_re` / `_region_matcher` both
     return None for no terms, so folding that guard in here keeps callers from repeating the check."""
     return pattern is not None and any(pattern.search(t) for t in texts)
 
@@ -54,11 +69,15 @@ class PreFilter:
     def __init__(self, *, include_location_terms: list[str], exclude_location_terms: list[str],
                  exclude_terms: list[str], exclude_dept_terms: list[str],
                  exclude_word_terms: list[str], exclude_description_terms: list[str]):
-        self._include_location_re = _include_location_re(include_location_terms)
+        self._include_location_re = _region_matcher(include_location_terms)
+        # For a bare "Remote" the country is absent from `location` and only in the TITLE
+        # ("… (USA)" vs "… - Egypt Based"); reuse the same tokens minus the 2-letter state codes
+        # (", or"/", in" would hit the words "or"/"in" in a title).
+        self._include_title_re = _region_matcher(include_location_terms, allow_state_codes=False)
         # Whole-word backstop for the include allowlist: "india" drops ", India" but not
-        # "Indiana"/"Indianapolis" (whole-word is safe — location is a structured place-name, not
-        # free text). Even after that \b-fix, this still uniquely catches a "Remote, <foreign>"
-        # role, which clears the include side on bare "remote".
+        # "Indiana"/"Indianapolis" (safe — location is a structured place-name, not free text).
+        # Its remaining job (now "remote" is not an include token): drop a MIXED location that
+        # cleared the allowlist on a US token but also names an excluded country ("Remote US & Canada").
         self._exclude_location_re = _word_re(exclude_location_terms)
         self._exclude_terms = [t.lower() for t in exclude_terms]
         self._exclude_dept_terms = [t.lower() for t in exclude_dept_terms]
@@ -72,7 +91,7 @@ class PreFilter:
         # All pure predicates under all(), so this order only affects short-circuit speed, not the
         # result. Description scan goes last: it normalizes the longest text, and only after the
         # cheap title/dept/location checks failed to drop the job.
-        self._checks = (self._dept_allowed, self._location_not_excluded, self._location_included,
+        self._checks = (self._dept_allowed, self._location_not_excluded, self._region_allowed,
                         self._role_allowed, self._role_words_allowed, self._description_allowed)
 
     def keep(self, job: Job) -> bool:
@@ -83,12 +102,26 @@ class PreFilter:
         return not any(term in dept for term in self._exclude_dept_terms)
 
     def _location_not_excluded(self, job: Job) -> bool:
-        # Backstop for _location_included (short state codes / broad "remote" leak unwanted regions).
+        # Backstop: drop a location that cleared the include allowlist but names an excluded
+        # country (e.g. a mixed "Remote US & Canada").
         return not _matches_any(self._exclude_location_re, job.location)
 
-    def _location_included(self, job: Job) -> bool:
-        # Empty/unknown location is treated as outside the allowed regions and dropped.
-        return bool(job.location) and _matches_any(self._include_location_re, job.location)
+    def _region_allowed(self, job: Job) -> bool:
+        # The region signal usually lives in `location`; for a bare "Remote" it is only in the TITLE
+        # instead (same multi-field pattern as _role_allowed). A concrete foreign location ("Remote
+        # - Spain") is decided by location alone, never rescued by a stray token in its title.
+        if not job.location:
+            return False
+        if _matches_any(self._include_location_re, job.location):
+            return True
+        if self._is_bare_remote(job.location):
+            return _matches_any(self._include_title_re, _normalize_prose(job.title))
+        return False
+
+    @staticmethod
+    def _is_bare_remote(location: str) -> bool:
+        # "Remote" (or "Remote - Remote") with no other place named.
+        return set(re.split(r"[\s,\-/;()]+", location.lower())).issubset({"remote", ""})
 
     def _role_allowed(self, job: Job) -> bool:
         # Match within each field separately so a multi-word term can't span the title/department join.

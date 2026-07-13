@@ -124,6 +124,9 @@ exclude_terms:
   - "mechanical" # different engineering discipline (also matches "electromechanical")
   - "electrical"
   - "firmware"
+  - "microelectronics"
+  - "micro-electronics" # hyphen spelling of the above
+  - "wire bond" # semiconductor packaging; also matches "wire bonding" / "wire bonder"
   - "safety"
   - "network"
   - "cybersecurity"
@@ -335,11 +338,11 @@ senior_terms:
   - "sr"
 
 # Backstop for include_location_terms: still drops a location that matched an include term.
-# Since the whole-word fix (MATCHING NOTE below), ", xx" state codes no longer leak country
-# names at the include layer, so this list is now defense-in-depth — the only still-live
-# vector is the broad "remote" include ("Remote, <foreign>" roles). Matched WHOLE-WORD (see
-# PreFilter) so a country can't be swallowed by a US name: "india" drops ", India" but NOT
-# "Indiana"/"Indianapolis"; "colombia" ('o') avoids US "Columbia" ('u').
+# Now "remote" is no longer an include token (see MATCHING NOTE below), a purely foreign location
+# is already dropped by the allowlist; this list now only catches MIXED strings that cleared the
+# allowlist on a US token but also name an excluded country (e.g. "Remote US & Canada"). Matched
+# WHOLE-WORD (see PreFilter) so a country can't be swallowed by a US name: "india" drops ", India"
+# but NOT "Indiana"/"Indianapolis"; "colombia" ('o') avoids US "Columbia" ('u').
 exclude_location_terms:
   - "canada"
   - "colombia"
@@ -358,20 +361,31 @@ exclude_location_terms:
   # "poland" can't clip a US name either. KNOWN edge: it also kills the tiny US towns
   # "Poland, OH"/"Poland, ME" — accepted, no target roles there.
   - "poland"
+  # Foreign admin-region abbreviations that collide with 2-letter US state codes (comma OR dash
+  # form): "Co." (Irish county) -> ", co"; "MD" (Madrid) -> ", md"; "NH"/"UT" (Dutch provinces);
+  # "WA" (Western Australia). Whole-word, and keyed on the COUNTRY name rather than the 2-letter
+  # code: "Madrid, MD, Spain" is dropped via "spain", while "Baltimore, MD" is untouched. None hit
+  # a real US place in the ledger (unlike "Panama City, FL"), though tiny US towns "Ireland, IN"/
+  # "Spain, NY" exist and would be dropped.
+  - "ireland"
+  - "spain"
+  - "netherlands"
+  - "australia"
 
-# A job is kept only if its location string contains any of these (allowed regions:
-# US + Taiwan). Heuristic and imperfect: bare "remote" also matches remote roles
-# outside these regions, and unknown/empty locations are excluded. Refine to taste.
-# MATCHING NOTE: a term shaped exactly ", xx" (comma-space + two letters) is matched WHOLE-WORD
-# (filters.py::_include_location_re) — so ", ca" won't substring-hit ", Canada"/", Masovian";
-# everything else matches as a raw substring. Keep that shape for new state codes.
+# A job is kept only if its location (or, for a bare "Remote", its TITLE) contains one of these
+# (allowed regions: US + Taiwan). Unknown/empty locations are excluded. Refine to taste.
+# MATCHING NOTE (filters.py::_region_matcher): ", xx" (comma-space + two letters) = a US state
+# code, matched after a comma OR dash + a word boundary ("Boston, MA" / "Remote - CA", but not
+# ", Canada"/", Masovian"). A bare 2-3 letter token ("us") is whole-word (won't hit "Belarus").
+# Everything else is a raw substring. "remote" is deliberately NOT a token — a bare "Remote" role
+# already falls back to the title rule above.
 include_location_terms:
   # Google's Taiwan location strings all end in ", Taiwan" (Taipei / New Taipei / Hsinchu).
   - "taiwan"
   - "united states"
   - "usa"
+  - "us"
   - "u.s."
-  - "remote"
   - "california"
   - "new york"
   - "washington"
