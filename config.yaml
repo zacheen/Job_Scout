@@ -124,6 +124,9 @@ exclude_terms:
   - "mechanical" # different engineering discipline (also matches "electromechanical")
   - "electrical"
   - "firmware"
+  - "microelectronics"
+  - "micro-electronics" # hyphen spelling of the above
+  - "wire bond" # semiconductor packaging; also matches "wire bonding" / "wire bonder"
   - "safety"
   - "network"
   - "cybersecurity"

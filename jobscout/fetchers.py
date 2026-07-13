@@ -445,6 +445,10 @@ class OracleFetcher(PaginatedFetcher):
     ats_name = "oracle"
     _PAGE = 20
     _SEED_MAX_PAGES = 10
+    # Job text is split across several fields; the visa/clearance boilerplate PreFilter scans for
+    # lives in ExternalQualificationsStr, NOT the ShortDescriptionStr blurb — concatenate them all.
+    _DESC_FIELDS = ("ShortDescriptionStr", "ExternalDescriptionStr",
+                    "ExternalQualificationsStr", "ExternalResponsibilitiesStr")
 
     @property
     def host(self) -> str:
@@ -457,8 +461,9 @@ class OracleFetcher(PaginatedFetcher):
                   f"offset={index * self._PAGE},sortBy=POSTING_DATES_DESC")
         data = self._http.get_json(
             url,
-            params={"onlyData": "true", "expand": "requisitionList.secondaryLocations",
-                    "finder": finder},
+            # expand=all so the listing carries the qualifications/responsibilities text too,
+            # not just the short blurb (see _DESC_FIELDS) — no per-job detail call needed.
+            params={"onlyData": "true", "expand": "all", "finder": finder},
         )
         result = (data.get("items") or [{}])[0]
         jobs = [
@@ -468,7 +473,7 @@ class OracleFetcher(PaginatedFetcher):
                 title=item.get("Title", ""),
                 location=item.get("PrimaryLocation", ""),
                 url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{item['Id']}",
-                description=strip_html(item.get("ShortDescriptionStr", "")),
+                description=strip_html(" ".join(s for f in self._DESC_FIELDS if (s := item.get(f)))),
                 department=item.get("JobFamily") or "",
                 date_posted=item.get("PostedDate", ""),
             )
