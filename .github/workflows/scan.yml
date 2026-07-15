@@ -58,7 +58,11 @@ jobs:
         run: |
           remote="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           if git ls-remote --exit-code --heads "$remote" "$LEDGER_BRANCH" >/dev/null 2>&1; then
-            git clone --depth 1 --branch "$LEDGER_BRANCH" "$remote" .ledger
+            # depth 2, NOT 1: commit_ledger amends the tip, and at depth 1 the tip
+            # itself is the shallow graft point, so git sees it as parentless and
+            # the amend silently orphans the whole branch history (hit 2026-07-15).
+            # At depth 2 the graft point is the parent, and the amend keeps it.
+            git clone --depth 2 --branch "$LEDGER_BRANCH" "$remote" .ledger
           else
             git init -b "$LEDGER_BRANCH" .ledger
             git -C .ledger remote add origin "$remote"
@@ -92,8 +96,8 @@ jobs:
           git diff --cached --quiet && exit 0
           # Amend when the tip is already this bot's commit, collapsing repeated
           # cloud runs into one, while local_run.py's commits (different author)
-          # remain as history boundaries. Safe on a shallow clone: amending reuses
-          # the parent SHA already baked into the commit object, which the server has.
+          # remain as history boundaries. Only safe because the clone above uses
+          # --depth 2 — see the comment there.
           commit_ledger() {
             if [ "$(git log -1 --format=%an 2>/dev/null || true)" = "github-actions[bot]" ]; then
               git commit --amend -m "update job ledger [skip ci]"
@@ -122,7 +126,9 @@ jobs:
             if push_ledger; then exit 0; fi
             rm -rf /tmp/run_ledger
             cp -r cloud_data /tmp/run_ledger
-            git fetch origin "$LEDGER_BRANCH"
+            # --depth 2 keeps the new tip un-grafted in case commit_ledger amends it
+            # (same trap as the clone above)
+            git fetch --depth 2 origin "$LEDGER_BRANCH"
             git reset --hard FETCH_HEAD
             PYTHONPATH="$GITHUB_WORKSPACE" python - <<'EOF'
           import os
