@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Old Mission:b31743bd-7fcf-42a4-aca1-0e6146dfb105,Old Mission,Software Engineer Intern,"Chicago, IL",Software,https://www.oldmissioncapital.com/careers/?gh_jid=7796180003,2026-07-15,2026-07-15T23:41:03+00:00,2026-07-15 16:41 Wed,Software Engineering,true,Keyword,40,keyword-only heuristic,false,simplify:Simplify Internships:b31743bd-7fcf-42a4-aca1-0e6146dfb105
