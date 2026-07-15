@@ -461,8 +461,8 @@ class OracleFetcher(PaginatedFetcher):
                   f"offset={index * self._PAGE},sortBy=POSTING_DATES_DESC")
         data = self._http.get_json(
             url,
-            # expand=all so the listing carries the qualifications/responsibilities text too,
-            # not just the short blurb (see _DESC_FIELDS) — no per-job detail call needed.
+            # expand=all surfaces those extra fields (see _DESC_FIELDS) in the one listing call —
+            # no per-job detail request needed.
             params={"onlyData": "true", "expand": "all", "finder": finder},
         )
         result = (data.get("items") or [{}])[0]

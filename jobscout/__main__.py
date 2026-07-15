@@ -14,7 +14,7 @@ from .fetchers import AtsFetcher, FetcherFactory, HttpClient, ParallelFetcher
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
-from .scoring import CliScorer, KeywordScorer, build_scorer
+from .scoring import build_scorer
 from .store import CsvStore
 
 
@@ -51,12 +51,6 @@ def main() -> None:
     leveler = LevelClassifier(settings.referral_companies, settings.intern_terms,
                               settings.senior_terms)
     scorer = build_scorer(settings)
-    # Senior roles render last in the email and are usually skimmed past, so they don't
-    # justify a slow local CLI subprocess call: swap in the keyword heuristic for them
-    # on the CLI path. API path is unaffected — it scores every group.
-    scorer_overrides = {}
-    if settings.senior_terms and isinstance(scorer, CliScorer):
-        scorer_overrides[leveler.senior_group] = KeywordScorer(settings.skill_keywords)
 
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_dir, track_priority=settings.track_names),
@@ -76,7 +70,9 @@ def main() -> None:
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
         score_workers=settings.score_workers,
         seed_only_prefixes=seed_only_prefixes,
-        scorer_overrides=scorer_overrides,
+        # Senior roles are dropped (not emailed) unless a referral company claims them first:
+        # LevelClassifier routes a referral-company senior role to Referral, not Senior.
+        suppressed_groups={leveler.senior_group},
     )
     pipeline.run()
 
