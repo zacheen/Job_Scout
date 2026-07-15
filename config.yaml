@@ -20,8 +20,8 @@ reasoning_effort: "medium"
 # whatever model codex's own config.toml defaults to; `-c model_reasoning_effort=low`
 # likewise overrides its reasoning default (e.g. xhigh) — a simple rating doesn't need
 # more, and low is far faster/cheaper.
-# Senior-group roles (see senior_terms) skip the CLI even locally — keyword heuristic
-# instead (wired in __main__).
+# Senior-group roles (see senior_terms) are dropped before scoring (unless a referral
+# company claims them first), so they never reach this scorer — wired in __main__.
 gpt_cli: "codex"
 gpt_cli_args: ["exec", "-c", "model=gpt-5.6-luna", "-c", "model_reasoning_effort=low"]
 
@@ -134,6 +134,7 @@ exclude_terms:
   - "data center" # infra / facilities ops
   - "datacenter" # one-word spelling of the above
   - "gpu" # usually is related to CUDA or kernel
+  - "cpu"
   - "kernel" # low-level OS / GPU-kernel systems roles, outside the CV/AI-ML/SWE target
   # non-technical functions
   - "marketing"
@@ -330,9 +331,9 @@ intern_terms:
   - "coop"
 
 # Roles whose TITLE matches one of these (whole-word, so "sr" doesn't hit inside other
-# words) form the BOTTOM email group "Senior" — still listed, but last, since these are
-# usually skimmed past. Referral outranks it: a senior role at a referral company stays
-# in the Referral group.
+# words) are DROPPED, not emailed: LevelClassifier puts them in a "Senior" group that
+# __main__ suppresses. Referral outranks it — a senior role at a referral company is
+# classified Referral first, so it is still emailed.
 senior_terms:
   - "senior"
   - "sr"

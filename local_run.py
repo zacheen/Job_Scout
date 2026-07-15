@@ -7,7 +7,9 @@ other side already saw, so this script wraps a scan with a pull / union-merge /
 push cycle:
 
     1. refuse to run unless the checkout is on the `data` branch
-    2. fetch + fast-forward to origin/data (grabs the cloud's latest shards)
+    2. fetch + hard-reset to origin/data (the cloud amends + force-pushes its
+       ledger commit, so origin/data routinely rewrites history and a
+       fast-forward would fail)
     3. union-merge local_data/ <-> cloud_data/ (CsvStore.absorb) into BOTH dirs,
        so the scan knows every role the cloud has seen or emailed
     4. run the normal scan (jobscout main, same as run.py)
@@ -88,10 +90,13 @@ def _merge_ledgers(settings: Settings, extra: list[Path] = ()) -> None:
 
 
 def _sync_with_remote(settings: Settings) -> None:
-    """Fast-forward to origin/data without losing local ledger rows: snapshot the
-    shard dirs, reset them to the committed state — deleting untracked shards,
-    which would otherwise abort the merge on a name collision — then fold the
-    snapshots back into the fast-forwarded ledger."""
+    """Sync to origin/data without losing local ledger rows: snapshot the shard
+    dirs, hard-reset to the remote tip, then fold the snapshots back in.
+
+    reset --hard, not a fast-forward merge: scan.yml's amend+force-push means
+    origin/data is often not a descendant of the previous tip. Local-only
+    commits on `data` are discarded by the reset; their shard rows survive
+    only via the snapshot/union-merge done here."""
     _git("fetch", "origin", BRANCH)
     tmp = Path(tempfile.mkdtemp(prefix="jobscout_ledger_"))
     snapshots: list[Path] = []
@@ -100,10 +105,8 @@ def _sync_with_remote(settings: Settings) -> None:
             snap_dir = tmp / f"dir_{i}"
             shutil.copytree(d, snap_dir)
             snapshots.extend(sorted(snap_dir.glob("*.csv")))
-            shutil.rmtree(d)
-        # check=False: an untracked dir (first run ever) has nothing to restore
-        _git("checkout", "--", str(d), check=False)
-    _git("merge", "--ff-only", f"origin/{BRANCH}")
+            shutil.rmtree(d)  # drop untracked strays; the reset restores tracked shards
+    _git("reset", "--hard", f"origin/{BRANCH}")
     _merge_ledgers(settings, extra=snapshots)
     shutil.rmtree(tmp, ignore_errors=True)
 
@@ -123,10 +126,10 @@ def _commit_and_push(settings: Settings) -> None:
             log.info("ledger pushed to origin/%s", BRANCH)
             return
         if attempt == 1:
-            # the cloud run pushed while we scanned: undo our commit (content
-            # stays in the working tree), re-merge with the new remote tip, retry
+            # cloud push raced ours and won: _sync_with_remote snapshots our
+            # just-committed rows from the working tree, discards our commit
+            # via hard-reset, then union-merges the rows back for the retry
             log.warning("push rejected; merging remote changes and retrying")
-            _git("reset", "--mixed", "HEAD~1")
             _sync_with_remote(settings)
     raise SystemExit("push failed twice; resolve manually (git pull --rebase, "
                      "then re-run local_run.py)")

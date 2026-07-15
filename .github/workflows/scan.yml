@@ -58,7 +58,11 @@ jobs:
         run: |
           remote="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           if git ls-remote --exit-code --heads "$remote" "$LEDGER_BRANCH" >/dev/null 2>&1; then
-            git clone --depth 1 --branch "$LEDGER_BRANCH" "$remote" .ledger
+            # depth 2, NOT 1: at depth 1 the tip is the shallow graft point (parentless
+            # to git), so commit_ledger's amend silently orphans the whole branch
+            # history (hit 2026-07-15). At depth 2 the graft point is the tip's parent,
+            # so the amend is safe.
+            git clone --depth 2 --branch "$LEDGER_BRANCH" "$remote" .ledger
           else
             git init -b "$LEDGER_BRANCH" .ledger
             git -C .ledger remote add origin "$remote"
@@ -90,17 +94,41 @@ jobs:
           # exactly the ledger work (new/changed/orphan-deleted shards).
           git add -A
           git diff --cached --quiet && exit 0
-          git commit -m "update job ledger [skip ci]"
-          # A human push to data during the run (e.g. local_run.py) makes this push
-          # non-fast-forward — and since BOTH sides rewrite whole sorted shards, a
-          # `git pull` text merge conflicts and can never recover (proven 2026-07-11).
-          # Retry by resetting to the new remote tip and union-merging our rows back
-          # in via CsvStore.absorb, the same semantics local_run.py uses.
+          # Amend when the tip is already this bot's commit, collapsing repeated
+          # cloud runs into one, while local_run.py's commits (different author)
+          # remain as history boundaries. Only safe because the clone above uses
+          # --depth 2 — see the comment there.
+          commit_ledger() {
+            if [ "$(git log -1 --format=%an 2>/dev/null || true)" = "github-actions[bot]" ]; then
+              git commit --amend -m "update job ledger [skip ci]"
+            else
+              git commit -m "update job ledger [skip ci]"
+            fi
+          }
+          # Amend rewrites the remote tip, so the push must force — but ONLY with
+          # lease: plain --force could silently erase rows local_run.py pushed
+          # between our fetch and push (a failed lease falls into the union-merge
+          # retry below). --force-with-lease needs a remote-tracking ref though; a
+          # brand-new branch has none — and nothing to overwrite — so push plainly.
+          push_ledger() {
+            if git rev-parse -q --verify "refs/remotes/origin/$LEDGER_BRANCH" >/dev/null; then
+              git push --force-with-lease -u origin "$LEDGER_BRANCH"
+            else
+              git push -u origin "$LEDGER_BRANCH"
+            fi
+          }
+          commit_ledger
+          # On a rejected push (someone else moved the tip): reset to the new remote
+          # tip and union-merge our rows back in via CsvStore.absorb — BOTH sides
+          # rewrite whole sorted shards, so a `git pull` text merge conflicts and can
+          # never recover (proven 2026-07-11).
           for i in 1 2 3; do
-            if git push -u origin "$LEDGER_BRANCH"; then exit 0; fi
+            if push_ledger; then exit 0; fi
             rm -rf /tmp/run_ledger
             cp -r cloud_data /tmp/run_ledger
-            git fetch origin "$LEDGER_BRANCH"
+            # --depth 2 keeps the new tip un-grafted in case commit_ledger amends it
+            # (same trap as the clone above)
+            git fetch --depth 2 origin "$LEDGER_BRANCH"
             git reset --hard FETCH_HEAD
             PYTHONPATH="$GITHUB_WORKSPACE" python - <<'EOF'
           import os
@@ -114,7 +142,7 @@ jobs:
                       extra_dirs=[Path("/tmp/run_ledger")])
           EOF
             git add -A
-            git diff --cached --quiet || git commit -m "update job ledger [skip ci]"
+            git diff --cached --quiet || commit_ledger
           done
           exit 1
 

@@ -40,6 +40,7 @@ class Pipeline:
         score_workers: int = 1,
         seed_only_prefixes: Collection[str] = (),
         scorer_overrides: Mapping[str, JobScorer] | None = None,
+        suppressed_groups: Collection[str] = (),
     ):
         if score_workers < 1:
             raise ValueError(f"score_workers must be >= 1, got {score_workers}")
@@ -58,6 +59,8 @@ class Pipeline:
         # by that scorer instead of `scorer`. Email subject always shows the primary
         # scorer's label; the ledger records the actual method used per row.
         self._scorer_overrides = dict(scorer_overrides or {})
+        # Leveler group names dropped before scoring/email (see `_drop_suppressed`).
+        self._suppressed_groups = frozenset(suppressed_groups)
 
     def run(self) -> None:
         all_jobs = self._fetch_all()
@@ -94,6 +97,14 @@ class Pipeline:
         if not emailable:
             self._store.save()
             log.info("%d new roles, all already in the ledger by URL (another source)", len(new_candidates))
+            return
+
+        before_suppress = len(emailable)
+        emailable = self._drop_suppressed(emailable)
+        if not emailable:
+            self._store.save()
+            log.info("%d emailable (of %d new), all in suppressed groups (e.g. senior at a non-referral company)",
+                     before_suppress, len(new_candidates))
             return
 
         by_track = self._score_by_track(emailable)
@@ -151,6 +162,20 @@ class Pipeline:
         if len(kept) != len(new_candidates):
             log.info("seeding %d new source(s) silently: withheld %d role(s) from email",
                      len(seeding), len(new_candidates) - len(kept))
+        return kept
+
+    def _drop_suppressed(self, jobs: list[Job]) -> list[Job]:
+        """Drop jobs whose leveler group is suppressed (never emailed) — e.g. senior roles.
+        A job reaches a suppressed group only if no higher-priority group claimed it first (a
+        senior role at a referral company lands in Referral instead, so it survives). run()
+        has already recorded these in the ledger; they're simply never scored or emailed."""
+        if not self._suppressed_groups:
+            return jobs
+        kept = [j for j in jobs if self._leveler.group(j) not in self._suppressed_groups]
+        dropped = len(jobs) - len(kept)
+        if dropped:
+            log.info("suppressed %d role(s) in group(s) %s (not emailed)",
+                     dropped, sorted(self._suppressed_groups))
         return kept
 
     def _score_by_track(self, new_jobs: list[Job]) -> dict[str, list[tuple[Job, Score]]]:
