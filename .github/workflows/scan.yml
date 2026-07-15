@@ -58,10 +58,10 @@ jobs:
         run: |
           remote="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           if git ls-remote --exit-code --heads "$remote" "$LEDGER_BRANCH" >/dev/null 2>&1; then
-            # depth 2, NOT 1: commit_ledger amends the tip, and at depth 1 the tip
-            # itself is the shallow graft point, so git sees it as parentless and
-            # the amend silently orphans the whole branch history (hit 2026-07-15).
-            # At depth 2 the graft point is the parent, and the amend keeps it.
+            # depth 2, NOT 1: at depth 1 the tip is the shallow graft point (parentless
+            # to git), so commit_ledger's amend silently orphans the whole branch
+            # history (hit 2026-07-15). At depth 2 the graft point is the tip's parent,
+            # so the amend is safe.
             git clone --depth 2 --branch "$LEDGER_BRANCH" "$remote" .ledger
           else
             git init -b "$LEDGER_BRANCH" .ledger
