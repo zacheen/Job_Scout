@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Pipe17:https://job-boards.greenhouse.io/pipe17/jobs/4717950005,Pipe17,Junior Software Engineer - AI-Native,"Seattle, WA",,https://job-boards.greenhouse.io/pipe17/jobs/4717950005,,2026-07-24T14:10:32+00:00,2026-07-24 07:10 Fri,Software Engineering,true,Keyword,43,keyword-only heuristic,false,speedyapply:SpeedyApply SWE:https://job-boards.greenhouse.io/pipe17/jobs/4717950005
