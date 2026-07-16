@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Postman:cef7eb65-ef35-4d6e-961e-cd3c0afe1058,Postman,AI Engineer Intern,"Berkeley, CA",AI/ML/Data,https://job-boards.greenhouse.io/postman/jobs/7823417003,2026-08-01,2026-08-01T23:13:36+00:00,2026-08-01 16:13 Sat,AI / ML,true,Keyword,43,keyword-only heuristic,false,simplify:Simplify Internships:cef7eb65-ef35-4d6e-961e-cd3c0afe1058|speedyapply:SpeedyApply AI:https://job-boards.greenhouse.io/postman/jobs/7823417003
