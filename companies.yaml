@@ -2,12 +2,14 @@
 #
 # Per-ATS required keys:
 #   greenhouse: board            -> boards-api.greenhouse.io/v1/boards/{board}/jobs
-#   lever:      org              -> api.lever.co/v0/postings/{org}
+#   lever:      org; region (optional: us, eu; default us)
+#               -> api[.eu].lever.co/v0/postings/{org}
 #   ashby:      org              -> api.ashbyhq.com/posting-api/job-board/{org}
 #   workday:    host, tenant, site; searchText (optional — scopes a shared tenant, but
 #               switches to relevance order -> bounded full pull instead of early-stop)
 #   amazon:     query (optional keyword search)
 #   google:     query (optional), location (optional; default "United States")
+#   apple:      query (optional; default "United States"), max_pages (optional safety cap)
 #   oracle:     host, site (the CX_N siteNumber from the Oracle candidate-experience URL)
 #   smartrecruiters: company (the companyId from jobs.smartrecruiters.com/{company})
 #   jibe:       host             -> https://{host}/api/jobs (Jibe/iCIMS careers sites; newest-first)
@@ -17,7 +19,8 @@
 #   gem:        board            -> jobs.gem.com/{board} (anonymous GraphQL; no dates)
 #   eightfold:  host, domain; api (optional "legacy" -> /api/apply/v2/jobs for tenants
 #               that gate PCSX — Netflix). Both flavors newest-first.
-#   radancy:    host, path (optional, default /search-jobs/results) -> JSON w/ HTML cards
+#   radancy:    host, path (optional, default /search-jobs/results); full_scan (optional,
+#               disables early-stop for unordered tenants), max_pages (optional safety cap)
 #   bytedance:  atsx portal family; host (optional, default jobs.bytedance.com),
 #               website_path (optional, default "en"), jd_base (optional) — TikTok uses all three
 #   successfactors: host         -> {host}/search/ HTML rows, referencedate desc (newest-first)
@@ -33,6 +36,7 @@
 #   janestreet: (no params) janestreet.com/jobs/main.json
 #   teamtailor: host             -> {host}/jobs.rss
 #   bamboohr:   account          -> {account}.bamboohr.com/careers/list
+#   dejobs:     host             -> {host}/jobs/feed/rss/ (branded DirectEmployers feed)
 #   tinder:     (no params) first-party proxy for Tinder-only roles
 #   simplify:   repo (owner/name); optional path, branch  -> parses .github/scripts/listings.json
 #   speedyapply:repo (owner/name); optional files (comma-separated .md tables), branch
@@ -43,8 +47,8 @@
 # Slugs need verifying against each company's live careers page. A wrong slug is
 # harmless: the fetcher logs a warning and that company is skipped for the run.
 #
-# Standard-ATS companies below, then the custom-site giants (Amazon, Google) that
-# have their own fetchers. Meta/Apple/Microsoft remain deferred (see bottom).
+# Standard-ATS companies below, then the custom-site giants with their own fetchers.
+# Meta and Tesla remain deferred (see bottom).
 
 # --- Greenhouse (board slug verified reachable for the first three) ---
 - {name: Coinbase,   ats: greenhouse, board: coinbase}
@@ -167,6 +171,20 @@
 - {name: Axon,             ats: greenhouse, board: axon, seed_only: true}             # body cams / video CV / drones; ~513
 - {name: Magic Leap,       ats: greenhouse, board: magicleap}                         # AR; ~11 (mostly fab roles currently)
 
+# Interest expansion 2026-07-16: AI infrastructure plus internationally known software.
+# Every board returned nonzero jobs and was identity-checked from live title samples.
+- {name: Labelbox,        ats: greenhouse, board: labelbox}                         # visual/agent data platform; ~14
+- {name: SambaNova,       ats: greenhouse, board: sambanovasystems}                 # AI systems; ~28
+- {name: Flatiron Health, ats: greenhouse, board: flatironhealth}                   # healthcare data/AI; ~31
+- {name: Asana,           ats: greenhouse, board: asana, seed_only: true}           # internationally known SaaS; ~147
+- {name: GitLab,          ats: greenhouse, board: gitlab, seed_only: true}          # global DevSecOps; ~168
+- {name: Elastic,         ats: greenhouse, board: elastic, seed_only: true}         # search/observability/AI; ~176
+- {name: Rubrik,          ats: greenhouse, board: rubrik, seed_only: true}          # data security; ~101
+- {name: Glean,           ats: greenhouse, board: gleanwork, seed_only: true}       # enterprise AI; ~126
+- {name: CoreWeave,       ats: greenhouse, board: coreweave, seed_only: true}       # GPU cloud; ~287
+- {name: Vercel,          ats: greenhouse, board: vercel}                           # global developer platform; ~69
+- {name: Motive,          ats: greenhouse, board: gomotive}                         # fleet cameras/physical AI; ~76
+
 # --- Lever ---
 # Netflix migrated Lever -> Eightfold; the Lever "netflix" org still answers 200 but with
 # an EMPTY array (dead decoy, caught 2026-07-12). Entry moved to the Eightfold section.
@@ -203,6 +221,12 @@
 # (bare AIFund would mislabel the whole Andrew Ng portfolio). Works because the fetcher appends
 # &mode=json via params.
 - {name: Landing AI,     ats: lever, org: "AIFund?department=LandingAI"}  # manufacturing CV; ~5 (Mountain View)
+# Interest expansion 2026-07-16.
+- {name: ANYbotics,      ats: lever, org: anybotics}                    # industrial inspection robots; ~17
+- {name: Lumafield,      ats: lever, org: lumafield}                    # industrial CT / 3D vision; ~14
+# Mobileye's board is hosted in Lever's EU cluster. It currently has no US-based rows, but
+# keeping the live board catches future US openings without another re-probe.
+- {name: Mobileye,       ats: lever, org: mobileye, region: eu, seed_only: true}  # ~110 global
 
 # --- Ashby ---
 - {name: OpenAI,     ats: ashby, org: openai}
@@ -237,6 +261,25 @@
 - {name: Ambient.ai,     ats: ashby, org: "ambient.ai"}        # security video CV (Redwood City); ~15
 - {name: Viz.ai,         ats: ashby, org: "Viz.ai"}            # stroke/medical imaging AI (US remote); ~18
 - {name: Overjet,        ats: ashby, org: Overjet}             # dental CV (Boston/NYC); ~24 (some Lahore/Cairo)
+
+# Interest expansion 2026-07-16: frontier AI, multimodal/CV, and globally recognized tools.
+- {name: ElevenLabs, ats: ashby, org: elevenlabs, seed_only: true}  # audio/multimodal AI; ~189
+- {name: LangChain,  ats: ashby, org: langchain}                    # agent tooling; ~98
+- {name: Decagon,    ats: ashby, org: decagon, seed_only: true}     # AI agents; ~114
+- {name: Sierra,     ats: ashby, org: sierra, seed_only: true}      # enterprise AI agents; ~159
+- {name: Modal,      ats: ashby, org: modal}                         # serverless AI compute; ~33
+- {name: Baseten,    ats: ashby, org: baseten}                       # model inference; ~71
+- {name: Fireworks AI, ats: ashby, org: fireworksai}                 # inference/research; ~37
+- {name: Pika,       ats: ashby, org: pika}                          # generative video; ~10
+- {name: Etched,     ats: ashby, org: etched}                        # transformer inference chips; ~96
+- {name: Tractable,  ats: ashby, org: tractable}                     # insurance computer vision; ~4
+- {name: Runway AI,  ats: ashby, org: runway-ml}                     # generative video/world models; ~46
+- {name: Encord,     ats: ashby, org: encord}                        # CV/physical-AI data platform; ~45
+- {name: Cursor,     ats: ashby, org: cursor, seed_only: true}       # internationally known AI coding; ~117
+- {name: Abridge,    ats: ashby, org: abridge}                       # clinical speech AI; ~46
+- {name: Replit,     ats: ashby, org: replit}                        # global AI coding platform; ~99
+- {name: Lambda,     ats: ashby, org: lambda}                        # GPU cloud/AI systems; ~40
+- {name: Notion,     ats: ashby, org: notion, seed_only: true}       # internationally known workspace AI; ~142
 
 # --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
 - {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}
@@ -372,6 +415,9 @@
 - {name: Atlassian Early Careers, ats: jibe, host: join.atlassian.com, seed_only: true}  # ~466 total, ~18 intern/grad live
 - {name: Garmin, ats: jibe, host: careers.garmin.com, seed_only: true}  # ~316 (Olathe KS, Cary NC)
 - {name: DocuSign, ats: jibe, host: careers.docusign.com, seed_only: true}  # ~313
+# Re-probed 2026-07-16: the current McAfee first-party careers site exposes the same
+# anonymous /api/jobs Jibe endpoint as AMD/Rivian; no Phenom fetcher is needed.
+- {name: McAfee, ats: jibe, host: careers.mcafee.com}  # ~56
 
 # --- Workable (anonymous v1 widget; one request, full descriptions) ---
 - {name: Pony.ai, ats: workable, account: pony-dot-ai}  # AV; US board (Fremont CA), ~7 roles
@@ -395,11 +441,16 @@
 - {name: HP, ats: eightfold, host: hp.eightfold.ai, domain: hp.com, seed_only: true}                   # PCSX; HP Inc; ~724 (Spring TX)
 - {name: Netflix, ats: eightfold, host: explore.jobs.netflix.net, domain: netflix.com, api: legacy, seed_only: true}  # ~482; replaced the dead Lever entry
 - {name: NetApp, ats: eightfold, host: netapp.eightfold.ai, domain: netapp.com, api: legacy, seed_only: true}  # ~266 (109 US); third legacy-only tenant
+# Microsoft migrated to this anonymous PCSX endpoint; the older gcsservices API is dead.
+- {name: Microsoft, ats: eightfold, host: apply.careers.microsoft.com, domain: microsoft.com, seed_only: true}
 
 # --- Radancy / TalentBrew (method G; JSON with server-rendered HTML cards; newest-first) ---
 - {name: Disney, ats: radancy, host: www.disneycareers.com, path: /en/search-jobs/results, seed_only: true}  # ~777
 - {name: Arm, ats: radancy, host: careers.arm.com, seed_only: true}                                          # ~258
 - {name: Intuit, ats: radancy, host: jobs.intuit.com, seed_only: true}  # ~357; cards carry no date spans
+# Spectrum's SortCriteria=5 is not ordered. full_scan deliberately fetches the bounded
+# whole board every run so seen-based early-stop cannot miss a deeply placed new role.
+- {name: Spectrum, ats: radancy, host: jobs.spectrum.com, full_scan: true, max_pages: 100, seed_only: true}  # ~1232
 
 # --- ByteDance atsx portal family (no dates -> bounded single-shot) ---
 - {name: ByteDance, ats: bytedance, seed_only: true}     # ~1178 (San Jose/Seattle US + SG/global)
@@ -436,6 +487,11 @@
 # --- BambooHR (single-request board list; no dates/descriptions) ---
 - {name: Plus One Robotics, ats: bamboohr, account: plusonerobotics}  # parcel CV; ~4 (San Antonio)
 
+# --- DirectEmployers branded RSS (newest-first snapshot with dates/descriptions) ---
+# These bypass the JS-gated first-party Avature portals while preserving direct apply links.
+- {name: Delta Air Lines, ats: dejobs, host: delta.dejobs.org, seed_only: true}       # ~125
+- {name: Siemens, ats: dejobs, host: usasiemens.dejobs.org, seed_only: true}         # 500-row US feed
+
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
 - {name: Amazon, ats: amazon, query: "engineer"}
@@ -453,6 +509,10 @@
 - {name: Google, ats: google}
 - {name: Google Taiwan, ats: google, location: Taiwan}
 
+# --- Apple (session CSRF handshake + bounded full scan). The API's `United States`
+#     query currently returns the US country slice (~658 vs ~6109 global rows). ---
+- {name: Apple, ats: apple, query: "United States", max_pages: 50, seed_only: true}
+
 # --- Tinder (first-party proxy; Match Group's shared Lever org would mislabel all brands
 #     as Tinder, so this Tinder-only source is used instead). Single-shot, no date field. ---
 - {name: Tinder, ats: tinder}
@@ -464,10 +524,7 @@
 - {name: SpeedyApply SWE, ats: speedyapply, repo: speedyapply/2027-SWE-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
 - {name: Simplify Internships, ats: simplify, repo: SimplifyJobs/Summer2026-Internships, seed_only: true}
 
-# --- Deferred (community scrapers confirm these need a real browser session):
-#     Microsoft (careers portal moved behind bearer tokens; old gcsservices search 404s),
-#     Meta (metacareers GraphQL token minted by page JS — even dedicated scrapers intercept
-#     it with headless Chrome), Tesla (cua-api behind Akamai; scrapers use stealth
-#     Playwright/nodriver). Apple also deferred (CSRF handshake). ---
+# --- Deferred: Meta's current page no longer carries the __NEXT_DATA__ used by a recent
+#     community scraper; Tesla's cua-api remains behind Akamai browser/TLS checks. ---
 
 # (The former "deferred: TikTok" note is resolved — see the ByteDance atsx family above.)

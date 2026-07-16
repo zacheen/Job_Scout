@@ -8,10 +8,12 @@ import logging
 import random
 import re
 import time
+import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import requests
 
@@ -170,6 +172,18 @@ class HttpClient:
         return resp.text
 
     @_throttled
+    def get_response(
+        self,
+        url: str,
+        params: dict | None = None,
+        headers: dict | None = None,
+    ) -> requests.Response:
+        """Return a checked response when a fetcher needs headers or session cookies."""
+        resp = self._session.get(url, params=params, headers=headers, timeout=self._timeout)
+        resp.raise_for_status()
+        return resp
+
+    @_throttled
     def post_json(self, url: str, payload: dict, headers: dict | None = None):
         # Per-call headers merge over the session's (User-Agent stays); some ATSes
         # (ByteDance) 400 unless specific gateway headers are present.
@@ -312,15 +326,30 @@ class GreenhouseFetcher(AtsFetcher):
 class LeverFetcher(AtsFetcher):
     ats_name = "lever"
 
+    _REGION_HOSTS = {
+        "us": "api.lever.co",
+        "eu": "api.eu.lever.co",
+    }
+
+    def __init__(self, company: Company, http: HttpClient):
+        super().__init__(company, http)
+        region = company.params.get("region", "us").lower()
+        if region not in self._REGION_HOSTS:
+            raise ValueError(
+                f"{company.name}: lever region must be one of "
+                f"{', '.join(sorted(self._REGION_HOSTS))}, got {region!r}"
+            )
+        self._region = region
+
     @property
     def host(self) -> str:
-        return "api.lever.co"
+        return self._REGION_HOSTS[self._region]
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         org = self._param("org")
         # Lever returns a bare JSON array (no wrapper object, unlike other ATSes).
         data = self._http.get_json(
-            f"https://api.lever.co/v0/postings/{org}", params={"mode": "json"}
+            f"https://{self.host}/v0/postings/{org}", params={"mode": "json"}
         )
         jobs = []
         for item in data:
@@ -658,12 +687,14 @@ class RadancyFetcher(PaginatedFetcher):
     """Radancy / TalentBrew portals (Disney, Arm) — method G. `GET {host}{path}` returns
     JSON whose `results` field is server-rendered HTML job cards; the two `*ModuleName`
     query params are MANDATORY (without them the endpoint 200s with an empty `results`).
-    SortCriteria=5 lists newest-first (job-date-posted spans confirm), so early-stop
-    applies. `path` defaults to /search-jobs/results (Disney needs /en/search-jobs/results)."""
+    SortCriteria=5 is newest-first on most tenants, so early-stop applies. Tenants whose
+    ordering is empirically unsafe can set `full_scan: true` for a bounded whole-board
+    pull instead. `path` defaults to /search-jobs/results (Disney needs the /en/ prefix)."""
 
     ats_name = "radancy"
     _PAGE = 15
     _SEED_MAX_PAGES = 10
+    _MAX_FULL_PAGES = 100
 
     _TOTAL_RE = re.compile(r'data-total-job-results="(\d+)"')
     # One <li> card: anchor href + data-job-id, then everything up to </li>. Card markup
@@ -683,6 +714,24 @@ class RadancyFetcher(PaginatedFetcher):
     @property
     def host(self) -> str:
         return self._param("host")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        if not self._company.param_bool("full_scan"):
+            return super().fetch(seen)
+        try:
+            max_pages = int(self._company.params.get("max_pages", self._MAX_FULL_PAGES))
+        except ValueError as exc:
+            raise ValueError(f"{self._company.name}: radancy max_pages must be an integer") from exc
+        if max_pages < 1:
+            raise ValueError(f"{self._company.name}: radancy max_pages must be >= 1")
+        jobs, exhausted = _paginate_bounded(self._fetch_page, self._PAGE, max_pages)
+        if not exhausted:
+            log.warning(
+                "%s: Radancy full scan hit the %d-page safety cap; results may be truncated",
+                self._company.name,
+                max_pages,
+            )
+        return jobs
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         host = self._param("host")
@@ -1023,6 +1072,110 @@ class GoogleFetcher(PaginatedFetcher):
             return datetime.fromtimestamp(rec[cls._I_POSTED][0], timezone.utc).date().isoformat()
         except (IndexError, TypeError, ValueError, OverflowError):
             return ""
+
+
+class AppleFetcher(AtsFetcher):
+    """Apple's first-party careers API. A session-scoped CSRF token must be fetched before
+    POSTing search pages. The configured query defaults to `United States`, which currently
+    reduces the global board from thousands of rows to a manageable US-only snapshot.
+    Search ordering is not documented, so every run performs a bounded full scan."""
+
+    ats_name = "apple"
+    _PAGE = 20
+    _MAX_PAGES = 50
+    _BASE = "https://jobs.apple.com"
+    _HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36"
+        ),
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": _BASE,
+        "Referer": f"{_BASE}/en-us/search",
+        "browserlocale": "en-us",
+        "locale": "EN_US",
+    }
+
+    @property
+    def host(self) -> str:
+        return "jobs.apple.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        csrf_response = self._http.get_response(
+            f"{self._BASE}/api/v1/CSRFToken",
+            headers=self._HEADERS,
+        )
+        csrf_token = csrf_response.headers.get("x-apple-csrf-token")
+        if not csrf_token:
+            raise RuntimeError(f"{self._company.name}: Apple CSRF response had no token")
+
+        try:
+            max_pages = int(self._company.params.get("max_pages", self._MAX_PAGES))
+        except ValueError as exc:
+            raise ValueError(f"{self._company.name}: apple max_pages must be an integer") from exc
+        if max_pages < 1:
+            raise ValueError(f"{self._company.name}: apple max_pages must be >= 1")
+
+        query = self._company.params.get("query", "United States")
+        headers = {**self._HEADERS, "x-apple-csrf-token": csrf_token}
+
+        def fetch_page(index: int) -> tuple[list[Job], int | None]:
+            data = self._http.post_json(
+                f"{self._BASE}/api/v1/search",
+                {
+                    "query": query,
+                    "filters": {},
+                    "page": index + 1,
+                    "locale": "en-us",
+                    "sort": "",
+                    "format": {
+                        "longDate": "MMMM D, YYYY",
+                        "mediumDate": "MMM D, YYYY",
+                    },
+                },
+                headers=headers,
+            )
+            payload = data.get("res") or {}
+            jobs = []
+            for item in payload.get("searchResults") or []:
+                job_id = item.get("positionId") or item.get("id")
+                if not job_id:
+                    continue
+                locations = []
+                for location in item.get("locations") or []:
+                    parts = [
+                        location.get("name", ""),
+                        location.get("stateProvince", ""),
+                        location.get("countryName", ""),
+                    ]
+                    display = ", ".join(part for part in parts if part)
+                    if display and display not in locations:
+                        locations.append(display)
+                slug = item.get("transformedPostingTitle") or "job"
+                team = item.get("team") or {}
+                jobs.append(
+                    Job(
+                        job_uid=self._uid(job_id),
+                        company=self._company.name,
+                        title=item.get("postingTitle", ""),
+                        location="; ".join(locations),
+                        url=f"{self._BASE}/en-us/details/{job_id}/{slug}",
+                        description=strip_html(item.get("jobSummary", "")),
+                        department=team.get("teamName") or team.get("teamCode") or "",
+                        date_posted=item.get("postDateInGMT") or item.get("postingDate", ""),
+                    )
+                )
+            return jobs, payload.get("totalRecords")
+
+        jobs, exhausted = _paginate_bounded(fetch_page, self._PAGE, max_pages)
+        if not exhausted:
+            log.warning(
+                "%s: Apple full scan hit the %d-page safety cap; results may be truncated",
+                self._company.name,
+                max_pages,
+            )
+        return jobs
 
 
 class TinderFetcher(AtsFetcher):
@@ -1569,6 +1722,57 @@ class BambooHRFetcher(AtsFetcher):
         return jobs
 
 
+class DejobsFetcher(AtsFetcher):
+    """DirectEmployers branded RSS feeds (`{host}/jobs/feed/rss/`). The feed is a
+    newest-first snapshot (up to 500 rows) with full descriptions and posting dates.
+    Branded hosts that do not exist redirect to the global DEJobs feed, so the channel
+    link is verified before any rows are accepted to prevent cross-company mislabeling."""
+
+    ats_name = "dejobs"
+    _TITLE_RE = re.compile(r"^\((?P<location>[^)]+)\)\s*(?P<title>.+)$", re.DOTALL)
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        body = self._http.get_text(f"https://{self.host}/jobs/feed/rss/")
+        root = ET.fromstring(body)
+        channel = root.find("channel")
+        channel_link = channel.findtext("link", "") if channel is not None else ""
+        actual_host = (urlparse(channel_link).hostname or "").lower()
+        if actual_host != self.host.lower():
+            raise RuntimeError(
+                f"{self._company.name}: DEJobs host redirected to {actual_host or 'an unknown feed'}"
+            )
+
+        jobs = []
+        for item in root.findall("./channel/item"):
+            raw_title = item.findtext("title", "")
+            title_match = self._TITLE_RE.match(raw_title)
+            if not title_match:
+                log.warning("%s: DEJobs row has no location prefix: %r", self._company.name, raw_title)
+                continue
+            url = item.findtext("link", "")
+            guid = item.findtext("guid", "") or url
+            job_id = urlparse(guid).path.rstrip("/").rsplit("/", 1)[-1]
+            if not job_id or not url:
+                continue
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id),
+                    company=self._company.name,
+                    title=title_match.group("title").strip(),
+                    location=title_match.group("location").strip(),
+                    url=url,
+                    description=strip_html(item.findtext("description", "")),
+                    department="",
+                    date_posted=item.findtext("pubDate", ""),
+                )
+            )
+        return jobs
+
+
 class GoldmanFetcher(PaginatedFetcher):
     """Goldman Sachs' anonymous careers GraphQL (api-higher.gs.com). `roleSearch` sorted
     POSTED_DATE DESC is honored server-side, so the seen-based early-stop applies even
@@ -1943,8 +2147,10 @@ class FetcherFactory:
         JaneStreetFetcher.ats_name: JaneStreetFetcher,
         TeamtailorFetcher.ats_name: TeamtailorFetcher,
         BambooHRFetcher.ats_name: BambooHRFetcher,
+        DejobsFetcher.ats_name: DejobsFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
         GoogleFetcher.ats_name: GoogleFetcher,
+        AppleFetcher.ats_name: AppleFetcher,
         TinderFetcher.ats_name: TinderFetcher,
         WorkableFetcher.ats_name: WorkableFetcher,
         JazzHRFetcher.ats_name: JazzHRFetcher,
