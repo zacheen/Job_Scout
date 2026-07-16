@@ -9,6 +9,7 @@
 #               switches to relevance order -> bounded full pull instead of early-stop)
 #   amazon:     query (optional keyword search)
 #   google:     query (optional), location (optional; default "United States")
+#   apple:      query (optional; default "United States"), max_pages (optional safety cap)
 #   oracle:     host, site (the CX_N siteNumber from the Oracle candidate-experience URL)
 #   smartrecruiters: company (the companyId from jobs.smartrecruiters.com/{company})
 #   jibe:       host             -> https://{host}/api/jobs (Jibe/iCIMS careers sites; newest-first)
@@ -46,8 +47,8 @@
 # Slugs need verifying against each company's live careers page. A wrong slug is
 # harmless: the fetcher logs a warning and that company is skipped for the run.
 #
-# Standard-ATS companies below, then the custom-site giants (Amazon, Google) that
-# have their own fetchers. Meta/Apple/Microsoft remain deferred (see bottom).
+# Standard-ATS companies below, then the custom-site giants with their own fetchers.
+# Meta and Tesla remain deferred (see bottom).
 
 # --- Greenhouse (board slug verified reachable for the first three) ---
 - {name: Coinbase,   ats: greenhouse, board: coinbase}
@@ -440,6 +441,8 @@
 - {name: HP, ats: eightfold, host: hp.eightfold.ai, domain: hp.com, seed_only: true}                   # PCSX; HP Inc; ~724 (Spring TX)
 - {name: Netflix, ats: eightfold, host: explore.jobs.netflix.net, domain: netflix.com, api: legacy, seed_only: true}  # ~482; replaced the dead Lever entry
 - {name: NetApp, ats: eightfold, host: netapp.eightfold.ai, domain: netapp.com, api: legacy, seed_only: true}  # ~266 (109 US); third legacy-only tenant
+# Microsoft migrated to this anonymous PCSX endpoint; the older gcsservices API is dead.
+- {name: Microsoft, ats: eightfold, host: apply.careers.microsoft.com, domain: microsoft.com, seed_only: true}
 
 # --- Radancy / TalentBrew (method G; JSON with server-rendered HTML cards; newest-first) ---
 - {name: Disney, ats: radancy, host: www.disneycareers.com, path: /en/search-jobs/results, seed_only: true}  # ~777
@@ -506,6 +509,10 @@
 - {name: Google, ats: google}
 - {name: Google Taiwan, ats: google, location: Taiwan}
 
+# --- Apple (session CSRF handshake + bounded full scan). The API's `United States`
+#     query currently returns the US country slice (~658 vs ~6109 global rows). ---
+- {name: Apple, ats: apple, query: "United States", max_pages: 50, seed_only: true}
+
 # --- Tinder (first-party proxy; Match Group's shared Lever org would mislabel all brands
 #     as Tinder, so this Tinder-only source is used instead). Single-shot, no date field. ---
 - {name: Tinder, ats: tinder}
@@ -517,10 +524,7 @@
 - {name: SpeedyApply SWE, ats: speedyapply, repo: speedyapply/2027-SWE-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
 - {name: Simplify Internships, ats: simplify, repo: SimplifyJobs/Summer2026-Internships, seed_only: true}
 
-# --- Deferred (community scrapers confirm these need a real browser session):
-#     Microsoft (careers portal moved behind bearer tokens; old gcsservices search 404s),
-#     Meta (metacareers GraphQL token minted by page JS — even dedicated scrapers intercept
-#     it with headless Chrome), Tesla (cua-api behind Akamai; scrapers use stealth
-#     Playwright/nodriver). Apple also deferred (CSRF handshake). ---
+# --- Deferred: Meta's current page no longer carries the __NEXT_DATA__ used by a recent
+#     community scraper; Tesla's cua-api remains behind Akamai browser/TLS checks. ---
 
 # (The former "deferred: TikTok" note is resolved — see the ByteDance atsx family above.)

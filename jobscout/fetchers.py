@@ -172,6 +172,18 @@ class HttpClient:
         return resp.text
 
     @_throttled
+    def get_response(
+        self,
+        url: str,
+        params: dict | None = None,
+        headers: dict | None = None,
+    ) -> requests.Response:
+        """Return a checked response when a fetcher needs headers or session cookies."""
+        resp = self._session.get(url, params=params, headers=headers, timeout=self._timeout)
+        resp.raise_for_status()
+        return resp
+
+    @_throttled
     def post_json(self, url: str, payload: dict, headers: dict | None = None):
         # Per-call headers merge over the session's (User-Agent stays); some ATSes
         # (ByteDance) 400 unless specific gateway headers are present.
@@ -1060,6 +1072,110 @@ class GoogleFetcher(PaginatedFetcher):
             return datetime.fromtimestamp(rec[cls._I_POSTED][0], timezone.utc).date().isoformat()
         except (IndexError, TypeError, ValueError, OverflowError):
             return ""
+
+
+class AppleFetcher(AtsFetcher):
+    """Apple's first-party careers API. A session-scoped CSRF token must be fetched before
+    POSTing search pages. The configured query defaults to `United States`, which currently
+    reduces the global board from thousands of rows to a manageable US-only snapshot.
+    Search ordering is not documented, so every run performs a bounded full scan."""
+
+    ats_name = "apple"
+    _PAGE = 20
+    _MAX_PAGES = 50
+    _BASE = "https://jobs.apple.com"
+    _HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36"
+        ),
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": _BASE,
+        "Referer": f"{_BASE}/en-us/search",
+        "browserlocale": "en-us",
+        "locale": "EN_US",
+    }
+
+    @property
+    def host(self) -> str:
+        return "jobs.apple.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        csrf_response = self._http.get_response(
+            f"{self._BASE}/api/v1/CSRFToken",
+            headers=self._HEADERS,
+        )
+        csrf_token = csrf_response.headers.get("x-apple-csrf-token")
+        if not csrf_token:
+            raise RuntimeError(f"{self._company.name}: Apple CSRF response had no token")
+
+        try:
+            max_pages = int(self._company.params.get("max_pages", self._MAX_PAGES))
+        except ValueError as exc:
+            raise ValueError(f"{self._company.name}: apple max_pages must be an integer") from exc
+        if max_pages < 1:
+            raise ValueError(f"{self._company.name}: apple max_pages must be >= 1")
+
+        query = self._company.params.get("query", "United States")
+        headers = {**self._HEADERS, "x-apple-csrf-token": csrf_token}
+
+        def fetch_page(index: int) -> tuple[list[Job], int | None]:
+            data = self._http.post_json(
+                f"{self._BASE}/api/v1/search",
+                {
+                    "query": query,
+                    "filters": {},
+                    "page": index + 1,
+                    "locale": "en-us",
+                    "sort": "",
+                    "format": {
+                        "longDate": "MMMM D, YYYY",
+                        "mediumDate": "MMM D, YYYY",
+                    },
+                },
+                headers=headers,
+            )
+            payload = data.get("res") or {}
+            jobs = []
+            for item in payload.get("searchResults") or []:
+                job_id = item.get("positionId") or item.get("id")
+                if not job_id:
+                    continue
+                locations = []
+                for location in item.get("locations") or []:
+                    parts = [
+                        location.get("name", ""),
+                        location.get("stateProvince", ""),
+                        location.get("countryName", ""),
+                    ]
+                    display = ", ".join(part for part in parts if part)
+                    if display and display not in locations:
+                        locations.append(display)
+                slug = item.get("transformedPostingTitle") or "job"
+                team = item.get("team") or {}
+                jobs.append(
+                    Job(
+                        job_uid=self._uid(job_id),
+                        company=self._company.name,
+                        title=item.get("postingTitle", ""),
+                        location="; ".join(locations),
+                        url=f"{self._BASE}/en-us/details/{job_id}/{slug}",
+                        description=strip_html(item.get("jobSummary", "")),
+                        department=team.get("teamName") or team.get("teamCode") or "",
+                        date_posted=item.get("postDateInGMT") or item.get("postingDate", ""),
+                    )
+                )
+            return jobs, payload.get("totalRecords")
+
+        jobs, exhausted = _paginate_bounded(fetch_page, self._PAGE, max_pages)
+        if not exhausted:
+            log.warning(
+                "%s: Apple full scan hit the %d-page safety cap; results may be truncated",
+                self._company.name,
+                max_pages,
+            )
+        return jobs
 
 
 class TinderFetcher(AtsFetcher):
@@ -2034,6 +2150,7 @@ class FetcherFactory:
         DejobsFetcher.ats_name: DejobsFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
         GoogleFetcher.ats_name: GoogleFetcher,
+        AppleFetcher.ats_name: AppleFetcher,
         TinderFetcher.ats_name: TinderFetcher,
         WorkableFetcher.ats_name: WorkableFetcher,
         JazzHRFetcher.ats_name: JazzHRFetcher,
