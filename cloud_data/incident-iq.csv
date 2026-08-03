@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Incident IQ:8b2a46d9-a5b0-4325-976b-4c70e9da4077,Incident IQ,Software Engineer Intern,"Alpharetta, GA",Software,https://job-boards.greenhouse.io/incidentiq/jobs/7824038003,2026-08-03,2026-08-03T23:41:43+00:00,2026-08-03 16:41 Mon,Software Engineering,true,Keyword,40,keyword-only heuristic,false,simplify:Simplify Internships:8b2a46d9-a5b0-4325-976b-4c70e9da4077
