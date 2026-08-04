@@ -4,12 +4,13 @@ Dedup/merge logic lives in CsvStore (absorb + merge_rows) via union_merge; this
 script only wires the directories together.
 
 Direction is selectable: --to local (default) folds cloud_data/ into the local
-shard dir (config ledger_dir) — the manual "pull what the cloud saw" direction.
---to cloud reverses it (rarely needed: local_run.py already mirrors
-local -> cloud on every run). Rewrites only the destination; the source dir is
-kept by default, --delete-source removes it. WARNING: the deleted source may be
-the ledger the next cloud/local run reads, which would make that run treat the
-whole ledger as unseeded.
+shard dir (config ledger_dir) — the manual "pull what the cloud saw" direction,
+and the ONLY way cloud rows ever enter local_data/ (local_run.py deliberately
+never merges that way). --to cloud reverses it (rarely needed: local_run.py
+already folds local -> cloud on every run). Rewrites only the destination; the
+source dir is kept by default, --delete-source removes it. WARNING: the deleted
+source may be the ledger the next cloud/local run reads, which would make that
+run treat the whole ledger as unseeded.
 
 The result is STAGED but never committed: a commit message ("update from cloud
 to local" / the reverse) is prepared as a commit.template, which GitKraken
