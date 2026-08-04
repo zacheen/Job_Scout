@@ -232,8 +232,18 @@ class LevelClassifier:
         self._ordered_groups = tuple(groups)
 
     @property
-    def senior_group(self) -> str:
+    def referral_group(self) -> str:
         """Exposed so wiring (e.g. __main__) can key per-group scorer overrides on this name."""
+        return self._referral_group
+
+    @property
+    def intern_group(self) -> str:
+        """Same purpose as `referral_group` — see its docstring."""
+        return self._intern_group
+
+    @property
+    def senior_group(self) -> str:
+        """Same purpose as `referral_group` — see its docstring."""
         return self._senior_group
 
     def group(self, job: Job) -> str:

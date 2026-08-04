@@ -127,7 +127,6 @@ exclude_terms:
   - "microelectronics"
   - "micro-electronics" # hyphen spelling of the above
   - "wire bond" # semiconductor packaging; also matches "wire bonding" / "wire bonder"
-  - "safety"
   - "network"
   - "cybersecurity"
   - "cyber security" # separate entry: substring won't unify it with the one-word spelling
@@ -250,6 +249,9 @@ warn_description_terms:
 # matches literally) and a trailing plural "s" is absorbed ("api" hits "APIs"), but it
 # does NOT stem — list "go" and "golang" (or "scikit-learn" and "sklearn") separately if
 # a JD may use either. Purely additive: editing this never affects routing or filtering.
+# Title-only listings (many list APIs return no description) weigh each distinct hit
+# higher (2 distinct clear a 50 threshold instead of 4); referral/intern title-only
+# roles skip the keyword gate entirely and are always emailed (see __main__ wiring).
 skill_keywords:
   # Programming languages
   - "python"
