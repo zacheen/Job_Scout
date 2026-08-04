@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -44,6 +44,11 @@ def _unix_to_date(ts: int | float | None) -> str:
         return datetime.fromtimestamp(ts, timezone.utc).date().isoformat()
     except (TypeError, ValueError, OSError, OverflowError):
         return ""
+
+
+def _url_slug(url: str) -> str:
+    """Trailing path segment of `url` with trailing slashes stripped, or "" if pathless."""
+    return urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
 
 
 def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
@@ -129,6 +134,23 @@ def _paginate_bounded(
         if not page_jobs or (total and (index + 1) * page_size >= total):
             return jobs, True
     return jobs, False
+
+
+def _paginate_bounded_or_warn(
+    fetch_page: Callable[[int], tuple[list[Job], int | None]],
+    page_size: int,
+    max_pages: int,
+    *,
+    subject: str,
+    cap_name: str,
+) -> list[Job]:
+    """`_paginate_bounded` plus the mandatory cap warning, so no caller can forget it
+    and silently truncate results."""
+    jobs, exhausted = _paginate_bounded(fetch_page, page_size, max_pages)
+    if not exhausted:
+        log.warning("%s: hit %s (%d) before results were exhausted; output may be truncated",
+                    subject, cap_name, max_pages)
+    return jobs
 
 
 def _throttled(method):
@@ -240,37 +262,62 @@ class AtsFetcher(ABC):
         return any(uid.startswith(prefix) for uid in seen)
 
 
-class PaginatedFetcher(AtsFetcher):
+class PagedFetcher(AtsFetcher):
+    """Shared contract for sources that expose zero-based pages of jobs."""
+
+    _PAGE: int
+
+    def __init__(self, company: Company, http: HttpClient):
+        super().__init__(company, http)
+        # Bare annotations do not enforce runtime configuration. Validate here so a
+        # missing page size fails at construction instead of being swallowed later.
+        self._require_positive_class_int("_PAGE")
+
+    def _require_positive_class_int(self, name: str) -> int:
+        """Read a required positive integer class setting, failing at construction time."""
+        value = getattr(self, name, None)
+        if not isinstance(value, int) or value < 1:
+            raise TypeError(f"{type(self).__name__} must define a positive {name}")
+        return value
+
+    @abstractmethod
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        """Return (jobs, total) for zero-based page `index`; total may be unknown."""
+        ...
+
+
+class EarlyStopPaginatedFetcher(PagedFetcher):
     """Base for newest-first, paginated sources. Subclasses set `_PAGE`/`_SEED_MAX_PAGES`
     and implement `_fetch_page`; `fetch` wires them through `_paginate_new` identically, so
     every paginated source gets the same seed-cap + early-stop behaviour and a new one can't
     forget it. Correctness depends on the source returning newest-first (early-stop assumes
     once you hit already-seen roles, the rest are older) — each subclass documents why it is."""
 
-    _PAGE: int
     _SEED_MAX_PAGES: int
 
     def __init__(self, company: Company, http: HttpClient):
         super().__init__(company, http)
-        # Bare annotations have no runtime force (unlike the @abstractmethods): a subclass
-        # missing them would only AttributeError inside fetch(), which ParallelFetcher
-        # swallows into a warning ("company yields 0 jobs forever"). Fail loud at
-        # construction instead, mirroring the ats_name guard in AtsFetcher.
-        page, seed_max = getattr(self, "_PAGE", None), getattr(self, "_SEED_MAX_PAGES", None)
-        if not isinstance(page, int) or page < 1:
-            raise TypeError(f"{type(self).__name__} must define a positive _PAGE")
-        if not isinstance(seed_max, int) or seed_max < 1:
-            raise TypeError(f"{type(self).__name__} must define a positive _SEED_MAX_PAGES")
-
-    @abstractmethod
-    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
-        """Return (jobs, total) for the 0-based page `index`; total is the full result
-        count when the API reports it, else None (then only empty-page/already-seen stop)."""
-        ...
+        self._require_positive_class_int("_SEED_MAX_PAGES")
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         return _paginate_new(self._fetch_page, seen, self._PAGE, self._SEED_MAX_PAGES,
                              is_seed_run=not self._company_known(seen))
+
+
+class BoundedPaginatedFetcher(PagedFetcher):
+    """Base for unordered paginated sources that require a bounded full-board pull."""
+
+    _MAX_PAGES: int
+
+    def __init__(self, company: Company, http: HttpClient):
+        super().__init__(company, http)
+        self._require_positive_class_int("_MAX_PAGES")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        return _paginate_bounded_or_warn(
+            self._fetch_page, self._PAGE, self._MAX_PAGES,
+            subject=f"{self.ats_name} {self.host}", cap_name="_MAX_PAGES",
+        )
 
 
 class GreenhouseFetcher(AtsFetcher):
@@ -403,7 +450,7 @@ class AshbyFetcher(AtsFetcher):
         return jobs
 
 
-class WorkdayFetcher(PaginatedFetcher):
+class WorkdayFetcher(EarlyStopPaginatedFetcher):
     """Workday CXS `jobs` endpoint; default order is newest-first, so early-stop applies.
 
     Optional `searchText` param scopes a shared tenant to one brand (Matterport inside
@@ -426,12 +473,10 @@ class WorkdayFetcher(PaginatedFetcher):
 
     def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
         if self._search_text:
-            jobs, exhausted = _paginate_bounded(self._fetch_page, self._PAGE,
-                                                self._MAX_SEARCH_PAGES)
-            if not exhausted:
-                log.warning("workday %s: hit _MAX_SEARCH_PAGES (%d) before the search was "
-                            "exhausted — raise the cap", self.host, self._MAX_SEARCH_PAGES)
-            return jobs
+            return _paginate_bounded_or_warn(
+                self._fetch_page, self._PAGE, self._MAX_SEARCH_PAGES,
+                subject=f"workday {self.host} search", cap_name="_MAX_SEARCH_PAGES",
+            )
         return super().fetch(seen)
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
@@ -465,7 +510,7 @@ class WorkdayFetcher(PaginatedFetcher):
         return jobs, data.get("total") or None
 
 
-class OracleFetcher(PaginatedFetcher):
+class OracleFetcher(EarlyStopPaginatedFetcher):
     """Oracle Recruiting Candidate-Experience API (Fusion HCM). The public
     `recruitingCEJobRequisitions?finder=findReqs;siteNumber={site},...` endpoint returns the
     jobs under items[0].requisitionList, newest-first (POSTING_DATES_DESC) — so the seen-based
@@ -511,7 +556,7 @@ class OracleFetcher(PaginatedFetcher):
         return jobs, result.get("TotalJobsCount")
 
 
-class SmartRecruitersFetcher(PaginatedFetcher):
+class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
     """SmartRecruiters public postings API. `companies/{id}/postings` returns content[]
     ordered by releasedDate descending (verified across pages), so the seen-based
     early-stop applies. The listing carries no job-ad body, so roles match on title
@@ -560,7 +605,7 @@ class SmartRecruitersFetcher(PaginatedFetcher):
         return value.get("label", "") if isinstance(value, dict) else ""
 
 
-class JibeFetcher(PaginatedFetcher):
+class JibeFetcher(EarlyStopPaginatedFetcher):
     """Jibe / iCIMS Talent Cloud careers sites. `GET https://{host}/api/jobs` with
     sortBy=posted_date&descending=true returns jobs[].data newest-first (verified for AMD
     and Rivian), so the seen-based early-stop applies. Pages are 1-based, 10 rows,
@@ -604,7 +649,7 @@ class JibeFetcher(PaginatedFetcher):
         return jobs, data.get("totalCount")
 
 
-class EightfoldFetcher(PaginatedFetcher):
+class EightfoldFetcher(EarlyStopPaginatedFetcher):
     """Eightfold careers sites. Two anonymous API flavors, gated INDEPENDENTLY per tenant,
     both newest-first with sort_by=timestamp (early-stop applies):
     - default PCSX: `GET {host}/api/pcsx/search` -> data.positions[] (Qualcomm, HP —
@@ -683,7 +728,7 @@ class EightfoldFetcher(PaginatedFetcher):
         return jobs, data.get("count")
 
 
-class RadancyFetcher(PaginatedFetcher):
+class RadancyFetcher(EarlyStopPaginatedFetcher):
     """Radancy / TalentBrew portals (Disney, Arm) — method G. `GET {host}{path}` returns
     JSON whose `results` field is server-rendered HTML job cards; the two `*ModuleName`
     query params are MANDATORY (without them the endpoint 200s with an empty `results`).
@@ -724,14 +769,10 @@ class RadancyFetcher(PaginatedFetcher):
             raise ValueError(f"{self._company.name}: radancy max_pages must be an integer") from exc
         if max_pages < 1:
             raise ValueError(f"{self._company.name}: radancy max_pages must be >= 1")
-        jobs, exhausted = _paginate_bounded(self._fetch_page, self._PAGE, max_pages)
-        if not exhausted:
-            log.warning(
-                "%s: Radancy full scan hit the %d-page safety cap; results may be truncated",
-                self._company.name,
-                max_pages,
-            )
-        return jobs
+        return _paginate_bounded_or_warn(
+            self._fetch_page, self._PAGE, max_pages,
+            subject=f"{self._company.name} radancy full scan", cap_name="max_pages",
+        )
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         host = self._param("host")
@@ -765,7 +806,7 @@ class RadancyFetcher(PaginatedFetcher):
         return jobs, int(total.group(1)) if total else None
 
 
-class SuccessFactorsFetcher(PaginatedFetcher):
+class SuccessFactorsFetcher(EarlyStopPaginatedFetcher):
     """SAP SuccessFactors Career Site Builder portals (jobs.sap.com, Hyundai's
     careers-americas). No anonymous JSON, but the /search/ page is server-rendered
     <tr class="data-row"> rows, and `sortColumn=referencedate&sortDirection=desc`
@@ -946,7 +987,7 @@ class AvatureFetcher(AtsFetcher):
         )
 
 
-class AmazonFetcher(PaginatedFetcher):
+class AmazonFetcher(EarlyStopPaginatedFetcher):
     """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
     `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
     so the seen-based early-stop applies. `hits` is unreliable, so total is unknown and the
@@ -984,7 +1025,7 @@ class AmazonFetcher(PaginatedFetcher):
         return jobs, None
 
 
-class GoogleFetcher(PaginatedFetcher):
+class GoogleFetcher(EarlyStopPaginatedFetcher):
     """Google has no public careers API; job data is server-side-embedded as JSON inside
     an `AF_initDataCallback({key:'ds:1', data:[...]})` script block — parsed directly, no
     browser or API key needed. `sort_by=date` lists newest first, so the seen-based
@@ -1168,14 +1209,10 @@ class AppleFetcher(AtsFetcher):
                 )
             return jobs, payload.get("totalRecords")
 
-        jobs, exhausted = _paginate_bounded(fetch_page, self._PAGE, max_pages)
-        if not exhausted:
-            log.warning(
-                "%s: Apple full scan hit the %d-page safety cap; results may be truncated",
-                self._company.name,
-                max_pages,
-            )
-        return jobs
+        return _paginate_bounded_or_warn(
+            fetch_page, self._PAGE, max_pages,
+            subject=f"{self._company.name} apple full scan", cap_name="max_pages",
+        )
 
 
 class TinderFetcher(AtsFetcher):
@@ -1403,13 +1440,13 @@ class GemFetcher(AtsFetcher):
         return "; ".join(p for p in parts if p)
 
 
-class ByteDanceFetcher(AtsFetcher):
+class ByteDanceFetcher(BoundedPaginatedFetcher):
     """The ByteDance "atsx" portal family: defaults target the corporate portal
     (jobs.bytedance.com); TikTok's lifeattiktok.com runs the SAME gateway, selected via
     the `host`/`website_path`/`jd_base` params. Anonymous POST, but the gateway 400s
     ("invalid request", plain text) unless BOTH the `website-path` and
     `accept-language: en-US` headers are sent; the CSRF token endpoint exists but reads
-    don't need it. No date field and unknown ordering -> single-shot full-board fetch,
+    don't need it. No date field and unknown ordering -> bounded full-board fetch,
     bounded by _MAX_PAGES."""
 
     ats_name = "bytedance"
@@ -1425,14 +1462,6 @@ class ByteDanceFetcher(AtsFetcher):
     @property
     def host(self) -> str:
         return self._company.params.get("host", "jobs.bytedance.com")
-
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
-        jobs, exhausted = _paginate_bounded(self._fetch_page, self._PAGE, self._MAX_PAGES)
-        if not exhausted:
-            log.warning("bytedance %s: hit _MAX_PAGES (%d) without an empty batch — "
-                        "board may exceed the cap; re-check pagination",
-                        self.host, self._MAX_PAGES)
-        return jobs
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         data = self._http.post_json(
@@ -1478,7 +1507,7 @@ class ByteDanceFetcher(AtsFetcher):
         return ", ".join(names)
 
 
-class IbmFetcher(AtsFetcher):
+class IbmFetcher(BoundedPaginatedFetcher):
     """IBM's first-party Elasticsearch proxy (www-api.ibm.com/search/api/v2). Anonymous
     POST; `_source` must be an explicit field whitelist ("*"/true are rejected) and the
     index has no sortable date field -> country-filtered single-shot (the US slice is
@@ -1495,13 +1524,6 @@ class IbmFetcher(AtsFetcher):
     @property
     def host(self) -> str:
         return "www-api.ibm.com"
-
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
-        jobs, exhausted = _paginate_bounded(self._fetch_page, self._PAGE, self._MAX_PAGES)
-        if not exhausted:
-            log.warning("ibm %s: hit _MAX_PAGES (%d) before the results were exhausted — "
-                        "re-check pagination", self.host, self._MAX_PAGES)
-        return jobs
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         country = self._company.params.get("country", "United States")
@@ -1722,6 +1744,109 @@ class BambooHRFetcher(AtsFetcher):
         return jobs
 
 
+class UKGReadyFetcher(AtsFetcher):
+    """UKG Ready/SaaShr public recruitment API. One anonymous request returns the
+    whole board as ``job_requisitions``. The list has descriptions and categories but
+    no posting dates; ``company_id`` is the numeric id in the hosted careers URL."""
+
+    ats_name = "ukg_ready"
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        company_id = self._param("company_id")
+        data = self._http.get_json(
+            f"https://{self.host}/ta/rest/ui/recruitment/companies/%7C{company_id}/"
+            "job-requisitions"
+        )
+        jobs = []
+        for item in data.get("job_requisitions") or []:
+            job_id = item.get("id")
+            if not job_id:
+                continue
+            location = item.get("location") or {}
+            parts = [location.get("city"), location.get("state"), location.get("country")]
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id),
+                    company=self._company.name,
+                    title=item.get("job_title", ""),
+                    location=", ".join(part for part in parts if part),
+                    url=f"https://{self.host}/ta/{company_id}.careers?ShowJob={job_id}",
+                    description=strip_html(item.get("job_description", "")),
+                    department="; ".join(item.get("job_categories") or []),
+                    date_posted="",
+                )
+            )
+        return jobs
+
+
+class ScopedHtmlFetcher(AtsFetcher):
+    """Generic server-rendered careers page parser. Only anchors between the configured
+    literal ``scope_start`` and ``scope_end`` markers are considered, which avoids stale
+    metadata and navigation links elsewhere on the page. ``link_pattern`` may further
+    restrict accepted absolute URLs. Jobs have no separate id — the job URL is the durable
+    identity (optionally reduced via ``id_pattern``)."""
+
+    ats_name = "scoped_html"
+    _LINK_RE = re.compile(
+        r'<a\b[^>]*href=["\'](?P<href>[^"\']+)["\'][^>]*>(?P<body>.*?)</a>',
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    @property
+    def host(self) -> str:
+        return urlparse(self._param("url")).hostname or ""
+
+    def _job_id(self, url: str) -> str:
+        pattern = self._company.params.get("id_pattern", "")
+        if pattern:
+            match = re.search(pattern, url, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return url
+
+    def _link_job(self, url: str, title: str, date_posted: str = "") -> Job:
+        return Job(
+            job_uid=self._uid(self._job_id(url)),
+            company=self._company.name,
+            title=title,
+            location="",
+            url=url,
+            description="",
+            department="",
+            date_posted=date_posted,
+        )
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        page_url = self._param("url")
+        body = self._http.get_text(page_url)
+        start_marker = self._param("scope_start")
+        end_marker = self._param("scope_end")
+        start = body.find(start_marker)
+        end = body.find(end_marker, start + len(start_marker)) if start >= 0 else -1
+        if start < 0 or end < 0:
+            raise RuntimeError(f"{self._company.name}: configured HTML scope was not found")
+
+        link_pattern = self._company.params.get("link_pattern", "")
+        jobs = []
+        accepted_urls = set()
+        for match in self._LINK_RE.finditer(body[start:end]):
+            url = urljoin(page_url, html.unescape(match.group("href")))
+            if link_pattern and not re.search(link_pattern, url, re.IGNORECASE):
+                continue
+            if url in accepted_urls:
+                continue
+            title = strip_html(match.group("body"))
+            if not title:
+                continue
+            accepted_urls.add(url)
+            jobs.append(self._link_job(url, title=title))
+        return jobs
+
+
 class DejobsFetcher(AtsFetcher):
     """DirectEmployers branded RSS feeds (`{host}/jobs/feed/rss/`). The feed is a
     newest-first snapshot (up to 500 rows) with full descriptions and posting dates.
@@ -1773,7 +1898,7 @@ class DejobsFetcher(AtsFetcher):
         return jobs
 
 
-class GoldmanFetcher(PaginatedFetcher):
+class GoldmanFetcher(EarlyStopPaginatedFetcher):
     """Goldman Sachs' anonymous careers GraphQL (api-higher.gs.com). `roleSearch` sorted
     POSTED_DATE DESC is honored server-side, so the seen-based early-stop applies even
     though items expose no date field (like IBM's index — but IBM can't sort, so it does a
@@ -2127,6 +2252,198 @@ class SpeedyApplyFetcher(GithubRepoFetcher):
         return "", -1
 
 
+class BioRadFetcher(BoundedPaginatedFetcher):
+    """Bio-Rad's server-rendered career search table.
+
+    The board has no usable date ordering, so every run pulls a bounded full-board
+    snapshot. The site occasionally returns an empty HTTP 202 while regenerating a
+    page; after a brief paced retry, fall back to its official sitemap. Both paths use
+    the canonical URL slug as uid so switching sources cannot duplicate a posting.
+    """
+
+    class _PageUnavailable(RuntimeError):
+        """Private signal from _fetch_page that a trustworthy page could not be
+        obtained; the sole trigger for the sitemap fallback. Scoped to this class so
+        RuntimeErrors raised elsewhere (shared pagination/HTTP infrastructure) are
+        never swallowed into the fallback."""
+
+    ats_name = "biorad"
+    _PAGE = 30
+    _MAX_PAGES = 20
+    _MAX_ATTEMPTS = 2
+    _RETRY_DELAY = 5.0
+    _ROW_RE = re.compile(
+        r'<tr\s[^>]*data-job-url="([^"]+)"[^>]*>(.*?)</tr>', re.I | re.S
+    )
+    _CELL_RE = re.compile(
+        r'<td\s[^>]*class="job-search-results-([^"]+)"[^>]*>(.*?)</td>', re.I | re.S
+    )
+    _TOTAL_RE = re.compile(r"of\s*<b>([\d,]+)</b>\s*in total", re.I | re.S)
+
+    @property
+    def host(self) -> str:
+        return "careers.bio-rad.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        try:
+            return super().fetch(seen)
+        except self._PageUnavailable as exc:
+            log.warning("Bio-Rad search table unavailable (%s); using official sitemap", exc)
+            return self._fetch_sitemap()
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        page = index + 1
+        body = ""
+        status = 0
+        for attempt in range(self._MAX_ATTEMPTS):
+            response = self._http.get_response(
+                f"https://{self.host}/jobs/search", params={"page": page}
+            )
+            status = response.status_code
+            body = response.text
+            if status != 202 and body.strip():
+                break
+            if attempt + 1 < self._MAX_ATTEMPTS:
+                time.sleep(self._RETRY_DELAY)
+        else:
+            raise self._PageUnavailable(
+                f"Bio-Rad page {page} stayed empty after {self._MAX_ATTEMPTS} attempts "
+                f"(last HTTP status {status})"
+            )
+
+        total_match = self._TOTAL_RE.search(body)
+        total = int(total_match.group(1).replace(",", "")) if total_match else None
+        jobs = []
+        for url, row in self._ROW_RE.findall(body):
+            cells = {
+                key: strip_html(value)
+                for key, value in self._CELL_RE.findall(row)
+            }
+            title = cells.get("title", "")
+            job_id = _url_slug(url)
+            if not (job_id and title):
+                continue
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id),
+                    company=self._company.name,
+                    title=title,
+                    location=cells.get("location", ""),
+                    url=url,
+                    description="",  # list pages carry no job-ad body
+                    department=cells.get("department", ""),
+                    date_posted="",  # list pages carry no posting date
+                )
+            )
+        if total and (page - 1) * self._PAGE < total and not jobs:
+            raise self._PageUnavailable(
+                f"Bio-Rad page {page} reported {total} jobs but parsed no rows"
+            )
+        return jobs, total
+
+    def _fetch_sitemap(self) -> list[Job]:
+        body = self._http.get_text(f"https://{self.host}/sitemap.xml")
+        root = ET.fromstring(body)
+        jobs = []
+        for entry in root:
+            url = next(
+                (node.text or "" for node in entry if node.tag.endswith("loc")), ""
+            ).strip()
+            path = urlparse(url).path
+            if not path.startswith("/jobs/") or path.startswith("/jobs/search"):
+                continue
+            job_id = _url_slug(url)
+            if not job_id:
+                continue
+            lastmod = next(
+                (node.text or "" for node in entry if node.tag.endswith("lastmod")), ""
+            ).strip()
+            location = "Outside target regions"
+            if "-united-states" in job_id:
+                location = "United States"
+            elif "-taiwan" in job_id or job_id.endswith("taiwan"):
+                location = "Taiwan"
+            title = re.sub(
+                r"-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$", "", job_id
+            ).replace("-", " ")
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id),
+                    company=self._company.name,
+                    title=title[:1].upper() + title[1:],
+                    location=location,
+                    url=url,
+                    description="",  # sitemap fallback carries URLs and last-modified only
+                    department="",
+                    date_posted=lastmod,
+                )
+            )
+        if not jobs:
+            raise RuntimeError("Bio-Rad sitemap contained no job URLs")
+        return jobs
+
+
+class MathWorksFetcher(AtsFetcher):
+    """MathWorks' official full-board RSS feed.
+
+    The HTML search and detail pages are Akamai-gated for non-browser clients, while
+    the documented RSS endpoint remains anonymous and includes full descriptions.
+    """
+
+    ats_name = "mathworks"
+    _COUNTRY_NAMES = {"US": "United States", "TW": "Taiwan"}
+    _DESCRIPTION_FIELDS = (
+        "summary",
+        "responsibilities",
+        "qualifications",
+        "required_qualifications",
+        "meta_description",
+    )
+
+    @property
+    def host(self) -> str:
+        return "www.mathworks.com"
+
+    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+        body = self._http.get_text(
+            f"https://{self.host}/company/jobs/opportunities/rss.xml"
+        )
+        root = ET.fromstring(body)
+        jobs = []
+        for item in root.findall("./channel/item"):
+            job_id = item.findtext("id", "").strip()
+            url = item.findtext("link", "").strip()
+            if not (job_id and url):
+                continue
+            location = item.find("location")
+            location_parts = []
+            if location is not None:
+                country = location.findtext("country", "").strip()
+                location_parts = [
+                    location.findtext("locationName", "").strip(),
+                    location.findtext("city", "").strip(),
+                    self._COUNTRY_NAMES.get(country, country),
+                ]
+            description = " ".join(
+                strip_html(item.findtext(field, ""))
+                for field in self._DESCRIPTION_FIELDS
+                if item.findtext(field, "")
+            )
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id),
+                    company=self._company.name,
+                    title=item.findtext("title_raw", "") or item.findtext("title", ""),
+                    location="; ".join(part for part in location_parts if part),
+                    url=url,
+                    description=description,
+                    department=item.findtext("job_function", ""),
+                    date_posted="",  # the official feed has no posting date field
+                )
+            )
+        return jobs
+
+
 class FetcherFactory:
     _REGISTRY: dict[str, type[AtsFetcher]] = {
         GreenhouseFetcher.ats_name: GreenhouseFetcher,
@@ -2147,6 +2464,8 @@ class FetcherFactory:
         JaneStreetFetcher.ats_name: JaneStreetFetcher,
         TeamtailorFetcher.ats_name: TeamtailorFetcher,
         BambooHRFetcher.ats_name: BambooHRFetcher,
+        UKGReadyFetcher.ats_name: UKGReadyFetcher,
+        ScopedHtmlFetcher.ats_name: ScopedHtmlFetcher,
         DejobsFetcher.ats_name: DejobsFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
         GoogleFetcher.ats_name: GoogleFetcher,
@@ -2161,6 +2480,8 @@ class FetcherFactory:
         WhatnotFetcher.ats_name: WhatnotFetcher,
         DeShawFetcher.ats_name: DeShawFetcher,
         VisaFetcher.ats_name: VisaFetcher,
+        BioRadFetcher.ats_name: BioRadFetcher,
+        MathWorksFetcher.ats_name: MathWorksFetcher,
         SimplifyFetcher.ats_name: SimplifyFetcher,
         SpeedyApplyFetcher.ats_name: SpeedyApplyFetcher,
     }

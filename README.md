@@ -1,6 +1,6 @@
 # Job Scout
 
-Polls nearly 300 top-tech companies' official ATS feeds every 30 minutes, keeps only
+Polls 350+ top-tech companies' official ATS feeds every 30 minutes, keeps only
 US roles, scores each new posting with an LLM on how well it fits your résumé,
 and emails a sorted digest of the strong matches.
 De-dupes via a CSV ledger. The cloud keeps that ledger on a separate `data`

@@ -36,7 +36,12 @@
 #   janestreet: (no params) janestreet.com/jobs/main.json
 #   teamtailor: host             -> {host}/jobs.rss
 #   bamboohr:   account          -> {account}.bamboohr.com/careers/list
+#   ukg_ready:  host, company_id -> UKG Ready/SaaShr public recruitment list
+#   scoped_html:url, scope_start, scope_end; link_pattern/id_pattern (optional)
+#               -> links found only inside a configured server-rendered HTML region
 #   dejobs:     host             -> {host}/jobs/feed/rss/ (branded DirectEmployers feed)
+#   biorad:     (no params) careers.bio-rad.com server-rendered search table
+#   mathworks:  (no params) mathworks.com official full-board RSS
 #   tinder:     (no params) first-party proxy for Tinder-only roles
 #   simplify:   repo (owner/name); optional path, branch  -> parses .github/scripts/listings.json
 #   speedyapply:repo (owner/name); optional files (comma-separated .md tables), branch
@@ -435,6 +440,88 @@
 
 # --- Gem (jobs.gem.com; anonymous GraphQL; no dates -> single-shot) ---
 - {name: Luma AI, ats: gem, board: lumalabs-ai}          # 3D/genAI spatial (SF Bay Area); ~59
+- {name: Groq, ats: gem, board: groq}                    # AI inference hardware; ~1 current role
+
+# --- High-priority AI infrastructure companies (verified 2026-07-17) ---
+- {name: Nebius, ats: greenhouse, board: nebius, seed_only: true}  # AI cloud; ~338 global roles
+- {name: Cerebras, ats: ashby, org: cerebras, seed_only: true}     # wafer-scale AI compute; ~107 roles
+- {name: Bio-Rad, ats: biorad, seed_only: true}                   # life-science imaging; ~134 global roles
+- {name: MathWorks, ats: mathworks, seed_only: true}              # MATLAB/Simulink; official full-board RSS
+
+# --- Requested CV/robotics companies that need generic non-mainstream sources (2026-07-17) ---
+# Serve Robotics, Niantic Spatial, and Spot AI were already present above/below; do not add
+# duplicate entries. Verdant is intentionally kept even at zero openings so its official
+# Webflow collection will be watched for the first future role.
+- {name: Verdant Robotics, ats: scoped_html, url: "https://www.verdantrobotics.com/careers", scope_start: 'class="open-roles_collection-list-wrapper', scope_end: "</section>", link_pattern: "linkedin[.]com/jobs/view|/careers/[^/]+/?$"}
+- {name: Monarch Tractor, ats: ukg_ready, host: secure6.saashr.com, company_id: "6189027"}  # 1 current role
+# Cruise has been absorbed into GM. The branded search UI is bot-gated, but GM's underlying
+# official Workday CXS remains anonymously readable with structured locations and dates.
+- {name: General Motors, ats: workday, host: generalmotors.wd5.myworkdayjobs.com, tenant: generalmotors, site: Careers_GM, seed_only: true}  # ~810 global roles, including autonomy/ex-Cruise work
+
+# --- Computer vision expansion: 50 additional companies (live-verified 2026-07-17) ---
+# Autonomous vehicles / automaker (6)
+- {name: Wayve, ats: greenhouse, board: wayve, seed_only: true}
+- {name: Avride, ats: greenhouse, board: avride, seed_only: true}
+- {name: WeRide, ats: lever, org: weride, seed_only: true}
+- {name: Vay, ats: greenhouse, board: vay, seed_only: true}
+- {name: Pronto, ats: greenhouse, board: pronto, seed_only: true}
+- {name: Scout Motors, ats: greenhouse, board: scoutmotors, seed_only: true}
+
+# Robotics / physical AI (14)
+- {name: Field AI, ats: lever, org: field-ai, seed_only: true}
+- {name: Sanctuary AI, ats: ashby, org: sanctuary, seed_only: true}
+- {name: Bedrock Robotics, ats: ashby, org: bedrock-robotics, seed_only: true}
+- {name: Built Robotics, ats: ashby, org: built-robotics, seed_only: true}
+- {name: GrayMatter Robotics, ats: ashby, org: graymatter-robotics, seed_only: true}
+- {name: Nimble Robotics, ats: greenhouse, board: nimblerobotics, seed_only: true}
+- {name: Path Robotics, ats: greenhouse, board: pathrobotics, seed_only: true}
+- {name: Standard Bots, ats: ashby, org: standardbots, seed_only: true}
+- {name: Formic, ats: greenhouse, board: formic, seed_only: true}
+- {name: Coco Robotics, ats: ashby, org: cocodelivery, seed_only: true}
+- {name: Corvus Robotics, ats: ashby, org: corvus-robotics, seed_only: true}
+- {name: Cobalt Robotics, ats: lever, org: cobaltrobotics, seed_only: true}
+- {name: Viam, ats: greenhouse, board: viamrobotics, seed_only: true}
+- {name: Foxglove, ats: ashby, org: foxglove, seed_only: true}
+
+# Drones / spatial and industrial vision (4)
+- {name: Pyka, ats: lever, org: pyka, seed_only: true}
+- {name: Auterion, ats: greenhouse, board: auterion, seed_only: true}
+- {name: Gather AI, ats: greenhouse, board: gatherai, seed_only: true}
+- {name: OpenSpace, ats: greenhouse, board: openspace, seed_only: true}
+
+# Cameras, security, conferencing, and pet devices (6)
+- {name: Alarm.com, ats: greenhouse, board: alarmcom, seed_only: true}
+- {name: SimpliSafe, ats: greenhouse, board: simplisafe, seed_only: true}
+- {name: OpenEye, ats: greenhouse, board: openeye, seed_only: true}
+- {name: Reolink, ats: greenhouse, board: reolink, seed_only: true}
+- {name: Owl Labs, ats: greenhouse, board: owllabs, seed_only: true}
+- {name: Fi, ats: lever, org: fi, seed_only: true}
+
+# Image / video foundation models and creative vision (10)
+- {name: Black Forest Labs, ats: ashby, org: black-forest-labs, seed_only: true}
+- {name: Twelve Labs, ats: ashby, org: twelve-labs, seed_only: true}
+- {name: Synthesia, ats: ashby, org: synthesia, seed_only: true}
+- {name: Midjourney, ats: ashby, org: midjourney, seed_only: true}
+- {name: Ideogram, ats: ashby, org: ideogram, seed_only: true}
+- {name: fal, ats: ashby, org: fal-ai, seed_only: true}
+- {name: Krea, ats: ashby, org: krea, seed_only: true}
+- {name: HeyGen, ats: greenhouse, board: heygen, seed_only: true}
+- {name: Stability AI, ats: greenhouse, board: stabilityai, seed_only: true}
+- {name: Topaz Labs, ats: lever, org: topazlabs, seed_only: true}
+
+# Medical imaging / vision (6)
+- {name: Butterfly Network, ats: greenhouse, board: butterflynetwork, seed_only: true}
+- {name: Aidoc, ats: greenhouse, board: aidocmedical, seed_only: true}
+- {name: Rad AI, ats: ashby, org: radai, seed_only: true}
+- {name: Neko Health, ats: ashby, org: neko-health, seed_only: true}
+- {name: Prenuvo, ats: greenhouse, board: prenuvo, seed_only: true}
+- {name: RapidAI, ats: lever, org: rapidai, seed_only: true}
+
+# Sensors, simulation, and CV data infrastructure (4)
+- {name: Lumotive, ats: lever, org: lumotive, seed_only: true}
+- {name: Parallel Domain, ats: lever, org: paralleldomain, seed_only: true}
+- {name: Seyond, ats: greenhouse, board: seyond, seed_only: true}
+- {name: HumanSignal, ats: greenhouse, board: humansignal, seed_only: true}
 
 # --- Eightfold (two API flavors, gated per tenant — see fetcher docstring) ---
 - {name: Qualcomm, ats: eightfold, host: careers.qualcomm.com, domain: qualcomm.com, seed_only: true}  # PCSX; ~1811 (San Diego)

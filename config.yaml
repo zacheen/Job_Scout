@@ -221,16 +221,26 @@ exclude_description_terms:
   - "be a us citizen"   # requirement phrasing ("candidate selected be a US Citizen"; "must be a US citizen")
   - "be a u.s. citizen" # same, period spelling (normalizer keeps the dots)
 
-# AMBIGUOUS sponsorship wording: these describe the CANDIDATE ("must not require sponsorship",
-# "authorized to work without sponsorship") — usually restrictive boilerplate, but not a
-# guaranteed "we don't sponsor". A match does NOT drop the job; it is still scored and
-# emailed, with a "possibly NO visa sponsorship" caveat line. Same matching semantics as
-# exclude_description_terms above.
+# AMBIGUOUS eligibility wording: usually restrictive, but NOT a guaranteed disqualifier — so a
+# match does NOT drop the job; it is still scored and emailed with a "possibly NO visa sponsorship
+# — description says <term>" caveat line. Same matching semantics as exclude_description_terms
+# above. Two families:
+#  (1) sponsorship phrasing that describes the CANDIDATE ("must not require sponsorship",
+#      "authorized to work without sponsorship") rather than stating outright "we don't sponsor";
+#  (2) ITAR / export-control mentions (SpaceX, Anduril, defense primes): often — but NOT always —
+#      a hard US-person requirement, since an EAR/dual-use role, or a company able to obtain an
+#      export license, may still take a visa holder. NOTE: bare "itar" is intentionally omitted —
+#      as a substring it hits "military" (mil-ITAR-y), common in these very defense JDs; anchor on
+#      the surrounding phrases instead.
 warn_description_terms:
   - "not require sponsorship" # "must not require sponsorship now or in the future"
   - "without sponsorship"     # "authorized to work ... without sponsorship"
   - "without the need for sponsorship"
   - "without the need for visa sponsorship"
+  - "international traffic in arms"  # ITAR spelled out, e.g. "...Regulations (ITAR)"
+  - "export control"                 # "export control laws/regulations"; also catches "export controls"/"export controlled" (space form)
+  - "export-controlled"              # hyphen spelling the space term above misses
+  - "export regulations"             # SpaceX phrasing: "U.S. Government export regulations"
 
 # The candidate's real technical skills, used ONLY by the keyword-only scorer (the
 # fallback when no OpenAI key / GPT CLI is available — e.g. cloud runs). Scores DISTINCT
