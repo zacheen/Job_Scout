@@ -17,6 +17,9 @@ _TRACKING_PARAMS = frozenset({"ref", "gh_src", "lever-source", "source", "src"})
 # domains (corporate + TikTok, see ByteDanceFetcher) — collapsed to one key so
 # they can't email the same opening twice. Extend this tuple for each new atsx
 # portal (new jd_base) added to companies.yaml.
+# NOTE: fetchers._NATIVE_ID_PATTERNS separately lists these hosts (plus
+# jobs.bytedance.com) for a different purpose (extracting a native job id from an
+# aggregator's apply URL) — a new atsx portal here may need adding there too.
 _ATSX_HOSTS = ("joinbytedance.com", "lifeattiktok.com")
 
 

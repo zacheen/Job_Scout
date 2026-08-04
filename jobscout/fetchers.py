@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
 
@@ -2134,6 +2134,45 @@ class VisaFetcher(AtsFetcher):
         return jobs
 
 
+# Employer-ATS job-id shapes recognizable from an aggregator's apply URL, as
+# (host regex, path-id regex) pairs. Each id format must be EXACTLY what that ATS's
+# native fetcher uses as ats_job_id, so the aggregator row's job_key matches the
+# native row's and the store merges them even when URL shapes differ (e.g. ByteDance
+# serves one posting id on several JD domains). Deliberately narrow: a wrongly
+# extracted id that collides with another posting's key would silently merge two
+# DISTINCT openings and suppress one's email — so only long, host-anchored shapes
+# are accepted (a 15+-digit snowflake can't be a year/date; a full UUID can't be a
+# stray path token), and anything unrecognized falls back to the aggregator's own id.
+_UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_NATIVE_ID_PATTERNS: tuple[tuple[re.Pattern, re.Pattern], ...] = (
+    # ByteDance "atsx" portal family (see urls._ATSX_HOSTS) + jobs.bytedance.com.
+    (re.compile(r"^(?:jobs\.bytedance\.com|joinbytedance\.com|lifeattiktok\.com)$"),
+     re.compile(r"/(\d{15,})(?:/|$)")),
+    (re.compile(r"^(?:boards|job-boards)\.greenhouse\.io$"),
+     re.compile(r"/jobs/(\d+)(?:/|$)")),
+    (re.compile(r"^jobs\.lever\.co$"), re.compile(rf"/({_UUID_RE})(?:/|$)")),
+    (re.compile(r"^jobs\.ashbyhq\.com$"), re.compile(rf"/({_UUID_RE})(?:/|$)")),
+)
+
+
+def _native_job_id(url: str) -> str:
+    """The employer-ATS job id embedded in an apply URL, or "" when no trusted
+    pattern matches (see _NATIVE_ID_PATTERNS for why misses are the safe default)."""
+    parts = urlparse(url.strip())
+    host = parts.netloc.lower().removeprefix("www.")
+    for host_re, id_re in _NATIVE_ID_PATTERNS:
+        if host_re.match(host):
+            match = id_re.search(parts.path)
+            if match:
+                return match.group(1)
+    # Greenhouse embeds on custom career domains carry the id only as ?gh_jid=
+    # (host-agnostic by nature; digits-only keeps it collision-safe).
+    for key, value in parse_qsl(parts.query):
+        if key.lower() == "gh_jid" and value.isdigit():
+            return value
+    return ""
+
+
 class GithubRepoFetcher(AtsFetcher):
     """Base for aggregator sources whose postings live in a GitHub repo, read from
     raw.githubusercontent.com. All subclasses share that host, so ParallelFetcher runs
@@ -2141,7 +2180,9 @@ class GithubRepoFetcher(AtsFetcher):
 
     Unlike single-company ATS fetchers, one repo lists MANY employers: `Job.company` is
     the real employer parsed per-row (so referral-company roles still group under Referral),
-    while the uid stays namespaced by the repo entry — cross-source dedup then falls to URL."""
+    while the uid stays namespaced by the repo entry (a subclass may swap the entry id for
+    the employer's real ATS job id when the apply URL exposes one — see _native_job_id) —
+    cross-source dedup otherwise falls to URL."""
 
     _RAW_HOST = "raw.githubusercontent.com"
     _DEFAULT_BRANCH = "main"
@@ -2159,7 +2200,13 @@ class GithubRepoFetcher(AtsFetcher):
 class SimplifyFetcher(GithubRepoFetcher):
     """SimplifyJobs internship repos (e.g. Summer2026-Internships). Reads the repo's
     structured `.github/scripts/listings.json`, keeping only postings marked active
-    and visible (SimplifyJobs' own criteria for a still-open role)."""
+    and visible (SimplifyJobs' own criteria for a still-open role).
+
+    The uid prefers the employer's real ATS job id parsed from the apply URL over
+    Simplify's own row UUID: Simplify rewrites titles (it once dropped a "(PhD)"
+    marker the PreFilter needed), so a matching job_key lets the store fold such a
+    copy into the native fetcher's row instead of scoring it as a separate role.
+    Previously-seen rows re-keyed by this switch still merge by listing URL."""
 
     ats_name = "simplify"
     _DEFAULT_BRANCH = "dev"
@@ -2174,7 +2221,7 @@ class SimplifyFetcher(GithubRepoFetcher):
                 continue
             jobs.append(
                 Job(
-                    job_uid=self._uid(item["id"]),
+                    job_uid=self._uid(_native_job_id(item.get("url", "")) or item["id"]),
                     company=item.get("company_name", ""),
                     title=item.get("title", ""),
                     location="; ".join(item.get("locations") or []),
