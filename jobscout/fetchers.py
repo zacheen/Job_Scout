@@ -2143,6 +2143,7 @@ class VisaFetcher(AtsFetcher):
 # DISTINCT openings and suppress one's email — so only long, host-anchored shapes
 # are accepted (a 15+-digit snowflake can't be a year/date; a full UUID can't be a
 # stray path token), and anything unrecognized falls back to the aggregator's own id.
+# Same UUID shape as urls._UUID_TAIL_RE, kept independent (urls stays a leaf module).
 _UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _NATIVE_ID_PATTERNS: tuple[tuple[re.Pattern, re.Pattern], ...] = (
     # ByteDance "atsx" portal family (see urls._ATSX_HOSTS) + jobs.bytedance.com.
@@ -2237,7 +2238,12 @@ class SimplifyFetcher(GithubRepoFetcher):
 class SpeedyApplyFetcher(GithubRepoFetcher):
     """speedyapply college-job repos (e.g. 2027-AI-College-Jobs): postings live only in
     the repo's Markdown tables, not JSON. `files` (comma-separated) picks which tables to
-    read (default the USA intern + new-grad lists)."""
+    read (default the USA intern + new-grad lists).
+
+    Like SimplifyFetcher, the uid prefers the employer's real ATS job id parsed from the
+    apply URL (see _native_job_id) — it also unifies the two speedyapply repos, whose
+    apply links for one posting can differ by a /apply suffix. Unrecognized URLs keep
+    the URL itself as the id (this fetcher's original scheme)."""
 
     ats_name = "speedyapply"
     _DEFAULT_FILES = "README.md,NEW_GRAD_USA.md"
@@ -2277,7 +2283,7 @@ class SpeedyApplyFetcher(GithubRepoFetcher):
                 continue
             jobs.append(
                 Job(
-                    job_uid=self._uid(url),
+                    job_uid=self._uid(_native_job_id(url) or url),
                     company=company,
                     title=title,
                     location=location,
