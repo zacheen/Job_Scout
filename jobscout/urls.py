@@ -6,6 +6,7 @@ Stored/emailed URLs keep their original strings; only comparisons go through her
 """
 from __future__ import annotations
 
+import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Query params that never change WHICH posting a link opens (attribution junk
@@ -17,14 +18,30 @@ _TRACKING_PARAMS = frozenset({"ref", "gh_src", "lever-source", "source", "src"})
 # domains (corporate + TikTok, see ByteDanceFetcher) — collapsed to one key so
 # they can't email the same opening twice. Extend this tuple for each new atsx
 # portal (new jd_base) added to companies.yaml.
+# NOTE: fetchers._NATIVE_ID_PATTERNS separately lists these hosts (plus
+# jobs.bytedance.com) for a different purpose (extracting a native job id from an
+# aggregator's apply URL) — a new atsx portal here may need adding there too.
 _ATSX_HOSTS = ("joinbytedance.com", "lifeattiktok.com")
+
+# Hosted boards that serve the SAME posting at .../{uuid} and at an application-form
+# child page (.../{uuid}/apply on Lever, .../{uuid}/application on Ashby) — aggregators
+# link either form, splitting one posting into two keys. host -> the one suffix that
+# board appends; folded only when the remaining path ends in a full posting UUID, so a
+# non-posting path that merely ends in /apply can't collapse onto its parent.
+_FORM_SUFFIXES = {"jobs.lever.co": "/apply", "jobs.ashbyhq.com": "/application"}
+# Same UUID shape as fetchers._UUID_RE, kept independent (this module stays a leaf) —
+# anchoring differs too: end-of-string here vs search-anywhere there.
+_UUID_TAIL_RE = re.compile(
+    r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 def canon_url(url: str) -> str:
     """Conservative canonical form, validated against the real ledger (2026-07-11: 21
     proven duplicate groups merged, none split; 2026-07-12 gh_jid-into-path folding below:
-    ~44k URLs checked, none split, all prior merges preserved). Boards like Agility's,
-    where gh_jid is the only distinguisher, stay distinct as {id}-suffixed paths."""
+    ~44k URLs checked, none split, all prior merges preserved; 2026-08-04 lever/ashby
+    form-suffix folding: 298 ledger URLs folded, every merged group shares one posting
+    UUID). Boards like Agility's, where gh_jid is the only distinguisher, stay distinct
+    as {id}-suffixed paths."""
     parts = urlsplit(url.strip())
     host = parts.netloc.lower()
     path = parts.path.rstrip("/")
@@ -33,6 +50,12 @@ def canon_url(url: str) -> str:
         job_id = path.rsplit("/", 1)[-1]
         if job_id.isdigit():
             return f"atsx:{job_id}"
+
+    form_suffix = _FORM_SUFFIXES.get(host.removeprefix("www."))
+    if form_suffix and path.endswith(form_suffix):
+        head = path[: -len(form_suffix)]
+        if _UUID_TAIL_RE.search(head):
+            path = head
 
     kept = []
     gh_jid = ""
