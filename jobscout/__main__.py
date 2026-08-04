@@ -50,7 +50,16 @@ def main() -> None:
     }
     leveler = LevelClassifier(settings.referral_companies, settings.intern_terms,
                               settings.senior_terms)
-    scorer = build_scorer(settings)
+    scorer, lenient_scorer = build_scorer(settings)
+
+    # Wire the lenient companion (see build_scorer) to the groups worth never missing:
+    # it auto-passes title-only roles the keyword fallback would otherwise drop on a
+    # near-floor score. The ledger `reason` column records each auto-pass.
+    scorer_overrides = {}
+    if lenient_scorer is not None:
+        scorer_overrides = {leveler.referral_group: lenient_scorer,
+                            leveler.intern_group: lenient_scorer}
+        logging.info("keyword fallback active: referral/intern title-only roles auto-pass")
 
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_dir, track_priority=settings.track_names),
@@ -70,6 +79,7 @@ def main() -> None:
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
         score_workers=settings.score_workers,
         seed_only_prefixes=seed_only_prefixes,
+        scorer_overrides=scorer_overrides,
         # Senior roles are dropped (not emailed) unless a referral company claims them first:
         # LevelClassifier routes a referral-company senior role to Referral, not Senior.
         suppressed_groups={leveler.senior_group},

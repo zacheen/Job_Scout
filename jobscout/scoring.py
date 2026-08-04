@@ -186,11 +186,24 @@ class KeywordScorer:
     Counts occurrences of the configured `skill_keywords`, not every 5+ char word in
     the resume prose — the latter floods matches with filler ("strong", "experience",
     "global") and misses short skills like "c++"/"go"/"cnn"/"git".
+
+    Title-only listings (many list APIs omit the job-ad body — Eightfold, Workday, …)
+    can never reach the ~4 distinct hits a description-backed role needs to clear a
+    50-point track threshold, so their hits weigh `_TITLE_ONLY_WEIGHT` instead of
+    `_WEIGHT`. An instance built with `title_only_pass_score` goes further and returns
+    exactly that score for EVERY title-only job — wire it per-group (referral/intern)
+    so high-value roles are emailed rather than silently dropped on text the source
+    never provided.
     """
 
     method_label = "Keyword"
 
-    def __init__(self, skill_keywords: list[str] = ()):
+    _BASE = 40
+    _WEIGHT = 3             # per distinct keyword with a description (>50 needs >= 4)
+    _TITLE_ONLY_WEIGHT = 8  # per distinct keyword in a bare title (>50 needs >= 2)
+
+    def __init__(self, skill_keywords: list[str] = (), *,
+                 title_only_pass_score: int | None = None):
         # keyword -> boundary-aware pattern. Custom lookarounds (not \b) so "c++"/"c#"/
         # "3d" still match; the trailing "s?" absorbs plurals ("api" hits "APIs") and, as
         # a side effect, keeps "java" from bleeding into "javascript". The [a-z0-9]
@@ -199,34 +212,52 @@ class KeywordScorer:
             kw: re.compile(rf"(?<![a-z0-9]){re.escape(kw)}s?(?![a-z0-9])")
             for kw in (k.strip().lower() for k in skill_keywords) if kw
         }
+        self._title_only_pass_score = title_only_pass_score
 
     def score(self, job: Job) -> Score:
+        title_only = not job.description.strip()
+        matches = match_counts = None
         if self._patterns:
             text = f"{job.title} {job.description}".lower()
             counts = {kw: n for kw, pat in self._patterns.items()
                       if (n := len(pat.findall(text)))}
-            # experience scores the DISTINCT skills matched (still gates the track
-            # threshold: >50 needs >= 4 distinct); match_counts adds the per-keyword
-            # occurrence breakdown for the email.
-            return Score(_clamp(40 + 3 * len(counts)), "keyword-only heuristic",
-                         matches=len(counts),
-                         match_counts=tuple(sorted(counts.items(),
-                                                   key=lambda kv: (-kv[1], kv[0]))))
-        # No skill_keywords configured: constant score puts every role on the same side
-        # of the threshold, so matches stays None — no meaningful count to report.
-        return Score(50, "keyword-only heuristic")
+            # experience scores the DISTINCT skills matched; match_counts adds the
+            # per-keyword occurrence breakdown for the email.
+            matches = len(counts)
+            match_counts = tuple(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+        if title_only and self._title_only_pass_score is not None:
+            return Score(_clamp(self._title_only_pass_score),
+                         "title-only listing; auto-passed (no description to score)",
+                         matches=matches, match_counts=match_counts)
+        if matches is None:
+            # No skill_keywords configured: constant score puts every role on the same side
+            # of the threshold, so matches stays None — no meaningful count to report.
+            return Score(50, "keyword-only heuristic")
+        weight = self._TITLE_ONLY_WEIGHT if title_only else self._WEIGHT
+        reason = "keyword-only heuristic (title only)" if title_only else "keyword-only heuristic"
+        return Score(_clamp(self._BASE + weight * matches), reason,
+                     matches=matches, match_counts=match_counts)
 
 
-def build_scorer(settings) -> JobScorer:
+def build_scorer(settings) -> tuple[JobScorer, JobScorer | None]:
+    """Second element: a lenient companion for groups that must never lose a title-only
+    role — it auto-passes those (see `KeywordScorer.title_only_pass_score`). None for
+    the LLM tiers, which can judge fit from a bare title themselves. Which groups get
+    the companion is the caller's wiring decision (__main__), not decided here.
+    """
     if settings.openai_api_key:
         log.info("scorer: OpenAI API (%s)", settings.model)
         return OpenAiScorer(
             settings.openai_api_key, settings.model, settings.resume_text,
             settings.max_description_chars, settings.reasoning_effort,
-        )
+        ), None
     if settings.gpt_cli and shutil.which(settings.gpt_cli):
         command = [settings.gpt_cli, *settings.gpt_cli_args]
         log.info("scorer: GPT CLI '%s' (no API key found)", " ".join(command))
-        return CliScorer(command, settings.resume_text, settings.max_description_chars)
+        return CliScorer(command, settings.resume_text, settings.max_description_chars), None
     log.info("scorer: keyword-only fallback (no API key or GPT CLI found)")
-    return KeywordScorer(settings.skill_keywords)
+    # +1 over the highest track threshold, not just one: which track the job will
+    # route to isn't known here, so this must clear every track to guarantee the pass.
+    pass_score = max((t.threshold for t in settings.tracks), default=50) + 1
+    return (KeywordScorer(settings.skill_keywords),
+            KeywordScorer(settings.skill_keywords, title_only_pass_score=pass_score))
