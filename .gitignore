@@ -4,6 +4,8 @@ resume.txt
 # Ledger shard dirs (local_data/, cloud_data/) are NOT ignored — new shards must
 # stay `git add`-able — but belong only on the `data` branch; never commit from main.
 .ledger/
+# On-demand audit output of audit_dropped.py — regenerate anytime, never commit.
+dropped_jobs.txt
 __pycache__/
 *.pyc
 .venv/
