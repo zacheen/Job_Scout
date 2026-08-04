@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -33,12 +34,13 @@ try:
 except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
-from jobscout.config import Settings
+from jobscout.config import DIGEST_CHECKPOINT_FILENAME, DIGEST_TZ, Settings
 from jobscout.store import union_merge
 
 ROOT = Path(__file__).resolve().parent
 BRANCH = "data"
 CLOUD_DIR = ROOT / "cloud_data"  # scan.yml's LEDGER_DIR, at the data-branch root
+CHECKPOINT = ROOT / DIGEST_CHECKPOINT_FILENAME  # untracked: survives the hard-resets below
 
 log = logging.getLogger("local_run")
 
@@ -61,6 +63,39 @@ def _ensure_data_branch() -> None:
     if branch != BRANCH:
         raise SystemExit(f"local_run.py must run on the {BRANCH!r} branch "
                          f"(currently on {branch!r}); the ledger shards only live there")
+
+
+def _read_checkpoint() -> datetime | None:
+    """The digest footer's deletable-window lower bound: the last moment
+    local_data caught up with cloud-emailed roles — a local scan whose ledger
+    was saved (stamped in main()) or a manual cloud->local fold (stamped by
+    merge_seen_jobs.py). Cloud digests at or before it never re-surface in
+    local digests, so the footer flags them "review before deleting".
+    Missing/corrupt stamp -> None: the footer then claims every earlier digest
+    is covered, which overstates once after a re-clone; the stamp self-heals
+    when this run finishes."""
+    try:
+        raw = CHECKPOINT.read_text(encoding="utf-8").strip()
+        return datetime.fromisoformat(raw).astimezone(DIGEST_TZ)
+    except (OSError, ValueError):
+        return None
+
+
+def _write_checkpoint(moment: datetime) -> None:
+    CHECKPOINT.write_text(moment.isoformat(timespec="seconds") + "\n", encoding="utf-8")
+
+
+def _digest_footer(checkpoint: datetime | None, start: datetime) -> str:
+    """The digest's "safe to delete" window; _read_checkpoint explains the
+    lower bound. Timestamps render in DIGEST_TZ, same as digest subject lines."""
+    fmt = "%Y-%m-%d %H:%M"
+    tail = f"({DIGEST_TZ.key}) — safe to delete those."
+    if checkpoint is None:
+        return f"Covers every cloud digest sent before {start:{fmt}} {tail}"
+    return (f"Covers cloud digests sent between {checkpoint:{fmt}} and {start:{fmt}} {tail} "
+            f"Digests from before {checkpoint:{fmt}} were already covered by an earlier "
+            "local digest or folded into local data (merge_seen_jobs.py); review them "
+            "before deleting.")
 
 
 def _ledger_dirs(settings: Settings) -> list[Path]:
@@ -141,8 +176,21 @@ def main() -> None:
 
     _sync_with_remote(settings)  # pre-scan: align with origin/data so the final push can fast-forward
 
+    # This scan's start doubles as the checkpoint window's end: any cloud digest
+    # sent before it covered roles that were still live then, so this scan
+    # independently re-finds and re-emails them — except roles local_data
+    # already knew (the window's lower bound, see _read_checkpoint).
+    start = datetime.now(DIGEST_TZ)
+
     from jobscout.__main__ import main as run_scan  # same entry as run.py
-    run_scan()  # on failure the ledger is unsaved; propagate and skip the push
+    # Only an uncaught exception here skips the push — the handled saved=False
+    # case below still pushes, just without advancing the checkpoint.
+    saved = run_scan(digest_footer=_digest_footer(_read_checkpoint(), start))
+    if saved:
+        _write_checkpoint(start)  # ledger saved: the next window starts where this scan began
+    else:
+        log.warning("digest email failed; ledger unsaved, checkpoint not advanced "
+                    "(unemailed roles retry next run)")
 
     _sync_with_remote(settings)  # post-scan: re-align with the remote tip, fold scan finds into cloud_data
     _commit_and_push(settings)

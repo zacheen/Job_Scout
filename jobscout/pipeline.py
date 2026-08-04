@@ -5,11 +5,10 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import NamedTuple
-from zoneinfo import ZoneInfo
 
 from collections.abc import Collection, Mapping
 
-from .config import Track
+from .config import DIGEST_TZ, Track
 from .models import Job, Score
 from .protocols import (Annotator, Digest, Fetcher, JobFilter, JobScorer, JobStore, Leveler,
                         Notifier, Router)
@@ -62,7 +61,12 @@ class Pipeline:
         # Leveler group names dropped before scoring/email (see `_drop_suppressed`).
         self._suppressed_groups = frozenset(suppressed_groups)
 
-    def run(self) -> None:
+    def run(self) -> bool:
+        """Returns True once this run's findings are durably saved to the ledger.
+        False only on the email-send failure path, where the ledger is
+        deliberately left unsaved so unemailed roles retry next run — callers
+        gating side effects on "did local_data catch up" (local_run.py's digest
+        checkpoint) must treat False as "it did not"."""
         all_jobs = self._fetch_all()
         # Snapshot uids + urls BEFORE add_seen, so this run's own jobs don't dedup themselves.
         known = self._store.known_uids()
@@ -84,12 +88,12 @@ class Pipeline:
         if not self._store.is_seeded():
             self._store.save()
             log.info("first run: seeded %d jobs, no scoring or email", len(new_fetched))
-            return
+            return True
 
         if not new_candidates:
             self._store.save()
             log.info("no new roles this run")
-            return
+            return True
 
         # Email dedup is by URL (not uid): same job via another source/prior run is skipped.
         # Early-stop dedup stays per-source by uid, so this never affects pagination.
@@ -97,7 +101,7 @@ class Pipeline:
         if not emailable:
             self._store.save()
             log.info("%d new roles, all already in the ledger by URL (another source)", len(new_candidates))
-            return
+            return True
 
         before_suppress = len(emailable)
         emailable = self._drop_suppressed(emailable)
@@ -105,14 +109,14 @@ class Pipeline:
             self._store.save()
             log.info("%d emailable (of %d new), all in suppressed groups (e.g. senior at a non-referral company)",
                      before_suppress, len(new_candidates))
-            return
+            return True
 
         by_track = self._score_by_track(emailable)
         if not by_track:
             self._store.save()
             log.info("%d emailable (of %d new), but none passed a track threshold",
                      len(emailable), len(new_candidates))
-            return
+            return True
 
         digest = self._build_digest(by_track)
         total = sum(len(items) for _, sections in digest for _, items in sections)
@@ -125,19 +129,20 @@ class Pipeline:
             subject += f" ({top_count} {top_group.lower()})"
         subject += f" [{self._scorer.method_label}]"
         # Timestamp makes each subject unique so Gmail doesn't thread digests together.
-        subject += f" {datetime.now(ZoneInfo('America/New_York')):%m/%d %H:%M}"
+        subject += f" {datetime.now(DIGEST_TZ):%m/%d %H:%M}"
 
         try:
             self._notifier.send_digest(digest, subject=subject)
         except Exception as exc:
             # Leave the run unsaved so unsent roles are rediscovered and retried next run.
             log.error("email failed: %s; ledger not saved, roles retry next run", exc)
-            return
+            return False
 
         emailed = [job.job_uid for _, sections in digest for _, items in sections for job, _ in items]
         self._store.mark_emailed(emailed)
         self._store.save()
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
+        return True
 
     def _annotate(self, job: Job) -> Job:
         """Apply the annotator, enforcing its contract (derived presentation fields only):

@@ -6,6 +6,8 @@ resume.txt
 .ledger/
 # On-demand audit output of audit_dropped.py — regenerate anytime, never commit.
 dropped_jobs.txt
+# Per-checkout digest checkpoint stamp (see jobscout/config.py) — local only.
+digest_checkpoint.txt
 __pycache__/
 *.pyc
 .venv/

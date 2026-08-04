@@ -18,7 +18,10 @@ from .scoring import build_scorer
 from .store import CsvStore
 
 
-def main() -> None:
+def main(digest_footer: str = "") -> bool:
+    """`digest_footer` is appended to the digest email body; local_run.py
+    passes a safe-to-delete-window summary, cloud runs (run.py) leave it
+    empty. Returns whether the run's ledger was saved (see Pipeline.run)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root = Path(__file__).resolve().parent.parent
     if load_dotenv is not None:
@@ -76,7 +79,8 @@ def main() -> None:
         router=TrackRouter(settings.tracks),
         leveler=leveler,
         scorer=scorer,
-        notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to),
+        notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to,
+                               footer=digest_footer),
         score_workers=settings.score_workers,
         seed_only_prefixes=seed_only_prefixes,
         scorer_overrides=scorer_overrides,
@@ -84,7 +88,7 @@ def main() -> None:
         # LevelClassifier routes a referral-company senior role to Referral, not Senior.
         suppressed_groups={leveler.senior_group},
     )
-    pipeline.run()
+    return pipeline.run()
 
 
 if __name__ == "__main__":

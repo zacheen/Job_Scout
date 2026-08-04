@@ -12,12 +12,14 @@ class EmailNotifier:
     """Sends ONE digest per run via Gmail SMTP. Validates creds on send."""
 
     def __init__(self, user: str, app_password: str, mail_to: str,
-                 host: str = "smtp.gmail.com", port: int = 587):
+                 host: str = "smtp.gmail.com", port: int = 587,
+                 footer: str = ""):
         self._user = user
         self._app_password = app_password
         self._mail_to = mail_to
         self._host = host
         self._port = port
+        self._footer = footer
 
     def send_digest(self, digest: Digest, subject: str | None = None) -> None:
         total = sum(len(items) for _, sections in digest for _, items in sections)
@@ -30,7 +32,10 @@ class EmailNotifier:
         message["Subject"] = subject or f"[Job Scout] {total} new roles"
         message["From"] = self._user
         message["To"] = self._mail_to
-        message.set_content(self._body(digest))
+        body = self._body(digest)
+        if self._footer:
+            body += f"\n\n---\n{self._footer}"
+        message.set_content(body)
 
         context = ssl.create_default_context()
         with smtplib.SMTP(self._host, self._port) as server:
