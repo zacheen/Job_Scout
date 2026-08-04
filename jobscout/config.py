@@ -4,8 +4,19 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import yaml
+
+# tz shared by every digest timestamp (email subject line, local_run.py's
+# footer) so footer times stay directly comparable to subject times across runs.
+DIGEST_TZ = ZoneInfo("America/New_York")
+
+# Untracked, gitignored stamp at the repo root: the last moment local_data caught
+# up with cloud-emailed roles. Advanced by local_run.py (scan start, on success)
+# and merge_seen_jobs.py --to local (fold time); local_run.py's digest footer
+# reads it as the deletable window's lower bound.
+DIGEST_CHECKPOINT_FILENAME = "digest_checkpoint.txt"
 
 
 def _as_bool(value) -> bool:

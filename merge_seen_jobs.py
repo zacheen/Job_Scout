@@ -17,6 +17,11 @@ to local" / the reverse) is prepared as a commit.template, which GitKraken
 auto-loads into its message box; a one-shot post-commit hook clears the
 template after the user fires the commit. (CLI users: `git commit` opens the
 editor pre-filled — git insists the template be edited, so tweak it or -m.)
+
+--to local also stamps the digest checkpoint file (see jobscout/config.py):
+local_run.py's email footer uses it as the "safe to delete" window's lower
+bound, since the folded-in cloud roles will no longer re-surface in local
+digests.
 """
 from __future__ import annotations
 
@@ -25,13 +30,15 @@ import logging
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
-from jobscout.config import Settings
+from jobscout.config import DIGEST_CHECKPOINT_FILENAME, DIGEST_TZ, Settings
 from jobscout.store import union_merge
 
 ROOT = Path(__file__).resolve().parent
 CLOUD_DIR = ROOT / "cloud_data"
+CHECKPOINT = ROOT / DIGEST_CHECKPOINT_FILENAME
 
 
 # Marks our one-shot cleanup hook so a foreign post-commit hook is never touched.
@@ -111,6 +118,16 @@ def main() -> int:
     if source_deleted:
         shutil.rmtree(source)
         print(f"deleted {source}")
+
+    if args.to == "local":
+        # A fold makes local_data know every role the cloud emailed so far, so
+        # those digests never re-surface in local digests. now() is >= the
+        # folded cloud_data's actual freshness (its last sync), so a borderline
+        # digest gets flagged "review before deleting", never a false "safe".
+        CHECKPOINT.write_text(datetime.now(DIGEST_TZ).isoformat(timespec="seconds") + "\n",
+                              encoding="utf-8")
+        print(f"stamped {CHECKPOINT.name}: cloud digests sent before now will be "
+              "flagged 'review before deleting' in future local digest footers")
 
     message = ("update from cloud to local" if args.to == "local"
                else "update from local to cloud")
