@@ -17,6 +17,7 @@ from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
 
+from .company_aliases import canonical_company
 from .config import Company
 from .models import Job
 
@@ -2158,7 +2159,10 @@ _NATIVE_ID_PATTERNS: tuple[tuple[re.Pattern, re.Pattern], ...] = (
 
 def _native_job_id(url: str) -> str:
     """The employer-ATS job id embedded in an apply URL, or "" when no trusted
-    pattern matches (see _NATIVE_ID_PATTERNS for why misses are the safe default)."""
+    pattern matches (see _NATIVE_ID_PATTERNS for why misses are the safe default).
+    None-safe like canonical_company: runs before Job.__post_init__'s None coercion."""
+    if not url:
+        return ""
     parts = urlparse(url.strip())
     host = parts.netloc.lower().removeprefix("www.")
     for host_re, id_re in _NATIVE_ID_PATTERNS:
@@ -2180,7 +2184,8 @@ class GithubRepoFetcher(AtsFetcher):
     them sequentially as one polite stream.
 
     Unlike single-company ATS fetchers, one repo lists MANY employers: `Job.company` is
-    the real employer parsed per-row (so referral-company roles still group under Referral),
+    the real employer parsed per-row (normalized via company_aliases.canonical_company,
+    so referral grouping and job_keys line up with the native fetchers' spelling),
     while the uid stays namespaced by the repo entry (a subclass may swap the entry id for
     the employer's real ATS job id when the apply URL exposes one — see _native_job_id) —
     cross-source dedup otherwise falls to URL."""
@@ -2223,7 +2228,7 @@ class SimplifyFetcher(GithubRepoFetcher):
             jobs.append(
                 Job(
                     job_uid=self._uid(_native_job_id(item.get("url", "")) or item["id"]),
-                    company=item.get("company_name", ""),
+                    company=canonical_company(item.get("company_name", "")),
                     title=item.get("title", ""),
                     location="; ".join(item.get("locations") or []),
                     url=item.get("url", ""),
@@ -2284,7 +2289,7 @@ class SpeedyApplyFetcher(GithubRepoFetcher):
             jobs.append(
                 Job(
                     job_uid=self._uid(_native_job_id(url) or url),
-                    company=company,
+                    company=canonical_company(company),
                     title=title,
                     location=location,
                     url=url,
