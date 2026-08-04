@@ -127,6 +127,23 @@ exclude_terms:
   - "microelectronics"
   - "micro-electronics" # hyphen spelling of the above
   - "wire bond" # semiconductor packaging; also matches "wire bonding" / "wire bonder"
+  # Hardware/silicon & manufacturing wave (added 2026-08-04, mined from score-gate drops).
+  # KNOWN COST for "hardware": dept match also drops SWE roles inside hardware orgs
+  # (e.g. Intel "AI Software Engineering Intern" under a Hardware dept).
+  - "hardware"
+  - "silicon"
+  - "analog"
+  - "mixed signal"
+  - "mixed-signal" # hyphen spelling of the above
+  - "fpga"
+  - "thermal" # KNOWN edge: would also drop thermal-imaging CV roles (none seen in ledger)
+  - "packaging" # physical + semiconductor packaging roles
+  # NOT "test engineer": it would also drop QA / software-test roles (kept as targets).
+  - "manufacturing" # KNOWN cost: rare "AI Software Engineer, Manufacturing" titles (KLA/Etched) drop too
+  # NOT bare "industrial": it dept-matches "Industrial Robotics" (an emailed Amazon Applied
+  # Scientist intern was in that org) — only the design discipline is excluded.
+  - "industrial design"
+  - "technician"
   - "network"
   - "cybersecurity"
   - "cyber security" # separate entry: substring won't unify it with the one-word spelling
@@ -158,6 +175,11 @@ exclude_terms:
   - "buyer"
   - "merchandising"
   - "people partner"
+  - "operations manager"
+  # NOT bare "financial": fintech dept names (Affirm) carry it on real backend-SWE rows.
+  - "financial analyst"
+  - "human resources"
+  - "government affairs"
   # Trailing space is deliberate: matches "partner <role>" (e.g. partner marketing/solutions)
   # but NOT "partnership(s)".
   - "partner "
@@ -177,6 +199,9 @@ exclude_dept_terms:
 exclude_word_terms:
   - "ux"
   - "tpu" # whole-word: bare "tpu" would substring-hit "output"
+  - "hr" # whole-word: substring would hit "Chrome"/"HRT"; catches "HR Project Manager" & dept "HR"
+  - "asic" # whole-word: substring would hit "Basic"
+  - "rtl" # whole-word: substring would hit "Myrtle"; RTL/chip-design roles
 
 # Drop a job when its DESCRIPTION contains any of these (lowercase substring; the text is
 # whitespace-collapsed and curly apostrophes straightened before matching, so a phrase still
