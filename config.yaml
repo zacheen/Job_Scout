@@ -139,7 +139,23 @@ exclude_terms:
   - "thermal" # KNOWN edge: would also drop thermal-imaging CV roles (none seen in ledger)
   - "packaging" # physical + semiconductor packaging roles
   # NOT "test engineer": it would also drop QA / software-test roles (kept as targets).
-  - "manufacturing" # KNOWN cost: rare "AI Software Engineer, Manufacturing" titles (KLA/Etched) drop too
+  # NOT bare "manufacturing" (replaced 2026-08-05, measured over the whole ledger): as a DOMAIN
+  # word it uniquely killed ~30 real SWE roles ("… Software Engineer, Manufacturing …" at SpaceX/
+  # Figure/Zoox/Google/KLA/TSMC/Ouster) while adding nothing — the 1030 factory-floor titles it
+  # caught all fail track routing anyway. The phrases below instead anchor on manufacturing as the
+  # ROLE. KNOWN cost: "manufacturing engineer" also substring-matches the DEPARTMENT
+  # "Manufacturing : Manufacturing Engineering", so Anduril's 3 Manufacturing-SWE roles still drop
+  # (ITAR-bound regardless). Deliberately absent: "manufacturing test" / "…systems" / "…software"
+  # (all real SWE titles), and "manufacturing test engineer" (sounds SWE-ish, and every such title
+  # already fails track routing, so the phrase bought nothing).
+  - "manufacturing engineer" # substring also covers "Manufacturing Engineering" (447 ledger rows)
+  - "manufacturing equipment" # equipment-maintenance technician titles
+  - "manufacturing operations"
+  - "manufacturing operator"
+  - "manufacturing quality"
+  - "manufacturing specialist"
+  - "manufacturing supervisor"
+  - "manufacturing manager"
   # NOT bare "industrial": it dept-matches "Industrial Robotics" (an emailed Amazon Applied
   # Scientist intern was in that org) — only the design discipline is excluded.
   - "industrial design"
