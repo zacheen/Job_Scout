@@ -27,6 +27,8 @@ COMPANY_ALIASES: dict[str, str] = {
     # Companies with a native fetcher: right side = companies.yaml `name`.
     "1X": "1X Technologies",
     "Etched.ai": "Etched",
+    "Gritt Robotics Inc": "Gritt Robotics",
+    "Nissan Global": "Nissan",
     "Perplexity AI": "Perplexity",
     "Plus": "PlusAI",
     "Rivian and Volkswagen Group Technologies": "Rivian",

@@ -1789,7 +1789,19 @@ class ScopedHtmlFetcher(AtsFetcher):
     literal ``scope_start`` and ``scope_end`` markers are considered, which avoids stale
     metadata and navigation links elsewhere on the page. ``link_pattern`` may further
     restrict accepted absolute URLs. Jobs have no separate id — the job URL is the durable
-    identity (optionally reduced via ``id_pattern``)."""
+    identity (optionally reduced via ``id_pattern``).
+
+    Optional params for pages the defaults can't express:
+    - ``title_pattern``: regex whose group(1) is the title, searched in each anchor's
+      inner HTML. Anchors it does not match are skipped (not job links).
+    - ``location``: constant location stamped on every row. Without SOME location,
+      PreFilter's region check drops every row — single-office startups whose pages
+      never repeat the city per role need this.
+    - ``jd_url``: template for the stored/emailed URL; ``{id}`` = the id_pattern
+      capture. Needed when role links differ only by #fragment: canon_url drops
+      fragments, so plain fragment URLs collapse into ONE email-dedup key and all
+      but the first role would never email. The template can carry the id in the
+      query/path instead (the target page just ignores it)."""
 
     ats_name = "scoped_html"
     _LINK_RE = re.compile(
@@ -1809,13 +1821,25 @@ class ScopedHtmlFetcher(AtsFetcher):
                 return match.group(1)
         return url
 
+    def _jd_url(self, url: str, job_id: str) -> str:
+        template = self._company.params.get("jd_url", "")
+        return template.replace("{id}", job_id) if template else url
+
+    def _title(self, body_html: str) -> str:
+        pattern = self._company.params.get("title_pattern", "")
+        if pattern:
+            match = re.search(pattern, body_html, re.IGNORECASE | re.DOTALL)
+            return strip_html(match.group(1)) if match else ""
+        return strip_html(body_html)
+
     def _link_job(self, url: str, title: str, date_posted: str = "") -> Job:
+        job_id = self._job_id(url)
         return Job(
-            job_uid=self._uid(self._job_id(url)),
+            job_uid=self._uid(job_id),
             company=self._company.name,
             title=title,
-            location="",
-            url=url,
+            location=self._company.params.get("location", ""),
+            url=self._jd_url(url, job_id),
             description="",
             department="",
             date_posted=date_posted,
@@ -1840,7 +1864,7 @@ class ScopedHtmlFetcher(AtsFetcher):
                 continue
             if url in accepted_urls:
                 continue
-            title = strip_html(match.group("body"))
+            title = self._title(match.group("body"))
             if not title:
                 continue
             accepted_urls.add(url)
