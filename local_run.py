@@ -115,7 +115,9 @@ def _write_checkpoint(moment: datetime) -> None:
 
 def _digest_footer(checkpoint: datetime | None, start: datetime) -> str:
     """The digest's "safe to delete" window; _read_checkpoint explains the
-    lower bound. Timestamps render in DIGEST_TZ, same as digest subject lines."""
+    lower bound. `start` is also the run's subject_time, so the window end
+    and the subject timestamp are the same instant (and the next digest's
+    lower bound is this digest's subject time)."""
     fmt = "%Y-%m-%d %H:%M"
     tail = f"({DIGEST_TZ.key}) — safe to delete those."
     if checkpoint is None:
@@ -214,7 +216,10 @@ def main() -> None:
     from jobscout.__main__ import main as run_scan  # same entry as run.py
     # Only an uncaught exception here skips the push — the handled saved=False
     # case below still pushes, just without advancing the checkpoint.
-    saved = run_scan(digest_footer=_digest_footer(_read_checkpoint(), start))
+    # subject_time=start: the subject timestamp IS the deletable-window end, so
+    # "delete every cloud digest older than this subject" needs no footer math.
+    saved = run_scan(digest_footer=_digest_footer(_read_checkpoint(), start),
+                     subject_time=start)
     if saved:
         _write_checkpoint(start)  # ledger saved: the next window starts where this scan began
     else:

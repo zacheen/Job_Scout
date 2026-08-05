@@ -40,6 +40,7 @@ class Pipeline:
         seed_only_prefixes: Collection[str] = (),
         scorer_overrides: Mapping[str, JobScorer] | None = None,
         suppressed_groups: Collection[str] = (),
+        subject_time: datetime | None = None,
     ):
         if score_workers < 1:
             raise ValueError(f"score_workers must be >= 1, got {score_workers}")
@@ -60,6 +61,10 @@ class Pipeline:
         self._scorer_overrides = dict(scorer_overrides or {})
         # Leveler group names dropped before scoring/email (see `_drop_suppressed`).
         self._suppressed_groups = frozenset(suppressed_groups)
+        # Subject-line timestamp; None = stamped at send time. local_run.py
+        # passes its scan-start time so the subject matches the footer's
+        # deletable-window end exactly (one cutoff for the user).
+        self._subject_time = subject_time
 
     def run(self) -> bool:
         """Returns True once this run's findings are durably saved to the ledger.
@@ -129,7 +134,7 @@ class Pipeline:
             subject += f" ({top_count} {top_group.lower()})"
         subject += f" [{self._scorer.method_label}]"
         # Timestamp makes each subject unique so Gmail doesn't thread digests together.
-        subject += f" {datetime.now(DIGEST_TZ):%m/%d %H:%M}"
+        subject += f" {(self._subject_time or datetime.now(DIGEST_TZ)):%m/%d %H:%M}"
 
         try:
             self._notifier.send_digest(digest, subject=subject)
