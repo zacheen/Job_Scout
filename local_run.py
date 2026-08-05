@@ -9,7 +9,9 @@ local_data/ is a deliberate manual step — run merge_seen_jobs.py (default
 direction) — so roles the cloud already emailed KEEP re-surfacing (and
 re-emailing) in local scans until you fold them in.
 
-    1. refuse to run unless the checkout is on the `data` branch
+    1. refuse to run unless the checkout is on the `data` branch and step 2's
+       hard-reset cannot destroy work: no uncommitted changes or unpushed
+       commits touching files outside the shard dirs (_ensure_reset_safe)
     2. fetch + hard-reset to origin/data (the cloud amends + force-pushes its
        ledger commit, so origin/data routinely rewrites history and a
        fast-forward would fail); each shard dir is snapshotted first and
@@ -63,6 +65,32 @@ def _ensure_data_branch() -> None:
     if branch != BRANCH:
         raise SystemExit(f"local_run.py must run on the {BRANCH!r} branch "
                          f"(currently on {branch!r}); the ledger shards only live there")
+
+
+def _ensure_reset_safe(settings: Settings) -> None:
+    """Refuse to run when _sync_with_remote's hard-reset would destroy work:
+    uncommitted changes, or commits missing from origin/data, that touch
+    anything OUTSIDE the shard dirs (2026-08-05: uncommitted config.yaml and
+    audit_dropped.py revisions were silently wiped exactly this way). Shard
+    dirs are exempt — their rows survive the reset via snapshot/union-merge.
+    Untracked files are exempt — the reset leaves them alone. Pre-flight only:
+    edits made while the scan is running are still wiped by the post-scan sync."""
+    excludes = [f":(exclude){d.relative_to(ROOT).as_posix()}"
+                for d in _ledger_dirs(settings)]
+    dirty = _git_out("status", "--porcelain", "--untracked-files=no",
+                     "--", ".", *excludes)
+    if dirty:
+        raise SystemExit(
+            f"uncommitted changes would be wiped by the hard-reset to origin/{BRANCH}:\n"
+            f"{dirty}\ncommit or stash them, then re-run local_run.py")
+    _git("fetch", "origin", BRANCH)
+    unpushed = _git_out("log", "--format=%h %s", f"origin/{BRANCH}..HEAD",
+                        "--", ".", *excludes)
+    if unpushed:
+        raise SystemExit(
+            f"commits not on origin/{BRANCH} touch files outside the shard dirs and "
+            f"would be dropped by the hard-reset:\n{unpushed}\n"
+            f"push {BRANCH} (or move the work elsewhere), then re-run local_run.py")
 
 
 def _read_checkpoint() -> datetime | None:
@@ -173,6 +201,7 @@ def main() -> None:
     if load_dotenv is not None:
         load_dotenv(ROOT / ".env")  # before Settings.load so LEDGER_DIR etc. apply
     settings = Settings.load(ROOT)
+    _ensure_reset_safe(settings)
 
     _sync_with_remote(settings)  # pre-scan: align with origin/data so the final push can fast-forward
 
