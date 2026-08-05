@@ -37,7 +37,12 @@
 #   teamtailor: host             -> {host}/jobs.rss
 #   bamboohr:   account          -> {account}.bamboohr.com/careers/list
 #   ukg_ready:  host, company_id -> UKG Ready/SaaShr public recruitment list
-#   scoped_html:url, scope_start, scope_end; link_pattern/id_pattern (optional)
+#   scoped_html:url, scope_start, scope_end; link_pattern/id_pattern (optional);
+#               title_pattern (optional; group(1) of anchor HTML, non-matches skipped);
+#               location (optional constant — REQUIRED in practice when the page carries
+#               no per-role location, else PreFilter drops every row); jd_url (optional
+#               "{id}" template — needed when links differ only by #fragment, which
+#               canon_url strips from dedup keys)
 #               -> links found only inside a configured server-rendered HTML region
 #   dejobs:     host             -> {host}/jobs/feed/rss/ (branded DirectEmployers feed)
 #   biorad:     (no params) careers.bio-rad.com server-rendered search table
@@ -458,6 +463,18 @@
 # official Workday CXS remains anonymously readable with structured locations and dates.
 - {name: General Motors, ats: workday, host: generalmotors.wd5.myworkdayjobs.com, tenant: generalmotors, site: Careers_GM, seed_only: true}  # ~810 global roles, including autonomy/ex-Cruise work
 
+# --- Requested robot-learning startups on static first-party pages (2026-08-05).
+#     Both are scoped_html: no external ATS fingerprint exists for either. ---
+# Origami Robotics (SF, dexterous manipulation): the homepage careers section links
+# careers.html#<role> — fragment-only links, hence jd_url moves the id into the query
+# (the static page ignores it) so canon_url keeps the four roles distinct; title_pattern
+# takes just the role name out of the card (the anchor body holds the whole blurb).
+- {name: Origami Robotics, ats: scoped_html, url: "https://www.origami-robotics.com/", scope_start: '<div class="careers-list">', scope_end: careers-foot, link_pattern: 'careers[.]html#', id_pattern: 'careers[.]html#(.+)$', title_pattern: 'class="careers-role">([^<]+)<', location: "San Francisco, CA", jd_url: "https://www.origami-robotics.com/careers.html?role={id}#{id}"}  # 4 roles (2 intern) at add time
+# Run Robotics (SF, robot-learning debugging/eval; runrobotics.ai): server-rendered
+# Next.js /jobs board, one clean <h2><a> per card. The lookahead excludes the /jobs/company
+# and /jobs/talent-network pages that live under the same path.
+- {name: Run Robotics, ats: scoped_html, url: "https://runrobotics.ai/jobs", scope_start: '<main', scope_end: '</main>', link_pattern: '/jobs/(?!company$|talent-network$)[a-z0-9-]+$', id_pattern: '/jobs/([a-z0-9-]+)$', location: "San Francisco, CA"}  # 3 roles at add time
+
 # --- Computer vision expansion: 50 additional companies (live-verified 2026-07-17) ---
 # Autonomous vehicles / automaker (6)
 - {name: Wayve, ats: greenhouse, board: wayve, seed_only: true}
@@ -522,6 +539,46 @@
 - {name: Parallel Domain, ats: lever, org: paralleldomain, seed_only: true}
 - {name: Seyond, ats: greenhouse, board: seyond, seed_only: true}
 - {name: HumanSignal, ats: greenhouse, board: humansignal, seed_only: true}
+
+# --- Ledger-mined robotics/AV/CV batch (2026-08-05). These companies were being seen only
+#     through the GitHub aggregators (their rows' source_uids were all simplify/speedyapply);
+#     each official board below was live-verified the same day. All seed_only so the shared
+#     first run can't flood the digest (2026-07-17 batch convention). Rejected during the same
+#     audit: "EQL Tech" (Workable eqltech is a recruiting AGENCY board — client roles across
+#     industries, not a robotics company); Helsing (greenhouse "helsing" is live, 133 roles,
+#     but every single one is EU — re-probe if they open a US office); Inversion Space
+#     (greenhouse "inversionspace" is live, ~67 roles, but ALL descriptions carry the
+#     clearance / US-citizen ITAR wording that exclude_description_terms rightly drops —
+#     a sponsorship-needing candidate can never clear it). ---
+# Robotics / physical AI
+- {name: Gritt Robotics,  ats: ashby, org: gritt, seed_only: true}            # construction robots (SSF); ~19. Aggregators also spell "Gritt Robotics Inc" (aliased)
+- {name: Remedy Robotics, ats: ashby, org: remedyrobotics, seed_only: true}   # surgical/catheter robots (SF); ~10
+- {name: Revise Robotics, ats: ashby, org: reviserobotics, seed_only: true}   # e-waste recycling robots (NYC); ~2
+- {name: Verne Robotics,  ats: ashby, org: "Verne%20Robotics", seed_only: true}  # robot data infra (SF); org has a literal space like Flock Safety; ~4
+- {name: Persona AI,      ats: ashby, org: "persona.ai", seed_only: true}     # humanoids (Houston/Pensacola); ~21
+- {name: Valstad,         ats: ashby, org: valstad, seed_only: true}          # heavy-industry robots (Austin); ~9
+- {name: Tutor Intelligence, ats: lever, org: tutorintelligence, seed_only: true}  # packing robots + human oversight (Watertown MA); ~32
+- {name: Multiply Labs,   ats: lever, org: multiplylabs, seed_only: true}     # pharma-manufacturing robots (SF); ~6 (some Milan)
+- {name: Blue Robotics,   ats: rippling, board: blue-robotics, seed_only: true}  # marine/underwater robots (Torrance CA + Victoria BC); ~6
+- {name: Neuralink,       ats: greenhouse, board: neuralink, seed_only: true}    # brain implants + surgical robots (SSF/Austin); ~83
+- {name: Allen Control Systems, ats: ashby, org: allen-control-systems, seed_only: true}  # defense gun-turret CV (Austin); ~79. Their site embeds THIS board; greenhouse "allencontrolsystems" is a live legacy DECOY (~68) — don't add it
+# Autonomous vehicles / aviation / space autonomy
+- {name: AeroVect,        ats: smartrecruiters, company: AeroVect, seed_only: true}  # autonomous airport ground vehicles (SF); ~6
+- {name: Pivotal,         ats: lever, org: pivotal, seed_only: true}          # personal eVTOL aircraft (Palo Alto); ~24
+- {name: Odys Aviation,   ats: ashby, org: odys-aviation, seed_only: true}    # autonomous VTOL aircraft; ~12. Writes "Long Beach CA" comma-less -> needed the "long beach" include_location_terms token
+- {name: Blue River Technology, ats: greenhouse, board: bluerivertech, seed_only: true}  # John Deere ag autonomy/CV; slug bluerivertech ("bluerivertechnology" 404s); ~11
+- {name: NIO,             ats: workday, host: nio.wd3.myworkdayjobs.com, tenant: nio, site: nio_careers, seed_only: true}  # EV automaker US board; ~18, all San Jose (robotics/AV research)
+- {name: Nissan,          ats: workday, host: alliance.wd3.myworkdayjobs.com, tenant: alliance, site: nissanjobs, seed_only: true}  # Alliance tenant, global (~309); US = Santa Clara AV research etc. Aggregators spell "Nissan Global" (aliased)
+- {name: Magna,           ats: workday, host: magna.wd3.myworkdayjobs.com, tenant: magna, site: Magna, seed_only: true}  # auto Tier-1 with ADAS/CV co-ops; ~1319 global plants
+# Vision-first products
+- {name: Voxel,           ats: ashby, org: voxel, seed_only: true}            # workplace-safety video CV (SF); ~9. This IS the "different co" noted on Voxel51's line
+- {name: SpreeAI,         ats: rippling, board: spreeai, seed_only: true}     # virtual try-on CV (SF/LA); ~13
+- {name: Jumio,           ats: greenhouse, board: jumio, seed_only: true}     # identity-verification CV; ~25 global (US remote)
+- {name: BrightAI,        ats: greenhouse, board: brightai, seed_only: true}  # physical-AI sensing/CV (Palo Alto); ~7
+- {name: Teledyne FLIR,   ats: workday, host: flir.wd1.myworkdayjobs.com, tenant: flir, site: flircareers, seed_only: true}  # thermal imaging CV; ~672 global (FLIR-only tenant, not all of Teledyne)
+# Industrial automation early-careers board (main external site's name is unknown — the
+# obvious CXS guesses 404; this small board is where the intern/co-op reqs post anyway)
+- {name: Rockwell Automation Early Careers, ats: workday, host: rockwellautomation.wd1.myworkdayjobs.com, tenant: rockwellautomation, site: External-Rockwell-Automation-Early-Careers, seed_only: true}  # ~2 (incl. Applied AI intern, Austin)
 
 # --- Eightfold (two API flavors, gated per tenant — see fetcher docstring) ---
 - {name: Qualcomm, ats: eightfold, host: careers.qualcomm.com, domain: qualcomm.com, seed_only: true}  # PCSX; ~1811 (San Diego)

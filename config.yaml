@@ -594,3 +594,6 @@ include_location_terms:
   - "orlando"
   - "salt lake city"
   - "new orleans"
+  # 2026-08-05 ledger-mined batch: Odys Aviation's Ashby board writes "Long Beach CA"
+  # (comma-less, so the ", ca" state-code token can't fire).
+  - "long beach"
