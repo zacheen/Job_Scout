@@ -8,13 +8,15 @@ from .config import Track
 from .models import Job
 
 
-def _word_re(terms: list[str]) -> re.Pattern | None:
+def _word_re(terms: list[str], *, plural_s: bool = False) -> re.Pattern | None:
     """Whole-word, case-insensitive alternation over `terms`; None (match nothing)
-    when no non-blank terms — an empty-alternation regex would match everything."""
+    when no non-blank terms — an empty-alternation regex would match everything.
+    plural_s=True absorbs a trailing "s" ("engineer" also hits "Engineers")."""
     terms = [t for t in terms if t.strip()]
     if not terms:
         return None
-    return re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b", re.IGNORECASE)
+    suffix = r")s?\b" if plural_s else r")\b"
+    return re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + suffix, re.IGNORECASE)
 
 
 def _region_matcher(terms: list[str], *, allow_state_codes: bool = True) -> re.Pattern | None:
@@ -171,14 +173,18 @@ class DescriptionFlagger:
 class TrackRouter:
     """Assigns a job to the FIRST track (config order) whose keyword hit count reaches
     its `min_hits`. A hit = one substring occurrence of one keyword in the title or the
-    description; the SAME keyword occurring N times contributes N hits. A job reaching
-    no track's min_hits is dropped. `ordered_names` = config order = email section order.
+    description, or one whole-word occurrence of a `word_keyword` in the TITLE only
+    (rationale for the split in config.yaml); the SAME keyword occurring N times
+    contributes N hits. A job reaching no track's min_hits is dropped.
+    `ordered_names` = config order = email section order.
 
     Order matters: put more specific keyword tracks before broader ones in config.
     """
 
     def __init__(self, tracks: list[Track]):
-        self._tracks = tracks
+        # Pair each track with its compiled title matcher (None = no word_keywords) so the
+        # two can never fall out of positional sync.
+        self._routes = [(t, _word_re(t.word_keywords, plural_s=True)) for t in tracks]
 
     def route(self, job: Job) -> Track | None:
         # Normalize each field separately (whitespace runs from strip_html would break
@@ -187,15 +193,17 @@ class TrackRouter:
         # PreFilter._role_allowed.
         title = _normalize_prose(job.title)
         description = _normalize_prose(job.description)
-        for track in self._tracks:
+        for track, word_re in self._routes:
             # str.count is non-overlapping, e.g. "aa".count("aa") == 1, not 2.
             hits = sum(title.count(kw) + description.count(kw) for kw in track.keywords)
+            if word_re is not None:
+                hits += len(word_re.findall(title))
             if hits >= track.min_hits:
                 return track
         return None
 
     def ordered_names(self) -> list[str]:
-        return [track.name for track in self._tracks]
+        return [track.name for track, _ in self._routes]
 
 
 class LevelClassifier:
