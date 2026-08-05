@@ -48,6 +48,15 @@ request_delay_max: 2.0
 # specific track first. Each track is its own email section, titled by `name`.
 # `threshold` gates emails: a role is emailed only when its experience_score
 # (LLM: resume-vs-role fit, 0-100) exceeds it.
+#
+# `word_keywords` (optional) match WHOLE-WORD against the TITLE only, and add to the
+# same hit count. Use them for tokens that are unsafe as substrings ("ai" hits
+# "email"/"training") or that appear in nearly every JD body ("engineer" — matching
+# descriptions would route almost everything). A trailing plural "s" is absorbed.
+#
+# Routing doubles as ADMISSION: a role hitting no track is dropped before scoring.
+# The last track ("Other Technical") is a deliberately broad catch-all for exactly
+# that reason — see its comment below for the concrete examples.
 tracks:
   - name: "Computer Vision"
     threshold: 50
@@ -83,11 +92,16 @@ tracks:
       - "reinforcement learning"
       - "recommendation system"
       - "data scientist"
+      - "data science" # NOT covered by "data scientist" (scienti- vs science): "Data Science Intern" titles
+    word_keywords:
+      - "ai" # whole-word + title-only: substring would hit "email"/"training"
   - name: "Software Engineering"
     threshold: 50
     min_hits: 1
     keywords:
       - "software engineer"
+      - "software developer"
+      - "software development engineer" # Amazon/Adobe "SDE" spelled out; bare "sde" is a word_keyword on Other Technical
       - "backend engineer"
       - "frontend engineer"
       - "full stack"
@@ -98,6 +112,46 @@ tracks:
       - "infrastructure engineer"
       - "devops"
       - "site reliability"
+      # QA / software-test roles are targets (the resume's automated-testing background);
+      # note exclude_terms deliberately does NOT list "test engineer" for the same reason.
+      - "test engineer" # substring also covers "Software Test Engineer"
+      - "sdet"
+      - "qa engineer"
+  # < !-- PM / TPM track is commented out, but kept on purpose (user decision 2026-08-05) -->
+  # # PM roles are kept on purpose (user decision 2026-08-05): they route here instead of
+  # # dying at admission. Below the engineering tracks, so a domain-worded PM title
+  # # ("Technical Program Manager, GenAI…") lands in its domain track first. The LLM scores
+  # # PM fit against an engineering resume, so expect low scores — roles this threshold
+  # # kills are accepted losses.
+  # - name: "PM / TPM"
+  #   threshold: 50
+  #   min_hits: 1
+  #   keywords:
+  #     - "product manager"
+  #     - "product management"
+  #     - "program manager" # substring also covers "Technical Program Manager"
+  #     - "project manager"
+  #     - "product owner"
+  # Catch-all admission net, ALWAYS LAST: technical roles whose titles carry no domain
+  # word (Amazon "Software Development Engineer, Bottlerocket", Oracle "Software
+  # Developer 3", Honeywell "Software Engr II") reach the scorer instead of being
+  # dropped unseen. word_keywords are title-only, so "engineer" in a JD body does NOT
+  # admit a role — pharmacy/retail/ops titles still die at admission.
+  - name: "Other Technical"
+    threshold: 50
+    min_hits: 1
+    keywords:
+      - "research assistant" # kept per user decision 2026-08-05; the scorer judges field fit
+    word_keywords:
+      - "engineer"
+      - "engr"
+      - "developer"
+      - "scientist"
+      - "software"
+      - "programmer"
+      - "sde"
+      - "researcher"
+      - "sciences" # "Research Sciences Intern"; NOT "research" — it admits astronomy RAs / equity research
 
 # Drop unwanted roles before any scoring (any tier): non-technical OR too-senior. Matched as a
 # lowercase substring in the title OR the department — so e.g. department "Sales"
@@ -172,6 +226,15 @@ exclude_terms:
   - "marketing"
   - "sales"
   - "customer"
+  # AI-flavored advisory/strategy wave (added 2026-08-05, mined from admission-gate leaks:
+  # "Advisory AI Strategist", "Enterprise AI Strategy Consultant", "AI Apprentice").
+  # NOT "consulting": it kills Cisco "Technical Consulting Engineer" (real SWE roles).
+  # NOT bare "architect" here: substring hits "Architecture" in real SWE titles/depts —
+  # it lives in exclude_word_terms instead.
+  - "strategist"
+  - "strategy"
+  - "consultant"
+  - "apprentice"
   - "recruit"
   - "recruiter"
   - "account executive"
@@ -218,6 +281,9 @@ exclude_word_terms:
   - "hr" # whole-word: substring would hit "Chrome"/"HRT"; catches "HR Project Manager" & dept "HR"
   - "asic" # whole-word: substring would hit "Basic"
   - "rtl" # whole-word: substring would hit "Myrtle"; RTL/chip-design roles
+  # Architect roles are 10+-yrs-senior; whole-word so "architecture" survives (substring
+  # would kill "AI Infrastructure Engineer Intern (TikTok Recommendation Architecture)").
+  - "architect"
 
 # Drop a job when its DESCRIPTION contains any of these (lowercase substring; the text is
 # whitespace-collapsed and curly apostrophes straightened before matching, so a phrase still

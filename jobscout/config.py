@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -45,6 +45,9 @@ class Track:
     keywords: list[str]    # routing terms, matched as lowercase substrings in title/description
     threshold: int         # a role is emailed only when experience_score exceeds this
     min_hits: int = 1      # keyword hits (title + description, repeats count) needed to route here
+    # Whole-word, TITLE-only terms for tokens unsafe as substrings ("ai" hits "email")
+    # or too common in JD bodies to scan descriptions with ("engineer"); hits add to min_hits.
+    word_keywords: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -139,8 +142,9 @@ class Settings:
             keywords=[k.lower() for k in entry.get("keywords", [])],
             threshold=int(entry.get("threshold", 50)),
             min_hits=int(entry.get("min_hits", 1)),
+            word_keywords=[k.lower() for k in entry.get("word_keywords", [])],
         )
-        if not track.keywords:
+        if not track.keywords and not track.word_keywords:
             # Fail fast: a keyword-less track is dead config (listed but unroutable), e.g. a keywords: typo.
             raise ValueError(f"track {track.name!r} has no keywords")
         if track.min_hits < 1:
