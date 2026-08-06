@@ -43,7 +43,7 @@ def main() -> int:
     parser.add_argument("--ledger", default="cloud_data",
                         help="shard dir to read, relative to the repo root or absolute "
                              "(default: cloud_data)")
-    parser.add_argument("--hours", type=int, default=24, metavar="N",
+    parser.add_argument("--hours", type=int, default=8, metavar="N",
                         help="only roles first seen within the last N hours "
                              "(rolling UTC cutoff; 0 = everything)")
     parser.add_argument("--out", default="dropped_jobs.txt",
