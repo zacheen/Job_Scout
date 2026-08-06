@@ -10,7 +10,7 @@ file, one role per line, split into two sections:
                              URL-deduped, senior-suppressed, or seed-only backlog)
 
 The ledger does not record WHICH pre-scoring cause applied; a company's
-first-appearance seed backlog dominates the second section, so use --days to cut
+first-appearance seed backlog dominates the second section, so use --hours to cut
 the list down to recent runs when hunting for wrongly filtered roles.
 
 Run from a checkout of the `data` branch (the shard dirs only live there).
@@ -43,9 +43,9 @@ def main() -> int:
     parser.add_argument("--ledger", default="cloud_data",
                         help="shard dir to read, relative to the repo root or absolute "
                              "(default: cloud_data)")
-    parser.add_argument("--days", type=int, default=1, metavar="N",
-                        help="only roles first seen within the last N days "
-                             "(UTC date cutoff; 0 = everything)")
+    parser.add_argument("--hours", type=int, default=24, metavar="N",
+                        help="only roles first seen within the last N hours "
+                             "(rolling UTC cutoff; 0 = everything)")
     parser.add_argument("--out", default="dropped_jobs.txt",
                         help="output txt path (default: dropped_jobs.txt, gitignored)")
     args = parser.parse_args()
@@ -57,11 +57,13 @@ def main() -> int:
         return 1
 
     rows = _load_rows(ledger)
-    if args.days > 0:
-        # first_seen is ISO 8601 UTC, so a YYYY-MM-DD prefix comparison is date order;
-        # rows without one predate the column and are treated as old (excluded).
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=args.days)).date().isoformat()
-        rows = [r for r in rows if r.get("first_seen", "")[:10] >= cutoff]
+    if args.hours > 0:
+        # first_seen is ISO 8601 UTC written with isoformat(timespec="seconds"), so
+        # comparing against a cutoff in the same format is chronological order; rows
+        # without one predate the column and are treated as old (excluded).
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(hours=args.hours)).isoformat(timespec="seconds")
+        rows = [r for r in rows if r.get("first_seen", "") >= cutoff]
     dropped = [r for r in rows if r.get("emailed") != "true"]
     dropped.sort(key=lambda r: r.get("first_seen", ""), reverse=True)  # newest first
     gated = [r for r in dropped if r.get("scored") == "true"]
@@ -75,7 +77,7 @@ def main() -> int:
                  f"seeded): {len(unscored)} ===\n")
         fh.writelines(_line(r) + "\n" for r in unscored)
 
-    scope = f" (last {args.days} days)" if args.days > 0 else ""
+    scope = f" (last {args.hours} hours)" if args.hours > 0 else ""
     print(f"{len(gated)} scored-but-not-emailed + {len(unscored)} dropped-before-scoring"
           f"{scope} -> {out}")
     return 0
