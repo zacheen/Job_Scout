@@ -464,6 +464,30 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
     _SEED_MAX_PAGES = 10
     _MAX_SEARCH_PAGES = 25  # hard bound for the searchText (relevance-ordered) mode
 
+    _N_LOCATIONS = re.compile(r"\d+\s+locations?", re.IGNORECASE)
+
+    @classmethod
+    def _location(cls, item: dict) -> tuple[str, str]:
+        """Returns (location, location_display): location is what PreFilter matches on;
+        location_display is a human-readable fallback, filled in only when location is a
+        raw URL slug.
+
+        A multi-site posting summarises as "3 Locations" with no place name, which the region
+        allowlist can only reject, so fall back to the primary site in externalPath
+        ("/job/McLean-VA/…"). Its hyphens must stay in `location` — _region_matcher uses one as
+        the state-code separator and matches across them in multi-word terms; rewriting them
+        costs rows (~1.5k for spaces, ~360 for commas), hence the separate display value.
+
+        KNOWN LIMIT: only the primary site is in the path, so a posting listing Munich before
+        San Jose still drops (~72% of such cases do resolve to a US site anyway)."""
+        text = item.get("locationsText") or ""
+        if not cls._N_LOCATIONS.fullmatch(text.strip()):
+            return text, ""
+        primary = (item.get("externalPath") or "").split("/job/")[-1].split("/")[0]
+        if not primary:
+            return text, ""
+        return primary, primary.replace("-", " ")
+
     @property
     def host(self) -> str:
         return self._param("host")
@@ -487,12 +511,19 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
             {"appliedFacets": {}, "limit": self._PAGE,
              "offset": index * self._PAGE, "searchText": self._search_text},
         )
-        jobs = [
-            Job(
+        jobs = []
+        for item in data.get("jobPostings", []):
+            # externalPath is the job's identity — placeholder postings that lack
+            # it would get a blank job_key and a board-root URL.
+            if not item.get("externalPath"):
+                continue
+            location, location_display = self._location(item)
+            jobs.append(Job(
                 job_uid=self._uid(item["externalPath"]),
                 company=self._company.name,
                 title=item.get("title", ""),
-                location=item.get("locationsText", ""),
+                location=location,
+                location_display=location_display,
                 # externalPath alone 404s — the JD page only exists under /en-US/{site}.
                 url=f"https://{host}/en-US/{site}{item['externalPath']}",
                 # Workday listing API omits description; per-job fetches are too
@@ -500,11 +531,7 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
                 description="",
                 department="",
                 date_posted=item.get("postedOn", ""),
-            )
-            # externalPath is the job's identity — placeholder postings that lack
-            # it would get a blank job_key and a board-root URL.
-            for item in data.get("jobPostings", []) if item.get("externalPath")
-        ]
+            ))
         # Some tenants (e.g. Adobe) report total=0 after the first page; treat 0 as
         # unknown so pagination doesn't stop early — truly empty boards still
         # terminate via the empty-page check.
