@@ -263,6 +263,16 @@ exclude_terms:
   # but NOT "partnership(s)".
   - "partner "
 
+# Rank-free title idioms BLANKED from title/department before exclude_terms /
+# exclude_word_terms run (whole-phrase, case-insensitive). "Member of Technical Staff"
+# is a rank-free everyone-title at AI labs (new grads included), so exclude_terms'
+# "staff" (meant for Staff-Engineer seniority) must not see it. Only the phrase is
+# blanked — seniority words AROUND it still act: "Principal Member of Technical Staff"
+# still drops on "principal"; "Senior MTS" still lands in the suppressed Senior group. (2026-08-05)
+exempt_role_phrases:
+  - "member of technical staff"
+  - "member of the technical staff" # OpenAI-style spelling with "the"
+
 # Highest-priority filter: drop a job if its DEPARTMENT contains any of these
 # (lowercase substring). Checked before every other rule.
 exclude_dept_terms:
