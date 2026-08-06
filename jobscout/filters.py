@@ -53,6 +53,12 @@ def _matches_any(pattern: re.Pattern | None, *texts: str) -> bool:
     return pattern is not None and any(pattern.search(t) for t in texts)
 
 
+def _blanked(pattern: re.Pattern | None, text: str) -> str:
+    """`text` with every `pattern` match replaced by a single space (not ""), so the word
+    boundaries on either side of a removed span stay separated for whole-word matching."""
+    return pattern.sub(" ", text) if pattern else text
+
+
 def _normalize_prose(text: str) -> str:
     """Lowercase free text, straighten curly apostrophes, and collapse whitespace runs —
     strip_html leaves multi-space/newline gaps where tags were, which would break
@@ -70,7 +76,8 @@ class PreFilter:
 
     def __init__(self, *, include_location_terms: list[str], exclude_location_terms: list[str],
                  exclude_terms: list[str], exclude_dept_terms: list[str],
-                 exclude_word_terms: list[str], exclude_description_terms: list[str]):
+                 exclude_word_terms: list[str], exclude_description_terms: list[str],
+                 exempt_role_phrases: list[str]):
         self._include_location_re = _region_matcher(include_location_terms)
         # For a bare "Remote" the country is absent from `location` and only in the TITLE
         # ("… (USA)" vs "… - Egypt Based"); reuse the same tokens minus the 2-letter state codes
@@ -90,6 +97,11 @@ class PreFilter:
         # ("not" inside "cannot" has no \b boundary — rationale in config.yaml).
         self._exclude_description_terms = [_normalize_prose(t) for t in exclude_description_terms
                                            if t.strip()]
+        # Rank-free title idioms ("Member of Technical Staff") BLANKED from title/department
+        # before the two role checks, so a seniority substring inside them ("staff") can't
+        # fire — while real seniority words AROUND them still do ("Principal Member of
+        # Technical Staff" keeps "principal" and still drops). See config.yaml.
+        self._exempt_role_re = _word_re(exempt_role_phrases)
         # All pure predicates under all(), so this order only affects short-circuit speed, not the
         # result. Description scan goes last: it normalizes the longest text, and only after the
         # cheap title/dept/location checks failed to drop the job.
@@ -127,12 +139,15 @@ class PreFilter:
 
     def _role_allowed(self, job: Job) -> bool:
         # Match within each field separately so a multi-word term can't span the title/department join.
-        title, department = job.title.lower(), job.department.lower()
+        title = _blanked(self._exempt_role_re, job.title).lower()
+        department = _blanked(self._exempt_role_re, job.department).lower()
         return not any(t in title or t in department for t in self._exclude_terms)
 
     def _role_words_allowed(self, job: Job) -> bool:
         # Whole-word counterpart of _role_allowed for collision-prone short tokens.
-        return not _matches_any(self._exclude_word_re, job.title, job.department)
+        return not _matches_any(self._exclude_word_re,
+                                _blanked(self._exempt_role_re, job.title),
+                                _blanked(self._exempt_role_re, job.department))
 
     def _description_allowed(self, job: Job) -> bool:
         # "No visa sponsorship" boilerplate scan. Sources whose listing API omits the
