@@ -58,6 +58,7 @@ class Settings:
     exclude_dept_terms: list[str]
     exclude_word_terms: list[str]
     exclude_description_terms: list[str]
+    exclude_description_patterns: list[str]
     exempt_role_phrases: list[str]
     warn_description_terms: list[str]
     skill_keywords: list[str]
@@ -100,6 +101,7 @@ class Settings:
             exclude_dept_terms=cfg.get("exclude_dept_terms", []),
             exclude_word_terms=cfg.get("exclude_word_terms", []),
             exclude_description_terms=cfg.get("exclude_description_terms", []),
+            exclude_description_patterns=cfg.get("exclude_description_patterns", []),
             exempt_role_phrases=cfg.get("exempt_role_phrases", []),
             warn_description_terms=cfg.get("warn_description_terms", []),
             skill_keywords=[k.lower() for k in cfg.get("skill_keywords", [])],

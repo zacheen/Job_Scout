@@ -77,6 +77,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
             exclude_dept_terms=settings.exclude_dept_terms,
             exclude_word_terms=settings.exclude_word_terms,
             exclude_description_terms=settings.exclude_description_terms,
+            exclude_description_patterns=settings.exclude_description_patterns,
             exempt_role_phrases=settings.exempt_role_phrases,
         ),
         annotator=DescriptionFlagger(settings.warn_description_terms),

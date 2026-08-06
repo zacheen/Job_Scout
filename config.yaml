@@ -327,15 +327,24 @@ exclude_description_terms:
   - "sponsorship is not available"
   - "sponsorship not available"
   - "sponsorship is unavailable"
-  - "not eligible for sponsorship"
-  - "not eligible for visa sponsorship"
-  - "ineligible for sponsorship"
-  - "ineligible for visa sponsorship"
+  # "(not eligible|ineligible) for … sponsorship" moved to exclude_description_patterns
+  # below (needs a regex wildcard for employers naming themselves mid-phrase).
   # US-citizenship / security-clearance requirements — a visa candidate can't meet these
   - "security clearance"
   - "ts/sci"            # postings that write "TS/SCI clearance" without the word "security"
   - "be a us citizen"   # requirement phrasing ("candidate selected be a US Citizen"; "must be a US citizen")
   - "be a u.s. citizen" # same, period spelling (normalizer keeps the dots)
+
+# Same purpose and same haystack as exclude_description_terms, but each row is a RAW REGEX
+# (case-insensitive, NOT escaped) — use this only where a fixed substring cannot express the
+# match. Backslashes survive as written under YAML single quotes; double quotes would not.
+exclude_description_patterns:
+  # Covers "not eligible for <EMPLOYER> sponsorship" (Intel, Qualcomm etc. name themselves
+  # mid-phrase, defeating any substring list) plus the plain "(not eligible|ineligible) for
+  # [visa|immigration] sponsorship" spellings.
+  # Gap class excludes sentence punctuation on purpose: without it, "not eligible for
+  # overtime. Visa sponsorship is available" would match and wrongly drop a job that DOES sponsor.
+  - '\b(?:not eligible|ineligible) for (?:[^\s.,;:!?]+ ){0,3}sponsorship'
 
 # AMBIGUOUS eligibility wording: usually restrictive, but NOT a guaranteed disqualifier — so a
 # match does NOT drop the job; it is still scored and emailed with a "possibly NO visa sponsorship
