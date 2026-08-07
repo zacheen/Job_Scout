@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Photon:3a2e2c86-3612-46c8-891d-50a65e292f46,Photon,Software Engineering Intern - AI,Remote in USA,Software,https://fa-ertb-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2/job/26738,2026-08-16,2026-08-16T01:41:13+00:00,2026-08-15 18:41 Sat,AI / ML,true,Keyword,51,title-only listing; auto-passed (no description to score),true,simplify:Simplify Internships:3a2e2c86-3612-46c8-891d-50a65e292f46
