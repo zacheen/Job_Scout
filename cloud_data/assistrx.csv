@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+AssistRX:https://apply.workable.com/assist-rx/j/7F761604FA/,AssistRX,Data Engineer,USA,,https://apply.workable.com/assist-rx/j/7F761604FA/,,2026-08-07T13:41:24+00:00,2026-08-07 06:41 Fri,Software Engineering,true,Keyword,40,keyword-only heuristic (title only),false,speedyapply:SpeedyApply AI:https://apply.workable.com/assist-rx/j/7F761604FA/
