@@ -45,6 +45,16 @@ class Annotator(Protocol):
         ...
 
 
+class Enricher(Protocol):
+    def enrich(self, job: Job) -> Job:
+        """Return the job, or a copy with fields the listing API omitted (e.g. the full
+        description) filled from a per-job detail request. Must not change identity fields
+        (job_uid/url), and must fail open — on a fetch error, return `job` unchanged.
+        Return `job` ITSELF (same object) when nothing was fetched — the pipeline keys
+        "skip the redundant re-filter" on object identity."""
+        ...
+
+
 class Router(Protocol):
     def route(self, job: Job) -> "Track | None": ...
     def ordered_names(self) -> list[str]: ...

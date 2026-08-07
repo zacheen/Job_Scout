@@ -17,6 +17,8 @@ from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
 
+from dataclasses import replace
+
 from .company_aliases import canonical_company
 from .config import Company
 from .models import Job
@@ -245,8 +247,20 @@ class AtsFetcher(ABC):
         company name being a prefix of another."""
         return f"{ats}:{company_name}:"
 
+    @property
+    def own_uid_prefix(self) -> str:
+        return self.uid_prefix(self.ats_name, self._company.name)
+
+    def enrich(self, job: Job) -> Job:
+        """Per-job detail hook (see the Enricher protocol): return `job`, or a copy with
+        fields the listing API omitted (e.g. full description) filled from a detail
+        request. Default: this ATS has no detail endpoint worth a per-job call — return
+        `job` unchanged. Overrides must fail open on fetch errors and must not change
+        identity fields (job_uid/url)."""
+        return job
+
     def _uid(self, job_id) -> str:
-        return f"{self.uid_prefix(self.ats_name, self._company.name)}{job_id}"
+        return f"{self.own_uid_prefix}{job_id}"
 
     def _param(self, key: str) -> str:
         try:
@@ -259,8 +273,7 @@ class AtsFetcher(ABC):
     def _company_known(self, seen: Collection[str]) -> bool:
         # True iff THIS company has a prior uid in `seen` — each company gets its own
         # seed cap on first appearance, regardless of what else is already in the ledger.
-        prefix = self.uid_prefix(self.ats_name, self._company.name)
-        return any(uid.startswith(prefix) for uid in seen)
+        return any(uid.startswith(self.own_uid_prefix) for uid in seen)
 
 
 class PagedFetcher(AtsFetcher):
@@ -556,6 +569,11 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
     def host(self) -> str:
         return self._param("host")
 
+    def _extract_description(self, item: dict) -> str:
+        """One plain-text description out of an item's _DESC_FIELDS (listing and detail
+        payloads share the field names)."""
+        return strip_html(" ".join(s for f in self._DESC_FIELDS if (s := item.get(f))))
+
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         host, site = self._param("host"), self._param("site")
         url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
@@ -563,8 +581,9 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
                   f"offset={index * self._PAGE},sortBy=POSTING_DATES_DESC")
         data = self._http.get_json(
             url,
-            # expand=all surfaces those extra fields (see _DESC_FIELDS) in the one listing call —
-            # no per-job detail request needed.
+            # expand=all is supposed to surface the _DESC_FIELDS long text in the listing, but
+            # some tenants (verified: Ford) return those fields as null here and only populate
+            # them on the per-req detail endpoint — enrich() backfills survivors from there.
             params={"onlyData": "true", "expand": "all", "finder": finder},
         )
         result = (data.get("items") or [{}])[0]
@@ -575,13 +594,38 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
                 title=item.get("Title", ""),
                 location=item.get("PrimaryLocation", ""),
                 url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{item['Id']}",
-                description=strip_html(" ".join(s for f in self._DESC_FIELDS if (s := item.get(f)))),
+                description=self._extract_description(item),
                 department=item.get("JobFamily") or "",
                 date_posted=item.get("PostedDate", ""),
             )
             for item in result.get("requisitionList", []) if item.get("Id")
         ]
         return jobs, result.get("TotalJobsCount")
+
+    def enrich(self, job: Job) -> Job:
+        """Backfill the full JD from the per-req detail endpoint
+        (`recruitingCEJobRequisitionDetails?finder=ById`): tenants like Ford leave the
+        _DESC_FIELDS long text null in the listing (see _fetch_page), so the visa
+        boilerplate in ExternalQualificationsStr is only visible here."""
+        if not job.job_uid.startswith(self.own_uid_prefix):
+            return job
+        req_id = job.job_uid.removeprefix(self.own_uid_prefix)
+        host, site = self._param("host"), self._param("site")
+        url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails"
+        try:
+            data = self._http.get_json(
+                url,
+                params={"onlyData": "true", "expand": "all",
+                        "finder": f'ById;siteNumber={site},Id="{req_id}"'},
+            )
+            # A just-delisted req can come back as items=[] or items=[null]; normalize
+            # both to {} so extraction below stays inside this fail-open block.
+            item = (data.get("items") or [{}])[0] or {}
+            description = self._extract_description(item)
+        except Exception as exc:  # fail open — the blurb-only job is still usable
+            log.warning("%s: detail fetch failed for %s: %s", self.ats_name, job.job_uid, exc)
+            return job
+        return replace(job, description=description) if description else job
 
 
 class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
@@ -2644,3 +2688,21 @@ class ParallelFetcher:
         # Logged when this host group finishes; the timestamp + elapsed expose the slowest host.
         log.info("host %s done: %d jobs in %.1fs", host, len(jobs), time.perf_counter() - started)
         return jobs
+
+
+class DispatchingEnricher:
+    """Routes each job to the `enrich` of the fetcher that produced it, matched by uid
+    prefix; a job matching no fetcher passes through unchanged. Satisfies the `Enricher`
+    protocol. Meant for the few jobs that survive prefiltering — enrichment is a per-job
+    network call, so callers must not feed whole fetch results through it."""
+
+    def __init__(self, fetchers: list[AtsFetcher]):
+        self._prefixed = tuple((f.own_uid_prefix, f) for f in fetchers)
+
+    def enrich(self, job: Job) -> Job:
+        # Linear scan: uid prefixes end in ':' so at most one entry can match (one company
+        # name can't be a prefix of another's), and enriched jobs number a handful per run.
+        for prefix, fetcher in self._prefixed:
+            if job.job_uid.startswith(prefix):
+                return fetcher.enrich(job)
+        return job

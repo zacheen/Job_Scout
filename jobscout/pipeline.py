@@ -10,8 +10,8 @@ from collections.abc import Collection, Mapping
 
 from .config import DIGEST_TZ, Track
 from .models import Job, Score
-from .protocols import (Annotator, Digest, Fetcher, JobFilter, JobScorer, JobStore, Leveler,
-                        Notifier, Router)
+from .protocols import (Annotator, Digest, Enricher, Fetcher, JobFilter, JobScorer, JobStore,
+                        Leveler, Notifier, Router)
 from .urls import canon_url
 
 log = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ class Pipeline:
         store: JobStore,
         fetcher: Fetcher,
         prefilter: JobFilter,
+        enricher: Enricher | None = None,
         annotator: Annotator,
         router: Router,
         leveler: Leveler,
@@ -47,6 +48,8 @@ class Pipeline:
         self._store = store
         self._fetcher = fetcher
         self._prefilter = prefilter
+        # None = no source offers per-job detail; the enrich stage becomes a no-op.
+        self._enricher = enricher
         self._annotator = annotator
         self._router = router
         self._leveler = leveler
@@ -77,10 +80,7 @@ class Pipeline:
         known = self._store.known_uids()
         known_urls = self._store.known_urls()
         candidates = [j for j in all_jobs if self._prefilter.keep(j)]
-        # Annotate only the genuinely new candidates — steady-state runs mostly refetch
-        # already-known jobs. Annotated copies flow only to the email path; add_seen below
-        # records the originals from all_jobs.
-        new_candidates = [self._annotate(j) for j in candidates if j.job_uid not in known]
+        new_candidates = [j for j in candidates if j.job_uid not in known]
         new_candidates = self._suppress_seeding(new_candidates, known)
         # Record all new fetched jobs, not only candidates: PreFilter-rejected jobs are
         # otherwise never recorded and look "new" forever, defeating early-stop.
@@ -98,6 +98,16 @@ class Pipeline:
         if not new_candidates:
             self._store.save()
             log.info("no new roles this run")
+            return True
+
+        # Enrich + annotate only the genuinely new candidates (steady-state runs mostly
+        # refetch already-known jobs), and only after the seeding early-returns above —
+        # enrichment costs one network call per job. Enriched/annotated copies flow only
+        # to the email path; add_seen above recorded the originals from all_jobs.
+        new_candidates = [self._annotate(j) for j in self._enrich_and_refilter(new_candidates)]
+        if not new_candidates:
+            self._store.save()
+            log.info("all new roles dropped on their detail-fetched text")
             return True
 
         # Email dedup is by URL (not uid): same job via another source/prior run is skipped.
@@ -150,14 +160,41 @@ class Pipeline:
         return True
 
     def _annotate(self, job: Job) -> Job:
-        """Apply the annotator, enforcing its contract (derived presentation fields only):
-        a changed job_uid/url would silently corrupt the uid- and URL-keyed dedup downstream,
-        so fail loud here instead — the Protocol docstring alone can't."""
-        annotated = self._annotator.annotate(job)
-        if annotated.job_uid != job.job_uid or annotated.url != job.url:
-            raise ValueError(f"annotator changed identity fields for {job.job_uid!r} "
-                             f"(uid {annotated.job_uid!r}, url {annotated.url!r})")
-        return annotated
+        return self._same_identity(self._annotator.annotate(job), job, "annotator")
+
+    def _enrich_and_refilter(self, jobs: list[Job]) -> list[Job]:
+        """Fill each job's costly-to-fetch fields from its source's per-job detail endpoint
+        (a no-op for most sources), then re-run the prefilter on the touched jobs: exclude
+        boilerplate (e.g. "no visa sponsorship") often lives only in the detail text that
+        the listing API omitted. Enrichment fails open (Enricher contract), so a fetch
+        error just leaves a job on its listing-level text."""
+        if self._enricher is None:
+            return jobs
+        kept = []
+        for job in jobs:
+            try:
+                enriched = self._enricher.enrich(job)
+            except Exception as exc:  # enricher broke its fail-open contract; honor it here
+                log.warning("enrich failed for %s, keeping listing-level text: %s",
+                            job.job_uid, exc)
+                enriched = job
+            # Outside the try: an identity violation is a programming error — fail loud.
+            enriched = self._same_identity(enriched, job, "enricher")
+            if enriched is not job and not self._prefilter.keep(enriched):
+                log.info("dropped on detail-fetched text: %s (%s)", job.job_uid, job.title)
+                continue
+            kept.append(enriched)
+        return kept
+
+    @staticmethod
+    def _same_identity(derived: Job, original: Job, component: str) -> Job:
+        """Enforce the Annotator/Enricher contract (derived fields only): a changed
+        job_uid/url would silently corrupt the uid- and URL-keyed dedup downstream, so
+        fail loud here instead — the Protocol docstrings alone can't."""
+        if derived.job_uid != original.job_uid or derived.url != original.url:
+            raise ValueError(f"{component} changed identity fields for {original.job_uid!r} "
+                             f"(uid {derived.job_uid!r}, url {derived.url!r})")
+        return derived
 
     def _suppress_seeding(self, new_candidates: list[Job], known: set[str]) -> list[Job]:
         """Drop candidates from a seed_only source on its FIRST appearance (no uid with its

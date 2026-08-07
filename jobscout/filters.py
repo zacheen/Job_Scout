@@ -172,8 +172,9 @@ class PreFilter:
 
     def _description_allowed(self, job: Job) -> bool:
         # "No visa sponsorship" boilerplate scan. Sources whose listing API omits the
-        # description (Workday; Oracle has only a short blurb) pass through vacuously —
-        # there is no text to match, here or at scoring time.
+        # description (Workday; Oracle lists only a short blurb) pass through vacuously
+        # here; Oracle survivors get their full text detail-fetched and re-filtered by
+        # the pipeline's enrich stage, which reruns this check.
         if not job.description:
             return True
         description = _normalize_prose(job.description)
