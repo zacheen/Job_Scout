@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Protolabs:9da2126b-76e7-4d10-aee7-ec97cbff5bec,Protolabs,Associate Software Engineer - C++ - Computer Aided Manufacturing,"Plymouth, MN",,https://jobs.lever.co/protolabs/9da2126b-76e7-4d10-aee7-ec97cbff5bec,,2026-08-10T13:41:59+00:00,2026-08-10 06:41 Mon,Software Engineering,true,Keyword,48,keyword-only heuristic (title only),false,speedyapply:SpeedyApply SWE:9da2126b-76e7-4d10-aee7-ec97cbff5bec
