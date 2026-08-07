@@ -21,11 +21,16 @@ def _word_re(terms: list[str], *, plural_s: bool = False) -> re.Pattern | None:
 
 def _region_matcher(terms: list[str], *, allow_state_codes: bool = True) -> re.Pattern | None:
     r"""Allowlist matcher for US/Taiwan location tokens. Per term:
-      - ", xx" (comma-space + two letters) = a US state code: matches after a comma OR dash
-        separator with a trailing \b ("Boston, MA" / "Remote - CA", but not ", Canada"/", Masovian").
+      - ", xx" (comma-space + two letters) = a US state code: matches at the START of the string
+        or after a comma/dash separator (space optional), with a trailing \b — "Boston, MA" /
+        "Remote - CA" / "McLean-VA", but not ", Canada"/", Masovian".
         Skipped when allow_state_codes=False (for titles, where ", or"/", in" would hit "or"/"in").
       - a bare 2-3 letter token ("us"/"usa"): whole-word, so "us" won't hit "Belarus"/"Houston".
-      - anything longer: raw substring (", CA, USA" still contains "usa").
+      - anything longer: substring, but each internal space also matches a HYPHEN, so "san jose"
+        covers "San-Jose" too.
+    CAVEAT: `\A` anchors the ABSOLUTE start, not "preceded by whitespace" — a state code that
+    isn't the first token (e.g. "MA" in a space-flattened "USA MA Framingham") won't match. Keep
+    hyphens intact when feeding path-shaped locations in.
     CAVEAT: the state-code rule keys on SHAPE; a 3-letter code or a stray space silently degrades to
     a substring — harmless for long names, but for a 2-letter code it reintroduces the prefix leak.
     KNOWN edge: a 2-letter code can coincide with a foreign admin-region abbreviation — "Co." (Irish
@@ -39,12 +44,23 @@ def _region_matcher(terms: list[str], *, allow_state_codes: bool = True) -> re.P
             continue
         if re.fullmatch(r", [a-z]{2}", low):
             if allow_state_codes:
-                parts.append(r"[,\-] " + low[2:] + r"\b")
+                parts.append(r"(?:\A\s*|[,\-]\s*)" + low[2:] + r"\b")
         elif re.fullmatch(r"[a-z]{2,3}", low):
             parts.append(r"\b" + re.escape(low) + r"\b")
         else:
-            parts.append(re.escape(low))
+            # Split-join, not re.sub on re.escape's output: re.sub's template rejects a literal "\s".
+            parts.append(r"[\s\-]".join(re.escape(w) for w in low.split(" ")))
     return re.compile("|".join(parts), re.IGNORECASE) if parts else None
+
+
+def _raw_re(patterns: list[str]) -> re.Pattern | None:
+    """Alternation over RAW regex fragments — unlike `_word_re`, nothing is escaped and no
+    word boundary is added, so each fragment owns its own anchoring. None when no non-blank
+    fragments (an empty alternation would match everything)."""
+    parts = [p for p in patterns if p.strip()]
+    if not parts:
+        return None
+    return re.compile("|".join(f"(?:{p})" for p in parts), re.IGNORECASE)
 
 
 def _matches_any(pattern: re.Pattern | None, *texts: str) -> bool:
@@ -77,7 +93,7 @@ class PreFilter:
     def __init__(self, *, include_location_terms: list[str], exclude_location_terms: list[str],
                  exclude_terms: list[str], exclude_dept_terms: list[str],
                  exclude_word_terms: list[str], exclude_description_terms: list[str],
-                 exempt_role_phrases: list[str]):
+                 exclude_description_patterns: list[str], exempt_role_phrases: list[str]):
         self._include_location_re = _region_matcher(include_location_terms)
         # For a bare "Remote" the country is absent from `location` and only in the TITLE
         # ("… (USA)" vs "… - Egypt Based"); reuse the same tokens minus the 2-letter state codes
@@ -97,16 +113,21 @@ class PreFilter:
         # ("not" inside "cannot" has no \b boundary — rationale in config.yaml).
         self._exclude_description_terms = [_normalize_prose(t) for t in exclude_description_terms
                                            if t.strip()]
+        # Wildcard counterpart of the above, for phrases no fixed substring can express (an
+        # employer naming itself mid-sentence). Matched against the SAME normalized text, so a
+        # fragment may assume lowercase, straight apostrophes and single spaces.
+        self._exclude_description_re = _raw_re(exclude_description_patterns)
         # Rank-free title idioms ("Member of Technical Staff") BLANKED from title/department
         # before the two role checks, so a seniority substring inside them ("staff") can't
         # fire — while real seniority words AROUND them still do ("Principal Member of
         # Technical Staff" keeps "principal" and still drops). See config.yaml.
         self._exempt_role_re = _word_re(exempt_role_phrases)
         # All pure predicates under all(), so this order only affects short-circuit speed, not the
-        # result. Description scan goes last: it normalizes the longest text, and only after the
-        # cheap title/dept/location checks failed to drop the job.
+        # result. The two description scans go last: each normalizes the longest text, and only
+        # after the cheap title/dept/location checks failed to drop the job.
         self._checks = (self._dept_allowed, self._location_not_excluded, self._region_allowed,
-                        self._role_allowed, self._role_words_allowed, self._description_allowed)
+                        self._role_allowed, self._role_words_allowed, self._description_allowed,
+                        self._description_patterns_allowed)
 
     def keep(self, job: Job) -> bool:
         return all(check(job) for check in self._checks)
@@ -151,12 +172,20 @@ class PreFilter:
 
     def _description_allowed(self, job: Job) -> bool:
         # "No visa sponsorship" boilerplate scan. Sources whose listing API omits the
-        # description (Workday; Oracle has only a short blurb) pass through vacuously —
-        # there is no text to match, here or at scoring time.
-        if not self._exclude_description_terms or not job.description:
+        # description (Workday; Oracle lists only a short blurb) pass through vacuously
+        # here; Oracle survivors get their full text detail-fetched and re-filtered by
+        # the pipeline's enrich stage, which reruns this check.
+        if not job.description:
             return True
         description = _normalize_prose(job.description)
         return not any(term in description for term in self._exclude_description_terms)
+
+    def _description_patterns_allowed(self, job: Job) -> bool:
+        # Regex counterpart of _description_allowed, for boilerplate no fixed substring can
+        # express — same vacuous pass on a description-less listing.
+        if not job.description:
+            return True
+        return not _matches_any(self._exclude_description_re, _normalize_prose(job.description))
 
 
 class DescriptionFlagger:

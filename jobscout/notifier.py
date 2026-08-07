@@ -58,7 +58,7 @@ class EmailNotifier:
                 for job, score in items:
                     lines.append(f"{job.title} ({job.company})")
                     lines.append(
-                        f"  location: {job.location or '?'} | dept: {job.department or '?'} | "
+                        f"  location: {job.display_location or '?'} | dept: {job.department or '?'} | "
                         f"posted: {job.date_posted or '?'}"
                     )
                     # matches is only set for keyword-scored jobs; shown instead of

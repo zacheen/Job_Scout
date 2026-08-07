@@ -327,15 +327,24 @@ exclude_description_terms:
   - "sponsorship is not available"
   - "sponsorship not available"
   - "sponsorship is unavailable"
-  - "not eligible for sponsorship"
-  - "not eligible for visa sponsorship"
-  - "ineligible for sponsorship"
-  - "ineligible for visa sponsorship"
+  # "(not eligible|ineligible) for … sponsorship" moved to exclude_description_patterns
+  # below (needs a regex wildcard for employers naming themselves mid-phrase).
   # US-citizenship / security-clearance requirements — a visa candidate can't meet these
   - "security clearance"
   - "ts/sci"            # postings that write "TS/SCI clearance" without the word "security"
   - "be a us citizen"   # requirement phrasing ("candidate selected be a US Citizen"; "must be a US citizen")
   - "be a u.s. citizen" # same, period spelling (normalizer keeps the dots)
+
+# Same purpose and same haystack as exclude_description_terms, but each row is a RAW REGEX
+# (case-insensitive, NOT escaped) — use this only where a fixed substring cannot express the
+# match. Backslashes survive as written under YAML single quotes; double quotes would not.
+exclude_description_patterns:
+  # Covers "not eligible for <EMPLOYER> sponsorship" (Intel, Qualcomm etc. name themselves
+  # mid-phrase, defeating any substring list) plus the plain "(not eligible|ineligible) for
+  # [visa|immigration] sponsorship" spellings.
+  # Gap class excludes sentence punctuation on purpose: without it, "not eligible for
+  # overtime. Visa sponsorship is available" would match and wrongly drop a job that DOES sponsor.
+  - '\b(?:not eligible|ineligible) for (?:[^\s.,;:!?]+ ){0,3}sponsorship'
 
 # AMBIGUOUS eligibility wording: usually restrictive, but NOT a guaranteed disqualifier — so a
 # match does NOT drop the job; it is still scored and emailed with a "possibly NO visa sponsorship
@@ -501,12 +510,23 @@ exclude_location_terms:
   - "spain"
   - "netherlands"
   - "australia"
+  # Collision fallout from completing the state-code set below (2026-08-06 audit): ", la" hits
+  # "Marne-la-Vallée"/"La Reggia" (France/Italy), ", sc" hits "Joinville, SC" (Brazil), ", al" hits
+  # "Al Wasta" (Egypt), ", il" hits "IL-Israel-Remote" — each forces the paired country name here.
+  # Cost: 2 US rows ("France Ave, Edina, Minnesota") + an already-dropped "NJ - New Egypt" vs ~65
+  # foreign rows caught. "mexico" stays OFF: it'd also drop the US towns "Mexico, MO"/"Mexico, ME".
+  - "france"
+  - "brazil"
+  - "egypt"
+  - "italy"
+  - "israel"
 
 # A job is kept only if its location (or, for a bare "Remote", its TITLE) contains one of these
 # (allowed regions: US + Taiwan). Unknown/empty locations are excluded. Refine to taste.
 # MATCHING NOTE (filters.py::_region_matcher): ", xx" (comma-space + two letters) = a US state
-# code, matched after a comma OR dash + a word boundary ("Boston, MA" / "Remote - CA", but not
-# ", Canada"/", Masovian"). A bare 2-3 letter token ("us") is whole-word (won't hit "Belarus").
+# code, matched at the string START or after a comma/dash + word boundary ("Boston, MA" /
+# "McLean-VA", but not ", Canada"/", Masovian"). A bare 2-3 letter token ("us") is whole-word
+# (won't hit "Belarus"). Longer terms also match across a hyphen ("san jose" covers "San-Jose").
 # Everything else is a raw substring. "remote" is deliberately NOT a token — a bare "Remote" role
 # already falls back to the title rule above.
 include_location_terms:
@@ -556,7 +576,57 @@ include_location_terms:
   - ", mn"
   - ", tn"
   - ", nv"
+  # Remaining state codes, completing the set (2026-08-06 ledger audit found ~1.5k US rows like
+  # "Milwaukee, WI" dropped for a missing code). ", de"/", in" are DELIBERATELY ABSENT: as country
+  # codes they'd match Germany ("Walldorf, DE") / India ("Bangalore, IN") more than they gain for
+  # Delaware/Indiana, which use their spelled-out names below instead. ", ar" IS listed despite
+  # Argentina risk: no Argentine row in the ledger uses it, while Arkansas rows do.
+  - ", al"
+  - ", ak"
+  - ", ar"
+  - ", ct"
+  - ", dc"
+  - ", hi"
+  - ", ia"
+  - ", ks"
+  - ", la"
+  - ", me"
+  - ", ms"
+  - ", mo"
+  - ", mt"
+  - ", ne"
+  - ", nj"
+  - ", nd"
+  - ", ok"
+  - ", sc"
+  - ", sd"
+  - ", vt"
+  - ", wv"
+  - ", wi"
+  - ", wy"
   # Spelled-out states (collision-safe substrings) for labels that write the full name.
+  - "alabama"
+  - "alaska"
+  - "arkansas"
+  - "connecticut"
+  - "delaware"
+  - "hawaii"
+  - "iowa"
+  - "kansas"
+  - "maine"
+  - "mississippi"
+  - "montana"
+  - "nebraska"
+  - "new jersey"
+  - "north dakota"
+  - "oklahoma"
+  - "south carolina"
+  - "south dakota"
+  - "vermont"
+  - "west virginia"
+  - "wyoming"
+  - "puerto rico" # US territory: same work authorization as the mainland
+  - "district of columbia"
   - "pennsylvania"
   - "michigan"
   - "maryland"

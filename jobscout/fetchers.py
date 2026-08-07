@@ -17,6 +17,8 @@ from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
 
+from dataclasses import replace
+
 from .company_aliases import canonical_company
 from .config import Company
 from .models import Job
@@ -245,8 +247,20 @@ class AtsFetcher(ABC):
         company name being a prefix of another."""
         return f"{ats}:{company_name}:"
 
+    @property
+    def own_uid_prefix(self) -> str:
+        return self.uid_prefix(self.ats_name, self._company.name)
+
+    def enrich(self, job: Job) -> Job:
+        """Per-job detail hook (see the Enricher protocol): return `job`, or a copy with
+        fields the listing API omitted (e.g. full description) filled from a detail
+        request. Default: this ATS has no detail endpoint worth a per-job call — return
+        `job` unchanged. Overrides must fail open on fetch errors and must not change
+        identity fields (job_uid/url)."""
+        return job
+
     def _uid(self, job_id) -> str:
-        return f"{self.uid_prefix(self.ats_name, self._company.name)}{job_id}"
+        return f"{self.own_uid_prefix}{job_id}"
 
     def _param(self, key: str) -> str:
         try:
@@ -259,8 +273,7 @@ class AtsFetcher(ABC):
     def _company_known(self, seen: Collection[str]) -> bool:
         # True iff THIS company has a prior uid in `seen` — each company gets its own
         # seed cap on first appearance, regardless of what else is already in the ledger.
-        prefix = self.uid_prefix(self.ats_name, self._company.name)
-        return any(uid.startswith(prefix) for uid in seen)
+        return any(uid.startswith(self.own_uid_prefix) for uid in seen)
 
 
 class PagedFetcher(AtsFetcher):
@@ -464,6 +477,30 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
     _SEED_MAX_PAGES = 10
     _MAX_SEARCH_PAGES = 25  # hard bound for the searchText (relevance-ordered) mode
 
+    _N_LOCATIONS = re.compile(r"\d+\s+locations?", re.IGNORECASE)
+
+    @classmethod
+    def _location(cls, item: dict) -> tuple[str, str]:
+        """Returns (location, location_display): location is what PreFilter matches on;
+        location_display is a human-readable fallback, filled in only when location is a
+        raw URL slug.
+
+        A multi-site posting summarises as "3 Locations" with no place name, which the region
+        allowlist can only reject, so fall back to the primary site in externalPath
+        ("/job/McLean-VA/…"). Its hyphens must stay in `location` — _region_matcher uses one as
+        the state-code separator and matches across them in multi-word terms; rewriting them
+        costs rows (~1.5k for spaces, ~360 for commas), hence the separate display value.
+
+        KNOWN LIMIT: only the primary site is in the path, so a posting listing Munich before
+        San Jose still drops (~72% of such cases do resolve to a US site anyway)."""
+        text = item.get("locationsText") or ""
+        if not cls._N_LOCATIONS.fullmatch(text.strip()):
+            return text, ""
+        primary = (item.get("externalPath") or "").split("/job/")[-1].split("/")[0]
+        if not primary:
+            return text, ""
+        return primary, primary.replace("-", " ")
+
     @property
     def host(self) -> str:
         return self._param("host")
@@ -487,12 +524,19 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
             {"appliedFacets": {}, "limit": self._PAGE,
              "offset": index * self._PAGE, "searchText": self._search_text},
         )
-        jobs = [
-            Job(
+        jobs = []
+        for item in data.get("jobPostings", []):
+            # externalPath is the job's identity — placeholder postings that lack
+            # it would get a blank job_key and a board-root URL.
+            if not item.get("externalPath"):
+                continue
+            location, location_display = self._location(item)
+            jobs.append(Job(
                 job_uid=self._uid(item["externalPath"]),
                 company=self._company.name,
                 title=item.get("title", ""),
-                location=item.get("locationsText", ""),
+                location=location,
+                location_display=location_display,
                 # externalPath alone 404s — the JD page only exists under /en-US/{site}.
                 url=f"https://{host}/en-US/{site}{item['externalPath']}",
                 # Workday listing API omits description; per-job fetches are too
@@ -500,11 +544,7 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
                 description="",
                 department="",
                 date_posted=item.get("postedOn", ""),
-            )
-            # externalPath is the job's identity — placeholder postings that lack
-            # it would get a blank job_key and a board-root URL.
-            for item in data.get("jobPostings", []) if item.get("externalPath")
-        ]
+            ))
         # Some tenants (e.g. Adobe) report total=0 after the first page; treat 0 as
         # unknown so pagination doesn't stop early — truly empty boards still
         # terminate via the empty-page check.
@@ -529,6 +569,11 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
     def host(self) -> str:
         return self._param("host")
 
+    def _extract_description(self, item: dict) -> str:
+        """One plain-text description out of an item's _DESC_FIELDS (listing and detail
+        payloads share the field names)."""
+        return strip_html(" ".join(s for f in self._DESC_FIELDS if (s := item.get(f))))
+
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         host, site = self._param("host"), self._param("site")
         url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
@@ -536,8 +581,9 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
                   f"offset={index * self._PAGE},sortBy=POSTING_DATES_DESC")
         data = self._http.get_json(
             url,
-            # expand=all surfaces those extra fields (see _DESC_FIELDS) in the one listing call —
-            # no per-job detail request needed.
+            # expand=all is supposed to surface the _DESC_FIELDS long text in the listing, but
+            # some tenants (verified: Ford) return those fields as null here and only populate
+            # them on the per-req detail endpoint — enrich() backfills survivors from there.
             params={"onlyData": "true", "expand": "all", "finder": finder},
         )
         result = (data.get("items") or [{}])[0]
@@ -548,13 +594,38 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
                 title=item.get("Title", ""),
                 location=item.get("PrimaryLocation", ""),
                 url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{item['Id']}",
-                description=strip_html(" ".join(s for f in self._DESC_FIELDS if (s := item.get(f)))),
+                description=self._extract_description(item),
                 department=item.get("JobFamily") or "",
                 date_posted=item.get("PostedDate", ""),
             )
             for item in result.get("requisitionList", []) if item.get("Id")
         ]
         return jobs, result.get("TotalJobsCount")
+
+    def enrich(self, job: Job) -> Job:
+        """Backfill the full JD from the per-req detail endpoint
+        (`recruitingCEJobRequisitionDetails?finder=ById`): tenants like Ford leave the
+        _DESC_FIELDS long text null in the listing (see _fetch_page), so the visa
+        boilerplate in ExternalQualificationsStr is only visible here."""
+        if not job.job_uid.startswith(self.own_uid_prefix):
+            return job
+        req_id = job.job_uid.removeprefix(self.own_uid_prefix)
+        host, site = self._param("host"), self._param("site")
+        url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails"
+        try:
+            data = self._http.get_json(
+                url,
+                params={"onlyData": "true", "expand": "all",
+                        "finder": f'ById;siteNumber={site},Id="{req_id}"'},
+            )
+            # A just-delisted req can come back as items=[] or items=[null]; normalize
+            # both to {} so extraction below stays inside this fail-open block.
+            item = (data.get("items") or [{}])[0] or {}
+            description = self._extract_description(item)
+        except Exception as exc:  # fail open — the blurb-only job is still usable
+            log.warning("%s: detail fetch failed for %s: %s", self.ats_name, job.job_uid, exc)
+            return job
+        return replace(job, description=description) if description else job
 
 
 class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
@@ -2617,3 +2688,21 @@ class ParallelFetcher:
         # Logged when this host group finishes; the timestamp + elapsed expose the slowest host.
         log.info("host %s done: %d jobs in %.1fs", host, len(jobs), time.perf_counter() - started)
         return jobs
+
+
+class DispatchingEnricher:
+    """Routes each job to the `enrich` of the fetcher that produced it, matched by uid
+    prefix; a job matching no fetcher passes through unchanged. Satisfies the `Enricher`
+    protocol. Meant for the few jobs that survive prefiltering — enrichment is a per-job
+    network call, so callers must not feed whole fetch results through it."""
+
+    def __init__(self, fetchers: list[AtsFetcher]):
+        self._prefixed = tuple((f.own_uid_prefix, f) for f in fetchers)
+
+    def enrich(self, job: Job) -> Job:
+        # Linear scan: uid prefixes end in ':' so at most one entry can match (one company
+        # name can't be a prefix of another's), and enriched jobs number a handful per run.
+        for prefix, fetcher in self._prefixed:
+            if job.job_uid.startswith(prefix):
+                return fetcher.enrich(job)
+        return job

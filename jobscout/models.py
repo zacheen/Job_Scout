@@ -18,6 +18,10 @@ class Job:
     # Pipeline-derived caveat shown in the email (e.g. "possibly no visa sponsorship");
     # never persisted (CsvStore's fixed _FIELDS ignore it).
     note: str = ""
+    # Readable stand-in for `location`, populated only by WorkdayFetcher's multi-site
+    # fallback when the raw value is a URL slug. Same display-only contract as `note`
+    # (not persisted); read via `display_location`, never directly.
+    location_display: str = ""
 
     def __post_init__(self):
         # ATS JSON can carry explicit nulls (e.g. "department": null) that
@@ -26,6 +30,12 @@ class Job:
         for f in fields(self):
             if getattr(self, f.name) is None:
                 object.__setattr__(self, f.name, "")
+
+    @property
+    def display_location(self) -> str:
+        """`location` for humans (email) and the LLM prompt. Presentation only — never feed this
+        to PreFilter, whose state-code rule needs the raw separator ("McLean-VA")."""
+        return self.location_display or self.location
 
 
 @dataclass(frozen=True)

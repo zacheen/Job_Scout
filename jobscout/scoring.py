@@ -72,7 +72,7 @@ class _LlmScorer(ABC):
         return (
             f"TITLE: {job.title}\n"
             f"COMPANY: {job.company}\n"
-            f"LOCATION: {job.location}\n"
+            f"LOCATION: {job.display_location}\n"
             f"DESCRIPTION:\n{job.description[: self._max_description_chars]}"
         )
 
