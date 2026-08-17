@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+RegDesk:7a1b2d0b-fb4d-450e-9f60-44a50b914ab1,RegDesk,Front End Developer Intern,"Philadelphia, PA",Software,https://jobs.smartrecruiters.com/RegDeskInc/92145731,2026-08-18,2026-08-18T01:42:04+00:00,2026-08-17 18:42 Mon,Other Technical,true,Keyword,51,title-only listing; auto-passed (no description to score),true,simplify:Simplify Internships:7a1b2d0b-fb4d-450e-9f60-44a50b914ab1
