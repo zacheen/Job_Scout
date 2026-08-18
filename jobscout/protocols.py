@@ -1,11 +1,10 @@
 """Structural interfaces (DIP). Implementations satisfy these by shape — no inheritance needed."""
 from __future__ import annotations
 
-from collections.abc import Collection
 from typing import ClassVar, Protocol
 
 from .config import Track
-from .models import Job, Score
+from .models import Job, Score, ScoreScale, SeenLedger
 
 # A group's ordered track sections: (track_name, ranked [(job, score), ...]).
 Sections = list[tuple[str, list[tuple[Job, Score]]]]
@@ -14,7 +13,7 @@ Digest = list[tuple[str, Sections]]
 
 
 class Fetcher(Protocol):
-    def fetch_all(self, seen: Collection[str]) -> list[Job]:
+    def fetch_all(self, seen: SeenLedger) -> list[Job]:
         """Fetch all current postings (an impl may run per-host in parallel). `seen` lets
         date-ordered sources stop paginating early; dedup stays the pipeline's job."""
         ...
@@ -22,7 +21,12 @@ class Fetcher(Protocol):
 
 class JobStore(Protocol):
     def is_seeded(self) -> bool: ...
-    def known_uids(self) -> set[str]: ...
+
+    def seen_ledger(self) -> SeenLedger:
+        """Every recorded source uid plus per-company recency, for fetchers that bound
+        pagination by date. MUST reflect the ledger BEFORE this run's add_seen calls, or a
+        company's watermark advances to today and its pull stops at the first page."""
+        ...
 
     def known_urls(self) -> set[str]:
         """Cross-source email dedup keys. MUST be canonical (urls.canon_url) —
@@ -67,6 +71,7 @@ class Leveler(Protocol):
 
 class JobScorer(Protocol):
     method_label: ClassVar[str]  # scoring method shown in the email subject, e.g. "API" / "CLI" / "Keyword"
+    scale: ClassVar[ScoreScale]  # picks which Track threshold gates this scorer output
 
     def score(self, job: Job) -> Score: ...
 

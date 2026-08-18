@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from .models import ScoreScale
+
 # tz shared by every digest timestamp (email subject line, local_run.py's
 # footer) so footer times stay directly comparable to subject times across runs.
 DIGEST_TZ = ZoneInfo("America/New_York")
@@ -17,6 +19,13 @@ DIGEST_TZ = ZoneInfo("America/New_York")
 # and merge_seen_jobs.py --to local (fold time); local_run.py's digest footer
 # reads it as the deletable window's lower bound.
 DIGEST_CHECKPOINT_FILENAME = "digest_checkpoint.txt"
+
+# Untracked, gitignored append-only record at the repo root: one line per company whose
+# watermark catch-up hit _MAX_CATCHUP_PAGES and therefore left older roles unfetched
+# (see fetchers._paginate_new). Survives the post-scan reset --hard because it is
+# untracked, so it accumulates across runs — read it to decide whether the cap needs
+# raising, or whether a company needs a persistent coverage checkpoint instead.
+CATCHUP_LOG_FILENAME = "catchup_cap_hits.txt"
 
 
 def _as_bool(value) -> bool:
@@ -43,11 +52,25 @@ class Company:
 class Track:
     name: str              # shown in the email section header, e.g. "Computer Vision"
     keywords: list[str]    # routing terms, matched as lowercase substrings in title/description
-    threshold: int         # a role is emailed only when experience_score exceeds this
+    # One gate per ScoreScale — the scorers' outputs aren't comparable, so neither
+    # value is a safe default for the other.
+    llm_threshold: int
+    keyword_threshold: int
     min_hits: int = 1      # keyword hits (title + description, repeats count) needed to route here
     # Whole-word, TITLE-only terms for tokens unsafe as substrings ("ai" hits "email")
     # or too common in JD bodies to scan descriptions with ("engineer"); hits add to min_hits.
     word_keywords: list[str] = field(default_factory=list)
+
+    def threshold_for(self, scale: ScoreScale) -> int:
+        """The gate a score on `scale` must EXCEED to be emailed.
+
+        Exhaustive on purpose: a new ScoreScale must fail here rather than silently
+        inherit the LLM gate and quietly change which roles get emailed."""
+        if scale is ScoreScale.LLM:
+            return self.llm_threshold
+        if scale is ScoreScale.KEYWORD:
+            return self.keyword_threshold
+        raise ValueError(f"track {self.name!r} has no threshold for scale {scale!r}")
 
 
 @dataclass(frozen=True)
@@ -141,10 +164,18 @@ class Settings:
 
     @staticmethod
     def _to_track(entry: dict) -> Track:
+        if "threshold" in entry:
+            # Fail fast instead of silently applying the defaults below: the single
+            # `threshold` key was split per ScoreScale, so a config still carrying it
+            # (e.g. one merged in from `main`) would quietly gate on 50/50.
+            raise ValueError(
+                f"track {entry.get('name')!r} uses the removed 'threshold' key; "
+                "replace it with llm_threshold and keyword_threshold")
         track = Track(
             name=entry["name"],
             keywords=[k.lower() for k in entry.get("keywords", [])],
-            threshold=int(entry.get("threshold", 50)),
+            llm_threshold=int(entry.get("llm_threshold", 50)),
+            keyword_threshold=int(entry.get("keyword_threshold", 50)),
             min_hits=int(entry.get("min_hits", 1)),
             word_keywords=[k.lower() for k in entry.get("word_keywords", [])],
         )

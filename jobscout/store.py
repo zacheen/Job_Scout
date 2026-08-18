@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .models import Job, Score
+from .models import Job, Score, SeenLedger
 from .urls import canon_url
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,9 @@ _UNSCORED_RANK = 99
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 # Deliberately America/Los_Angeles, not a fixed UTC-8: auto-switches PST(-8)/PDT(-7) so
@@ -72,6 +75,13 @@ def _uid_suffix(job_uid: str) -> str:
     ':' intact (SpeedyApply uses the full URL as the id)."""
     parts = job_uid.split(":", 2)
     return parts[2] if len(parts) == 3 else job_uid
+
+
+def _uid_namespace(uid: str) -> str:
+    """Complement of _uid_suffix: the "{ats}:{company}:" prefix (AtsFetcher.uid_prefix),
+    or "" if the uid predates that format."""
+    parts = uid.split(":", 2)
+    return f"{parts[0]}:{parts[1]}:" if len(parts) == 3 else ""
 
 
 def _job_key(company: str, ats_job_id: str) -> str:
@@ -159,6 +169,26 @@ class CsvStore:
         """All original source uids ("{ats}:{company}:{id}"), matching the format
         fetchers use for their early-stop / seed checks."""
         return set(self._by_uid)
+
+    def seen_ledger(self) -> SeenLedger:
+        """known_uids() plus each company's newest first_seen date — the cutoff a
+        date-ordered fetcher pages down to. first_seen, not date_posted: merge_rows lets
+        a newer snapshot overwrite date_posted (_CONTENT_FIELDS) but only ever pulls
+        first_seen earlier (min-merge), so it's the one timestamp guaranteed not to
+        drift forward on us. Built per company namespace, so one stale company catches
+        up without making every other company page deeper."""
+        watermarks: dict[str, str] = {}
+        for uid, row in self._by_uid.items():
+            namespace = _uid_namespace(uid)
+            day = row["first_seen"][:10]
+            # Skip unparseable dates: a garbage watermark would be compared against real
+            # date_posted values and could either stop the pull instantly (too old) or
+            # page the whole board (too new).
+            if not namespace or not _ISO_DATE_RE.fullmatch(day):
+                continue
+            if day > watermarks.get(namespace, ""):
+                watermarks[namespace] = day
+        return SeenLedger(frozenset(self._by_uid), watermarks)
 
     def known_urls(self) -> set[str]:
         # Cross-source email dedup: same role from two sources shares a URL but has

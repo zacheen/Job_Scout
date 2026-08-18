@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
@@ -21,9 +22,23 @@ from dataclasses import replace
 
 from .company_aliases import canonical_company
 from .config import Company
-from .models import Job
+from .models import EMPTY_SEEN_LEDGER, Job, SeenLedger
 
 log = logging.getLogger(__name__)
+# Cap-hit records go to their own logger so attach_catchup_log() can also persist them to
+# a file: by the time these matter, the run's console output is long gone. Propagates, so
+# they still show up in the normal log either way.
+catchup_log = logging.getLogger(f"{__name__}.catchup")
+
+
+def attach_catchup_log(path: Path) -> None:
+    """Additionally append `catchup_log` records to `path` (see CATCHUP_LOG_FILENAME).
+    No-op once attached, so a re-entered entry point cannot duplicate every line."""
+    if catchup_log.handlers:
+        return
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    catchup_log.addHandler(handler)
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -84,7 +99,10 @@ def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
     return ""
 
 
-_STOP_AFTER_SEEN = 10  # page until this many already-seen openings show up (cumulative)
+_STOP_AFTER_SEEN = 10  # no-watermark fallback: page until this many already-seen openings (cumulative)
+# Ceiling on ONE company's watermark-driven catch-up, so a long-stale ledger cannot turn
+# a run into a full-board pull of every stale company at ~1.6s per paced request.
+_MAX_CATCHUP_PAGES = 100
 
 
 def _paginate_new(
@@ -93,16 +111,27 @@ def _paginate_new(
     page_size: int,
     seed_max_pages: int,
     is_seed_run: bool,
+    *,
+    watermark: str = "",
+    subject: str = "",
     stop_after_seen: int = _STOP_AFTER_SEEN,
 ) -> list[Job]:
-    """Collect jobs from a newest-first source, stopping once `stop_after_seen` already-seen
-    UIDs have accumulated across pages — at that point we're into the backlog and the rest
-    are old too. Cumulative count (not "a whole clean page") tolerates a few new/re-touched
-    roles interleaved at the top.
+    """Collect jobs from a newest-first source, stopping once the page contents prove we
+    have paged past everything the ledger can be missing.
+
+    `watermark` (this company's newest first_seen date, see SeenLedger) is that proof:
+    stop when a page's OLDEST date_posted predates it, because every role the board has
+    touched since the last run sorts above that point.
+
+    Without a watermark or dates, fall back to `stop_after_seen` already-seen uids — a
+    much weaker signal: boards re-stamp OLD roles to the top of the sort, so each one
+    counts as already-seen without indicating how deep we are. Google re-stamped 15
+    roles across its top two pages (real backlog boundary: page ~32); a stale ledger
+    stopped after page one and every later run repeated that same short stop — a
+    self-perpetuating gap ordinary scanning could never close.
 
     `is_seed_run` = this company's first appearance (no prior uids in the ledger): the cap
-    bounds the pull, because there is no backlog baseline to stop against. Otherwise the cap
-    is ignored — pages until the duplicate threshold or source exhausted, so no role is missed."""
+    bounds the pull, because there is no backlog baseline to stop against."""
     jobs: list[Job] = []
     index = 0
     seen_count = 0
@@ -112,12 +141,26 @@ def _paginate_new(
         index += 1
         seen_count += sum(1 for job in page_jobs if job.job_uid in seen)
         fetched = index * page_size
+        oldest = min((job.date_posted for job in page_jobs if job.date_posted), default="")
+        reached_backlog = (
+            oldest < watermark if watermark and oldest else seen_count >= stop_after_seen
+        )
         if (
             not page_jobs                                 # source exhausted
-            or seen_count >= stop_after_seen              # reached the already-seen backlog
+            or reached_backlog
             or (total is not None and fetched >= total)   # covered all results
             or (is_seed_run and index >= seed_max_pages)  # company's first run: bound the pull
         ):
+            break
+        if index >= _MAX_CATCHUP_PAGES:
+            # Reachable only via the watermark rule (the seen-count rule stops far sooner):
+            # either the ledger is months stale or this board re-stamps its whole backlog.
+            # Roles older than the last page fetched stay unfetched, and the next run's
+            # watermark will have advanced past them — so this needs a look, not a retry.
+            catchup_log.warning(
+                "%s: hit _MAX_CATCHUP_PAGES (%d) with the board still newer than watermark "
+                "%s (oldest date_posted reached: %s); older roles were NOT fetched",
+                subject or "early-stop pagination", _MAX_CATCHUP_PAGES, watermark, oldest)
             break
     return jobs
 
@@ -227,9 +270,9 @@ class AtsFetcher(ABC):
         self._http = http
 
     @abstractmethod
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         """Return current postings. `seen` is a pagination-efficiency hint only:
-        date-ordered sources stop once a full page is already seen; others ignore it.
+        date-ordered sources page down to the company's watermark; others ignore it.
         Dedup is the caller's responsibility — implementations must never filter
         return values through `seen`."""
         ...
@@ -250,6 +293,12 @@ class AtsFetcher(ABC):
     @property
     def own_uid_prefix(self) -> str:
         return self.uid_prefix(self.ats_name, self._company.name)
+
+    @property
+    def _log_subject(self) -> str:
+        """Identifier for this fetcher's own warnings. Company, not host: hosts are shared
+        by whole ATS tenants, so a host alone can't tell you which board truncated."""
+        return f"{self.ats_name} {self._company.name}"
 
     def enrich(self, job: Job) -> Job:
         """Per-job detail hook (see the Enricher protocol): return `job`, or a copy with
@@ -304,8 +353,10 @@ class EarlyStopPaginatedFetcher(PagedFetcher):
     """Base for newest-first, paginated sources. Subclasses set `_PAGE`/`_SEED_MAX_PAGES`
     and implement `_fetch_page`; `fetch` wires them through `_paginate_new` identically, so
     every paginated source gets the same seed-cap + early-stop behaviour and a new one can't
-    forget it. Correctness depends on the source returning newest-first (early-stop assumes
-    once you hit already-seen roles, the rest are older) — each subclass documents why it is."""
+    forget it. Correctness depends on the source returning newest-first — each subclass
+    documents why it is. Subclasses that populate `date_posted` also get the watermark stop
+    (see `_paginate_new`); ones that cannot (no per-item date) fall back to the weaker
+    already-seen count and stay exposed to re-stamped backlog roles."""
 
     _SEED_MAX_PAGES: int
 
@@ -313,9 +364,11 @@ class EarlyStopPaginatedFetcher(PagedFetcher):
         super().__init__(company, http)
         self._require_positive_class_int("_SEED_MAX_PAGES")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
-        return _paginate_new(self._fetch_page, seen, self._PAGE, self._SEED_MAX_PAGES,
-                             is_seed_run=not self._company_known(seen))
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
+        return _paginate_new(self._fetch_page, seen.uids, self._PAGE, self._SEED_MAX_PAGES,
+                             is_seed_run=not self._company_known(seen.uids),
+                             watermark=seen.watermark(self.own_uid_prefix),
+                             subject=self._log_subject)
 
 
 class BoundedPaginatedFetcher(PagedFetcher):
@@ -327,10 +380,10 @@ class BoundedPaginatedFetcher(PagedFetcher):
         super().__init__(company, http)
         self._require_positive_class_int("_MAX_PAGES")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         return _paginate_bounded_or_warn(
             self._fetch_page, self._PAGE, self._MAX_PAGES,
-            subject=f"{self.ats_name} {self.host}", cap_name="_MAX_PAGES",
+            subject=self._log_subject, cap_name="_MAX_PAGES",
         )
 
 
@@ -341,7 +394,7 @@ class GreenhouseFetcher(AtsFetcher):
     def host(self) -> str:
         return "boards-api.greenhouse.io"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         board = self._param("board")
         # Optional: board-specific metadata field with the real city, for boards whose
         # location.name is a policy string ("Hybrid"/"Distributed" — Cloudflare) that
@@ -406,7 +459,7 @@ class LeverFetcher(AtsFetcher):
     def host(self) -> str:
         return self._REGION_HOSTS[self._region]
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         org = self._param("org")
         # Lever returns a bare JSON array (no wrapper object, unlike other ATSes).
         data = self._http.get_json(
@@ -439,7 +492,7 @@ class AshbyFetcher(AtsFetcher):
     def host(self) -> str:
         return "api.ashbyhq.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         org = self._param("org")
         data = self._http.get_json(
             f"https://api.ashbyhq.com/posting-api/job-board/{org}",
@@ -509,11 +562,11 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
         super().__init__(company, http)
         self._search_text = company.params.get("searchText", "")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         if self._search_text:
             return _paginate_bounded_or_warn(
                 self._fetch_page, self._PAGE, self._MAX_SEARCH_PAGES,
-                subject=f"workday {self.host} search", cap_name="_MAX_SEARCH_PAGES",
+                subject=f"{self._log_subject} search", cap_name="_MAX_SEARCH_PAGES",
             )
         return super().fetch(seen)
 
@@ -832,7 +885,7 @@ class RadancyFetcher(EarlyStopPaginatedFetcher):
     def host(self) -> str:
         return self._param("host")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         if not self._company.param_bool("full_scan"):
             return super().fetch(seen)
         try:
@@ -843,7 +896,7 @@ class RadancyFetcher(EarlyStopPaginatedFetcher):
             raise ValueError(f"{self._company.name}: radancy max_pages must be >= 1")
         return _paginate_bounded_or_warn(
             self._fetch_page, self._PAGE, max_pages,
-            subject=f"{self._company.name} radancy full scan", cap_name="max_pages",
+            subject=f"{self._log_subject} full scan", cap_name="max_pages",
         )
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
@@ -977,12 +1030,14 @@ class AvatureFetcher(AtsFetcher):
     def host(self) -> str:
         return self._param("host")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         # Lenovo's board is >1200 rows (past its own "999" display cap); early-stop
         # keeps steady-state runs to ~2 pages instead of paging the whole board.
         if self._company.param_bool("newest_first"):
-            jobs = _paginate_new(self._fetch_page, seen, self._RPP, self._SEED_MAX_PAGES,
-                                 is_seed_run=not self._company_known(seen))
+            jobs = _paginate_new(self._fetch_page, seen.uids, self._RPP, self._SEED_MAX_PAGES,
+                                 is_seed_run=not self._company_known(seen.uids),
+                                 watermark=seen.watermark(self.own_uid_prefix),
+                                 subject=self._log_subject)
         else:
             jobs = self._fetch_all_pages()
         return self._dedupe(jobs)
@@ -1214,7 +1269,7 @@ class AppleFetcher(AtsFetcher):
     def host(self) -> str:
         return "jobs.apple.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         csrf_response = self._http.get_response(
             f"{self._BASE}/api/v1/CSRFToken",
             headers=self._HEADERS,
@@ -1283,7 +1338,7 @@ class AppleFetcher(AtsFetcher):
 
         return _paginate_bounded_or_warn(
             fetch_page, self._PAGE, max_pages,
-            subject=f"{self._company.name} apple full scan", cap_name="max_pages",
+            subject=f"{self._log_subject} full scan", cap_name="max_pages",
         )
 
 
@@ -1299,7 +1354,7 @@ class TinderFetcher(AtsFetcher):
     def host(self) -> str:
         return "tinderjobs.vercel.app"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json("https://tinderjobs.vercel.app/api/jobs")
         return [
             Job(
@@ -1330,7 +1385,7 @@ class WorkableFetcher(AtsFetcher):
     def host(self) -> str:
         return "apply.workable.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         account = self._param("account")
         data = self._http.get_json(
             f"https://apply.workable.com/api/v1/widget/accounts/{account}",
@@ -1385,7 +1440,7 @@ class JazzHRFetcher(AtsFetcher):
     def host(self) -> str:
         return f"{self._param('account')}.applytojob.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         body = self._http.get_text(f"https://{self.host}/apply")
         jobs = []
         for match in self._JOB_RE.finditer(body):
@@ -1421,7 +1476,7 @@ class RipplingFetcher(AtsFetcher):
     def host(self) -> str:
         return "api.rippling.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         board = self._param("board")
         data = self._http.get_json(
             f"https://api.rippling.com/platform/api/ats/v1/board/{board}/jobs"
@@ -1474,7 +1529,7 @@ class GemFetcher(AtsFetcher):
     def host(self) -> str:
         return "jobs.gem.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         board = self._param("board")
         data = self._http.post_json(
             "https://jobs.gem.com/api/public/graphql",
@@ -1641,7 +1696,7 @@ class AtlassianFetcher(AtsFetcher):
     def host(self) -> str:
         return "www.atlassian.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json("https://www.atlassian.com/endpoint/careers/listings")
         jobs = []
         for item in data:
@@ -1677,7 +1732,7 @@ class ShopifyFetcher(AtsFetcher):
     def host(self) -> str:
         return "www.shopify.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         body = self._http.get_text("https://www.shopify.com/careers")
         jobs = []
         seen_ids = set()
@@ -1716,7 +1771,7 @@ class JaneStreetFetcher(AtsFetcher):
     def host(self) -> str:
         return "www.janestreet.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json("https://www.janestreet.com/jobs/main.json")
         return [
             Job(
@@ -1750,7 +1805,7 @@ class TeamtailorFetcher(AtsFetcher):
     def host(self) -> str:
         return self._param("host")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         body = self._http.get_text(f"https://{self.host}/jobs.rss")
         jobs = []
         for item in self._ITEM_RE.finditer(body):
@@ -1793,7 +1848,7 @@ class BambooHRFetcher(AtsFetcher):
     def host(self) -> str:
         return f"{self._param('account')}.bamboohr.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json(f"https://{self.host}/careers/list")
         jobs = []
         for item in data.get("result") or []:
@@ -1827,7 +1882,7 @@ class UKGReadyFetcher(AtsFetcher):
     def host(self) -> str:
         return self._param("host")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         company_id = self._param("company_id")
         data = self._http.get_json(
             f"https://{self.host}/ta/rest/ui/recruitment/companies/%7C{company_id}/"
@@ -1916,7 +1971,7 @@ class ScopedHtmlFetcher(AtsFetcher):
             date_posted=date_posted,
         )
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         page_url = self._param("url")
         body = self._http.get_text(page_url)
         start_marker = self._param("scope_start")
@@ -1956,7 +2011,7 @@ class DejobsFetcher(AtsFetcher):
     def host(self) -> str:
         return self._param("host")
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         body = self._http.get_text(f"https://{self.host}/jobs/feed/rss/")
         root = ET.fromstring(body)
         channel = root.find("channel")
@@ -2075,7 +2130,7 @@ class JobviteFetcher(AtsFetcher):
     def host(self) -> str:
         return "app.jobvite.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         body = self._http.get_text(
             "https://app.jobvite.com/CompanyJobs/Xml.aspx",
             params={"c": self._param("company")},
@@ -2119,7 +2174,7 @@ class WhatnotFetcher(AtsFetcher):
     def host(self) -> str:
         return "jobs.whatnot.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json("https://jobs.whatnot.com/api/jobs")
         jobs = []
         for item in data.get("results") or []:
@@ -2156,7 +2211,7 @@ class DeShawFetcher(AtsFetcher):
     def host(self) -> str:
         return "www.deshaw.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         body = self._http.get_text("https://www.deshaw.com/careers")
         match = self._NEXT_RE.search(body)
         if not match:
@@ -2202,7 +2257,7 @@ class VisaFetcher(AtsFetcher):
     def host(self) -> str:
         return "search.visa.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.post_json(self._API, {"pageSize": self._PAGE_SIZE})
         items = data.get("jobDetails") or []
         if len(items) >= self._PAGE_SIZE:
@@ -2313,7 +2368,7 @@ class SimplifyFetcher(GithubRepoFetcher):
     _DEFAULT_BRANCH = "dev"
     _DEFAULT_PATH = ".github/scripts/listings.json"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         path = self._company.params.get("path", self._DEFAULT_PATH)
         data = self._http.get_json(self._raw_url(path))
         jobs = []
@@ -2352,7 +2407,7 @@ class SpeedyApplyFetcher(GithubRepoFetcher):
     # company-site link has no such image, so it never matches.
     _APPLY_RE = re.compile(r'href="([^"]+)"[^>]*>\s*<img[^>]*alt="Apply"', re.I)
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         raw = self._company.params.get("files", self._DEFAULT_FILES)
         files = [f.strip() for f in raw.split(",") if f.strip()]
         jobs: list[Job] = []
@@ -2437,7 +2492,7 @@ class BioRadFetcher(BoundedPaginatedFetcher):
     def host(self) -> str:
         return "careers.bio-rad.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         try:
             return super().fetch(seen)
         except self._PageUnavailable as exc:
@@ -2557,7 +2612,7 @@ class MathWorksFetcher(AtsFetcher):
     def host(self) -> str:
         return "www.mathworks.com"
 
-    def fetch(self, seen: Collection[str] = frozenset()) -> list[Job]:
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         body = self._http.get_text(
             f"https://{self.host}/company/jobs/opportunities/rss.xml"
         )
@@ -2660,7 +2715,7 @@ class ParallelFetcher:
         self._fetchers = fetchers
         self._max_workers = max_workers
 
-    def fetch_all(self, seen: Collection[str]) -> list[Job]:
+    def fetch_all(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         groups: dict[str, list[AtsFetcher]] = {}
         for fetcher in self._fetchers:
             try:
@@ -2676,7 +2731,7 @@ class ParallelFetcher:
                 jobs.extend(group_jobs)
         return jobs
 
-    def _fetch_group(self, group: tuple[str, list[AtsFetcher]], seen: Collection[str]) -> list[Job]:
+    def _fetch_group(self, group: tuple[str, list[AtsFetcher]], seen: SeenLedger) -> list[Job]:
         host, fetchers = group
         started = time.perf_counter()
         jobs: list[Job] = []

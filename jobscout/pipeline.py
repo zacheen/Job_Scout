@@ -75,9 +75,12 @@ class Pipeline:
         deliberately left unsaved so unemailed roles retry next run — callers
         gating side effects on "did local_data catch up" (local_run.py's digest
         checkpoint) must treat False as "it did not"."""
-        all_jobs = self._fetch_all()
-        # Snapshot uids + urls BEFORE add_seen, so this run's own jobs don't dedup themselves.
-        known = self._store.known_uids()
+        # One ledger snapshot serves both jobs: it bounds each company's pagination and
+        # is the dedupe baseline. Taken BEFORE add_seen, so this run's own jobs don't dedup
+        # themselves — and so no company's watermark has advanced to today yet.
+        ledger = self._store.seen_ledger()
+        all_jobs = self._fetcher.fetch_all(ledger)
+        known = ledger.uids
         known_urls = self._store.known_urls()
         candidates = [j for j in all_jobs if self._prefilter.keep(j)]
         new_candidates = [j for j in candidates if j.job_uid not in known]
@@ -196,7 +199,7 @@ class Pipeline:
                              f"(uid {derived.job_uid!r}, url {derived.url!r})")
         return derived
 
-    def _suppress_seeding(self, new_candidates: list[Job], known: set[str]) -> list[Job]:
+    def _suppress_seeding(self, new_candidates: list[Job], known: Collection[str]) -> list[Job]:
         """Drop candidates from a seed_only source on its FIRST appearance (no uid with its
         prefix was in the ledger before this run) — run() still records them, so a large
         aggregator seeds its backlog silently once, then emails only genuinely new postings."""
@@ -253,7 +256,7 @@ class Pipeline:
                     continue
                 self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score,
                                       method=attempt.method)
-                if attempt.score.experience_score > attempt.track.threshold:
+                if attempt.score.experience_score > attempt.track.threshold_for(attempt.score.scale):
                     by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
         return by_track
 
@@ -308,6 +311,3 @@ class Pipeline:
             if sections:
                 digest.append((group_name, sections))
         return digest
-
-    def _fetch_all(self) -> list[Job]:
-        return self._fetcher.fetch_all(self._store.known_uids())

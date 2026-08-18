@@ -13,7 +13,7 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 
-from .models import Job, Score
+from .models import Job, Score, ScoreScale
 from .protocols import JobScorer
 
 log = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def _clamp(value) -> int:
     return max(0, min(100, int(value)))
 
 
-def _parse_score(raw: str) -> Score:
+def _parse_score(raw: str, scale: ScoreScale) -> Score:
     match = _JSON_RE.search(raw)
     if not match:
         raise ValueError(f"no JSON object found in scorer output; raw: {raw[:200]!r}")
@@ -54,11 +54,14 @@ def _parse_score(raw: str) -> Score:
     return Score(
         experience_score=_clamp(data["experience_score"]),
         reason=str(data.get("reason", "")).strip(),
+        scale=scale,
     )
 
 
 class _LlmScorer(ABC):
     """Template Method: shared prompt-building and response parsing; subclass implements `_invoke`."""
+
+    scale = ScoreScale.LLM
 
     def __init__(self, resume_text: str, max_description_chars: int):
         self._resume = resume_text
@@ -66,7 +69,7 @@ class _LlmScorer(ABC):
 
     def score(self, job: Job) -> Score:
         system = _SYSTEM.format(resume=self._resume)
-        return _parse_score(self._invoke(system, self._job_blob(job)))
+        return _parse_score(self._invoke(system, self._job_blob(job)), self.scale)
 
     def _job_blob(self, job: Job) -> str:
         return (
@@ -189,7 +192,7 @@ class KeywordScorer:
 
     Title-only listings (many list APIs omit the job-ad body — Eightfold, Workday, …)
     can never reach the ~4 distinct hits a description-backed role needs to clear a
-    50-point track threshold, so their hits weigh `_TITLE_ONLY_WEIGHT` instead of
+    50-point keyword_threshold, so their hits weigh `_TITLE_ONLY_WEIGHT` instead of
     `_WEIGHT`. An instance built with `title_only_pass_score` goes further and returns
     exactly that score for EVERY title-only job — wire it per-group (referral/intern)
     so high-value roles are emailed rather than silently dropped on text the source
@@ -197,6 +200,7 @@ class KeywordScorer:
     """
 
     method_label = "Keyword"
+    scale = ScoreScale.KEYWORD
 
     _BASE = 40
     _WEIGHT = 3             # per distinct keyword with a description (>50 needs >= 4)
@@ -228,14 +232,14 @@ class KeywordScorer:
         if title_only and self._title_only_pass_score is not None:
             return Score(_clamp(self._title_only_pass_score),
                          "title-only listing; auto-passed (no description to score)",
-                         matches=matches, match_counts=match_counts)
+                         scale=self.scale, matches=matches, match_counts=match_counts)
         if matches is None:
             # No skill_keywords configured: constant score puts every role on the same side
             # of the threshold, so matches stays None — no meaningful count to report.
-            return Score(50, "keyword-only heuristic")
+            return Score(50, "keyword-only heuristic", scale=self.scale)
         weight = self._TITLE_ONLY_WEIGHT if title_only else self._WEIGHT
         reason = "keyword-only heuristic (title only)" if title_only else "keyword-only heuristic"
-        return Score(_clamp(self._BASE + weight * matches), reason,
+        return Score(_clamp(self._BASE + weight * matches), reason, scale=self.scale,
                      matches=matches, match_counts=match_counts)
 
 
@@ -256,8 +260,8 @@ def build_scorer(settings) -> tuple[JobScorer, JobScorer | None]:
         log.info("scorer: GPT CLI '%s' (no API key found)", " ".join(command))
         return CliScorer(command, settings.resume_text, settings.max_description_chars), None
     log.info("scorer: keyword-only fallback (no API key or GPT CLI found)")
-    # +1 over the highest track threshold, not just one: which track the job will
-    # route to isn't known here, so this must clear every track to guarantee the pass.
-    pass_score = max((t.threshold for t in settings.tracks), default=50) + 1
+    # +1 over the highest keyword_threshold (this scorer's own gate), not one track's:
+    # which track the job will route to isn't known here, so it must clear every track.
+    pass_score = max((t.keyword_threshold for t in settings.tracks), default=50) + 1
     return (KeywordScorer(settings.skill_keywords),
             KeywordScorer(settings.skill_keywords, title_only_pass_score=pass_score))

@@ -46,8 +46,14 @@ request_delay_max: 2.0
 # `min_hits` (a hit = one occurrence of a keyword in the title or description; the
 # SAME keyword occurring N times counts as N hits). Order matters — list the more
 # specific track first. Each track is its own email section, titled by `name`.
-# `threshold` gates emails: a role is emailed only when its experience_score
-# (LLM: resume-vs-role fit, 0-100) exceeds it.
+# Two gates, one per ScoreScale, since the scorers' outputs aren't comparable: a role
+# is emailed only when its experience_score exceeds the gate for the scale that
+# produced it.
+#   llm_threshold     - OpenAI/CLI scorers: resume-vs-role fit, 0-100.
+#   keyword_threshold - keyword fallback: 40 + 3 * distinct skill_keywords matched
+#     (never leaves 40-100; 50 means "4 hits", not "half a fit"). Set equal to
+#     llm_threshold below for now, but tune independently.
+# Both keys are required — the old shared `threshold` key raises at load.
 #
 # `word_keywords` (optional) match WHOLE-WORD against the TITLE only, and add to the
 # same hit count. Use them for tokens that are unsafe as substrings ("ai" hits
@@ -59,7 +65,8 @@ request_delay_max: 2.0
 # that reason — see its comment below for the concrete examples.
 tracks:
   - name: "Computer Vision"
-    threshold: 50
+    llm_threshold: 50
+    keyword_threshold: 50
     min_hits: 1
     keywords:
       - "computer vision"
@@ -75,7 +82,8 @@ tracks:
       - "visual"
   # AI/ML before Software Engineering: a role matching both lands in the AI/ML email.
   - name: "AI / ML"
-    threshold: 50
+    llm_threshold: 50
+    keyword_threshold: 50
     min_hits: 1
     keywords:
       - "machine learning"
@@ -96,7 +104,8 @@ tracks:
     word_keywords:
       - "ai" # whole-word + title-only: substring would hit "email"/"training"
   - name: "Software Engineering"
-    threshold: 50
+    llm_threshold: 50
+    keyword_threshold: 50
     min_hits: 1
     keywords:
       - "software engineer"
@@ -124,7 +133,8 @@ tracks:
   # # PM fit against an engineering resume, so expect low scores — roles this threshold
   # # kills are accepted losses.
   # - name: "PM / TPM"
-  #   threshold: 50
+  #   llm_threshold: 50
+  #   keyword_threshold: 50
   #   min_hits: 1
   #   keywords:
   #     - "product manager"
@@ -138,7 +148,8 @@ tracks:
   # dropped unseen. word_keywords are title-only, so "engineer" in a JD body does NOT
   # admit a role — pharmacy/retail/ops titles still die at admission.
   - name: "Other Technical"
-    threshold: 50
+    llm_threshold: 50
+    keyword_threshold: 50
     min_hits: 1
     keywords:
       - "research assistant" # kept per user decision 2026-08-05; the scorer judges field fit
@@ -400,18 +411,17 @@ skill_keywords:
   - "pandas"
   - "scikit-learn"
   - "sklearn"
-  - "selenium"
   # ML / CV models & concepts (singular form; the "s?" match covers plurals)
   - "computer vision"
   - "machine learning"
+  - "ml"
   - "deep learning"
   - "reinforcement learning"
+  - "rl"
   - "neural network"
+  - "cnn"
   - "artificial intelligence"
   - "ai"
-  - "ml"
-  - "cnn"
-  - "rl"
   - "yolo"
   - "transformer"
   - "transfer learning"
@@ -422,6 +432,86 @@ skill_keywords:
   - "image"
   - "3d"
   - "data augmentation"
+  # Testing / QA. Every number here is MEASURED: 6154 real JDs from 32 Greenhouse boards,
+  # annotated "sw/hw/eng" = hit rate in software-test titles (n=41) / hardware-test titles
+  # (n=27) / other engineering titles (n=2177). Regenerate before editing this block.
+  # Grouped by concept family, NOT by hit rate, so spellings of one idea stay adjacent
+  # ("automated test" cannot be found by looking near "automated testing" otherwise).
+  # STRATIFY software vs hardware test when re-measuring. Nearly half of all test-titled
+  # roles are hardware test (Flight Test Operator, Cell Test Engineer, Environmental Test
+  # Technician), and pooling them hides which way a term points: "instrumentation" looked
+  # strong pooled but is 15/44/2 — it means DAQ and oscilloscopes, the wrong role — and was
+  # cut with "test result" (7/26/1) for the same reason.
+  # Two traps met while tuning this list:
+  #  - A high hit rate is not enough. "root cause" (29/33/4) and "defect" (15/0/1) were cut
+  #    after measuring that removing them left the test-JD pass rate unchanged: every JD
+  #    they hit already cleared the gate on other terms, so they only inflated scores.
+  #  - "Too generic-sounding" is not grounds to cut. Dropping "validation"+"verification"
+  #    collapses test-JD pass 86.8% -> 70.6% (pooled measurement); they carry this block
+  #    while the precise QA phrases barely occur. Terms with no individual effect still
+  #    carry weight collectively (cutting 20 at once cost 7.4pp), so measure the exact set
+  #    you intend to cut, never one term at a time. That is also why the many sub-10%
+  #    terms below stay: ~0% in the 2177 non-test JDs, so they cost no precision, and the
+  #    agency and Taiwan QA postings this scanner also crawls name tools far more than
+  #    these US boards do (ATS guides claim Selenium is in >85% of QA ads; here it is 5%).
+  # Absent on purpose: "manual testing" (boosts explicitly-manual roles), bare "coverage"
+  # (benefits sections say "insurance coverage"), "debugging" (27/19/15), "ci/cd" (20/0/15)
+  # and "end-to-end" (37/52/27) (every SWE JD says them), "unit test" (0/0/1, said only by
+  # non-test JDs), and narrower forms of a term already here ("test automation", "qa
+  # automation") — the word boundary lets "automation"/"qa" match inside those, so adding
+  # them would only reweight, never add reach.
+  # automation
+  - "automation"                 # 73/59/28
+  - "automated test"             # 27/33/1 — "s?" covers "automated tests" only
+  - "automated testing"          # 7/4/3 — no stemming, so the -ing form is its own entry
+  # validation & verification
+  - "validation"                 # 63/67/14 — ML JDs mean "validation set"; load-bearing, keep
+  - "verification"               # 22/19/6
+  # quality / QA
+  - "qa"                         # 34/0/10 — with "quality assurance", the cleanest sw marker
+  - "quality assurance"          # 24/0/1
+  - "quality engineering"        # 7/0/1
+  # the discipline and its titles
+  - "test engineering"           # 22/26/1
+  - "test development"           # 7/0/0
+  - "sdet"                       # 7/0/0
+  - "istqb"                      # 5/0/0
+  # test artifacts and process
+  - "test plan"                  # 34/30/2
+  - "test case"                  # 17/7/1
+  - "test coverage"              # 17/0/1
+  - "test strategy"              # 15/19/0
+  - "test execution"             # 12/22/0 — hw-leaning, but zero cost outside test roles
+  - "test data"                  # 12/15/1
+  - "test failure"               # 12/0/0
+  - "test infrastructure"        # 10/11/1
+  - "test environment"           # 5/4/0
+  # harnesses
+  - "test suite"                 # 7/0/0
+  - "test framework"             # 5/4/1
+  - "test script"                # 2/7/0
+  # kinds of testing
+  - "integration testing"        # 12/0/1
+  - "e2e"                        # 10/0/0
+  - "regression testing"         # 5/4/0
+  - "regression test"            # 2/7/0 — not covered by "regression testing" (test vs testing)
+  - "api testing"                # 5/0/0
+  - "load testing"               # 5/0/0
+  - "performance testing"        # 2/7/0
+  # tools, by platform
+  - "jenkins"                    # 10/0/2
+  - "selenium"                   # 5/0/0 — moved here from the ML/CV block, where it never belonged
+  - "playwright"                 # 7/0/1
+  - "cypress"                    # 2/0/0
+  - "pytest"                     # 5/0/0
+  - "junit"                      # 0/0/0
+  - "postman"                    # 5/0/0
+  - "jmeter"                     # 2/0/0
+  - "appium"                     # 0/0/0
+  - "uiautomator"                # 0/0/0
+  - "espresso"                   # 0/0/0
+  - "adb"                        # 0/0/0 — Android Debug Bridge; device-test JDs pair it with logcat
+  - "logcat"                     # 0/0/0
   # Backend / infra / tools
   - "git"
   - "docker"
@@ -430,6 +520,7 @@ skill_keywords:
   - "mysql"
   - "nginx"
   - "linux"
+  - "android"         # CapsNet coin-recognition Android app
   - "jira"
   - "api"
   - "rpc"
@@ -437,6 +528,7 @@ skill_keywords:
   - "back-end"
   - "frontend"
   - "front-end"
+  - "dashboard"       # Future Tech admin dashboard (RPC/API); also the metrics dashboards test JDs ask for
   - "database"
   - "load balancing"
   - "algorithm"

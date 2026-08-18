@@ -8,6 +8,8 @@ resume.txt
 dropped_jobs.txt
 # Per-checkout digest checkpoint stamp (see jobscout/config.py) — local only.
 digest_checkpoint.txt
+# Append-only record of pagination cap hits (see jobscout/config.py) — local only.
+catchup_cap_hits.txt
 __pycache__/
 *.pyc
 .venv/
