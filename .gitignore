@@ -13,3 +13,5 @@ __pycache__/
 .venv/
 # Claude research/probe notes — local only (condensed facts live in Claude memory).
 notes/
+# Single-instance lock held by local_run.py — local only, never commit.
+local_run.lock

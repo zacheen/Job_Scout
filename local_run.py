@@ -9,6 +9,9 @@ local_data/ is a deliberate manual step — run merge_seen_jobs.py (default
 direction) — so roles the cloud already emailed KEEP re-surfacing (and
 re-emailing) in local scans until you fold them in.
 
+    0. refuse to start while another local_run.py holds the lock — two runs
+       hard-resetting and pushing the same repo corrupt both the ledger and
+       the git object store (_acquire_single_instance_lock)
     1. refuse to run unless the checkout is on the `data` branch and step 2's
        hard-reset cannot destroy work: no uncommitted changes or unpushed
        commits touching files outside the shard dirs (_ensure_reset_safe)
@@ -24,6 +27,7 @@ re-emailing) in local scans until you fold them in.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -43,8 +47,42 @@ ROOT = Path(__file__).resolve().parent
 BRANCH = "data"
 CLOUD_DIR = ROOT / "cloud_data"  # scan.yml's LEDGER_DIR, at the data-branch root
 CHECKPOINT = ROOT / DIGEST_CHECKPOINT_FILENAME  # untracked: survives the hard-resets below
+LOCKFILE = ROOT / "local_run.lock"  # untracked; holds the single-instance lock below
 
 log = logging.getLogger("local_run")
+_lock_handle: int | None = None
+
+
+def _acquire_single_instance_lock() -> None:
+    """Refuse to start while another local_run.py is mid-run.
+
+    Two concurrent runs fetch, hard-reset and push the same repo, so besides
+    clobbering each other's ledger their git auto-gc passes collide: on Windows
+    the losing gc cannot unlink a pack another git process still has mapped, so
+    it deletes the .idx, leaves the .pack, and the orphan becomes permanent
+    garbage (2026-08-18: 59 MB of it, from a debugger run and a shell run
+    overlapping).
+
+    The handle is deliberately never closed — it is parked in a module global so
+    it outlives this call, and the OS drops the lock when the process exits.
+    That makes a crashed run self-healing: no stale lock file to clean up.
+    """
+    global _lock_handle
+    handle = os.open(LOCKFILE, os.O_RDWR | os.O_CREAT)
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(handle, msvcrt.LK_NBLCK, 1)  # byte 0 may sit past EOF; Windows allows that
+        else:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(handle)
+        raise SystemExit(
+            f"another local_run.py already holds {LOCKFILE.name}; refusing to run a "
+            "second one (concurrent runs corrupt the ledger and the git object store). "
+            "Wait for it to finish, or kill it if it is stuck.")
+    _lock_handle = handle
 
 
 def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -199,6 +237,7 @@ def _commit_and_push(settings: Settings) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    _acquire_single_instance_lock()  # before any git call: a second run must not even fetch
     _ensure_data_branch()
     if load_dotenv is not None:
         load_dotenv(ROOT / ".env")  # before Settings.load so LEDGER_DIR etc. apply
