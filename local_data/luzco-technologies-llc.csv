@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+LUZCO TECHNOLOGIES LLC:6dfc5a86-055d-4015-b7e0-68b2545cf61d,LUZCO TECHNOLOGIES LLC,AI Solutions Co-op,"St. Louis, MO",AI/ML/Data,https://recruiting.paylocity.com/Recruiting/Jobs/Details/4361617,2026-07-28,2026-08-07T07:17:41+00:00,2026-08-07 00:17 Fri,AI / ML,true,Keyword,51,title-only listing; auto-passed (no description to score),true,simplify:Simplify Internships:6dfc5a86-055d-4015-b7e0-68b2545cf61d
