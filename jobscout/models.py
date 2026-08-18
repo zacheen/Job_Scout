@@ -1,8 +1,10 @@
 """Immutable value objects passed between pipeline stages."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from enum import StrEnum
+from types import MappingProxyType
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,41 @@ class Job:
         """`location` for humans (email) and the LLM prompt. Presentation only — never feed this
         to PreFilter, whose state-code rule needs the raw separator ("McLean-VA")."""
         return self.location_display or self.location
+
+
+# eq=False: frozen+eq would synthesise a __hash__ over `watermarks`, which raises
+# TypeError on any dict. Nothing compares ledgers by value, so keep object identity.
+@dataclass(frozen=True, eq=False)
+class SeenLedger:
+    """What a fetcher is allowed to know about the ledger: which source uids are already
+    recorded (`uids`, the membership test for "seen"), and how CURRENT those records are.
+
+    `watermarks` maps uid prefix (AtsFetcher.uid_prefix) -> newest first_seen date
+    (YYYY-MM-DD) recorded under it. Keyed by uid prefix rather than company name because
+    ledger rows carry a display name that aliasing can rewrite, while uids keep the
+    fetcher's own namespace.
+    """
+
+    uids: frozenset[str]
+    watermarks: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        # frozen=True only blocks rebinding the field, not mutating the dict behind it.
+        # One instance (EMPTY_SEEN_LEDGER) is the shared default of every fetch() and is
+        # read by concurrent host threads, so a single stray write would leak across
+        # companies and threads. Copy + proxy makes that impossible, not just impolite.
+        object.__setattr__(self, "watermarks", MappingProxyType(dict(self.watermarks)))
+
+    def watermark(self, uid_prefix: str) -> str:
+        """Newest first_seen date under `uid_prefix`, "" when this company has no rows yet
+        (a seed run) or its dates are unparseable. Callers MUST read "" as "no cutoff
+        known" and fall back to a weaker stop rule, never as "everything is old".
+        """
+        return self.watermarks.get(uid_prefix, "")
+
+
+# Shared no-ledger default: a fetch with no dedupe context (seed run, ad-hoc probe).
+EMPTY_SEEN_LEDGER = SeenLedger(frozenset(), {})
 
 
 class ScoreScale(StrEnum):

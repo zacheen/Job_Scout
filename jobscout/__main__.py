@@ -10,9 +10,9 @@ try:
 except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
-from .config import Settings
+from .config import CATCHUP_LOG_FILENAME, Settings
 from .fetchers import (AtsFetcher, DispatchingEnricher, FetcherFactory, HttpClient,
-                       ParallelFetcher)
+                       ParallelFetcher, attach_catchup_log)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -28,6 +28,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
     Pipeline.run)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root = Path(__file__).resolve().parent.parent
+    attach_catchup_log(root / CATCHUP_LOG_FILENAME)
     if load_dotenv is not None:
         load_dotenv(root / ".env")  # local dev; no-op in Actions (no .env there)
     settings = Settings.load(root)

@@ -20,6 +20,13 @@ DIGEST_TZ = ZoneInfo("America/New_York")
 # reads it as the deletable window's lower bound.
 DIGEST_CHECKPOINT_FILENAME = "digest_checkpoint.txt"
 
+# Untracked, gitignored append-only record at the repo root: one line per company whose
+# watermark catch-up hit _MAX_CATCHUP_PAGES and therefore left older roles unfetched
+# (see fetchers._paginate_new). Survives the post-scan reset --hard because it is
+# untracked, so it accumulates across runs — read it to decide whether the cap needs
+# raising, or whether a company needs a persistent coverage checkpoint instead.
+CATCHUP_LOG_FILENAME = "catchup_cap_hits.txt"
+
 
 def _as_bool(value) -> bool:
     """Parse a YAML scalar as bool: native booleans pass through, strings use truthy words."""
