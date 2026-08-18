@@ -46,8 +46,14 @@ request_delay_max: 2.0
 # `min_hits` (a hit = one occurrence of a keyword in the title or description; the
 # SAME keyword occurring N times counts as N hits). Order matters — list the more
 # specific track first. Each track is its own email section, titled by `name`.
-# `threshold` gates emails: a role is emailed only when its experience_score
-# (LLM: resume-vs-role fit, 0-100) exceeds it.
+# Two gates, one per ScoreScale, since the scorers' outputs aren't comparable: a role
+# is emailed only when its experience_score exceeds the gate for the scale that
+# produced it.
+#   llm_threshold     - OpenAI/CLI scorers: resume-vs-role fit, 0-100.
+#   keyword_threshold - keyword fallback: 40 + 3 * distinct skill_keywords matched
+#     (never leaves 40-100; 50 means "4 hits", not "half a fit"). Set equal to
+#     llm_threshold below for now, but tune independently.
+# Both keys are required — the old shared `threshold` key raises at load.
 #
 # `word_keywords` (optional) match WHOLE-WORD against the TITLE only, and add to the
 # same hit count. Use them for tokens that are unsafe as substrings ("ai" hits
@@ -59,7 +65,8 @@ request_delay_max: 2.0
 # that reason — see its comment below for the concrete examples.
 tracks:
   - name: "Computer Vision"
-    threshold: 50
+    llm_threshold: 50
+    keyword_threshold: 50
     min_hits: 1
     keywords:
       - "computer vision"
@@ -75,7 +82,8 @@ tracks:
       - "visual"
   # AI/ML before Software Engineering: a role matching both lands in the AI/ML email.
   - name: "AI / ML"
-    threshold: 50
+    llm_threshold: 50
+    keyword_threshold: 50
     min_hits: 1
     keywords:
       - "machine learning"
@@ -96,7 +104,8 @@ tracks:
     word_keywords:
       - "ai" # whole-word + title-only: substring would hit "email"/"training"
   - name: "Software Engineering"
-    threshold: 50
+    llm_threshold: 50
+    keyword_threshold: 50
     min_hits: 1
     keywords:
       - "software engineer"
@@ -124,7 +133,8 @@ tracks:
   # # PM fit against an engineering resume, so expect low scores — roles this threshold
   # # kills are accepted losses.
   # - name: "PM / TPM"
-  #   threshold: 50
+  #   llm_threshold: 50
+  #   keyword_threshold: 50
   #   min_hits: 1
   #   keywords:
   #     - "product manager"
@@ -138,7 +148,8 @@ tracks:
   # dropped unseen. word_keywords are title-only, so "engineer" in a JD body does NOT
   # admit a role — pharmacy/retail/ops titles still die at admission.
   - name: "Other Technical"
-    threshold: 50
+    llm_threshold: 50
+    keyword_threshold: 50
     min_hits: 1
     keywords:
       - "research assistant" # kept per user decision 2026-08-05; the scorer judges field fit

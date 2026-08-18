@@ -253,7 +253,7 @@ class Pipeline:
                     continue
                 self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score,
                                       method=attempt.method)
-                if attempt.score.experience_score > attempt.track.threshold:
+                if attempt.score.experience_score > attempt.track.threshold_for(attempt.score.scale):
                     by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
         return by_track
 

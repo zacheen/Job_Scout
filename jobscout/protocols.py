@@ -5,7 +5,7 @@ from collections.abc import Collection
 from typing import ClassVar, Protocol
 
 from .config import Track
-from .models import Job, Score
+from .models import Job, Score, ScoreScale
 
 # A group's ordered track sections: (track_name, ranked [(job, score), ...]).
 Sections = list[tuple[str, list[tuple[Job, Score]]]]
@@ -67,6 +67,7 @@ class Leveler(Protocol):
 
 class JobScorer(Protocol):
     method_label: ClassVar[str]  # scoring method shown in the email subject, e.g. "API" / "CLI" / "Keyword"
+    scale: ClassVar[ScoreScale]  # picks which Track threshold gates this scorer output
 
     def score(self, job: Job) -> Score: ...
 

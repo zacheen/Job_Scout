@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from enum import StrEnum
 
 
 @dataclass(frozen=True)
@@ -38,10 +39,23 @@ class Job:
         return self.location_display or self.location
 
 
+class ScoreScale(StrEnum):
+    """Which arithmetic produced an `experience_score`, and so which Track threshold
+    gates it. Scores from different scales are NOT comparable: LLM is a resume-fit
+    judgement over the full 0-100 range, KEYWORD is `40 + 3 * distinct skill_keywords
+    matched`, which cannot leave 40-100 and says nothing about fit."""
+
+    LLM = "llm"
+    KEYWORD = "keyword"
+
+
 @dataclass(frozen=True)
 class Score:
-    experience_score: int   # 0-100, candidate-resume fit to this specific role
+    experience_score: int   # meaning depends on `scale`; see ScoreScale
     reason: str
+    # Required (no default) so no scorer can leave the score's meaning implicit; the
+    # email gate reads this to pick the Track threshold.
+    scale: ScoreScale
     # Distinct skill_keywords matched; set only by KeywordScorer with keywords configured
     # (None for LLM scorers and the no-keywords path). Needed because the clamped
     # experience_score can saturate at 100 — email and section sort use this instead.
