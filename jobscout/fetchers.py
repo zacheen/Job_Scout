@@ -7,12 +7,13 @@ import json
 import logging
 import random
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urljoin, urlparse
 
@@ -65,6 +66,95 @@ def _unix_to_date(ts: int | float | None) -> str:
         return ""
 
 
+_ISO_DATE_PREFIX_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+_DAYS_AGO_RE = re.compile(r"(\d+)\+?\s*days?\s+ago")
+_D_MON_Y_RE = re.compile(r"\b(\d{1,2})-([A-Za-z]{3,9})-(\d{4})\b")      # 13-Jul-2026
+_MON_D_Y_RE = re.compile(r"\b([A-Za-z]{3,9})\.?\s+(\d{1,2}),\s*(\d{4})\b")  # Aug. 5, 2026
+_M_D_Y_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")                # US order: 07/29/2026
+_MONTHS = {name: number for number, name in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"), start=1)}
+_warned_date_shapes: set[str] = set()
+_warned_date_shapes_lock = threading.Lock()
+
+
+def _to_iso(year, month, day) -> str:
+    """(y, m, d) -> ISO date, or "" when the triple is not a real calendar date."""
+    try:
+        return date(int(year), int(month), int(day)).isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
+def _parse_posted(text: str) -> str:
+    """Recognized posting-date shape -> ISO YYYY-MM-DD; "" for anything else, INCLUDING a
+    shape that matches but does not name a real date (an unknown month abbreviation, say),
+    so the caller warns about those too instead of failing silently."""
+    if match := _ISO_DATE_PREFIX_RE.match(text):
+        return _to_iso(*match.groups())
+    lowered = text.lower()
+    today = datetime.now(timezone.utc).date()
+    if "today" in lowered:
+        return today.isoformat()
+    if "yesterday" in lowered:
+        return (today - timedelta(days=1)).isoformat()
+    if match := _DAYS_AGO_RE.search(lowered):
+        return (today - timedelta(days=int(match.group(1)))).isoformat()
+    if match := _D_MON_Y_RE.search(text):
+        day, month, year = match.groups()
+        return _to_iso(year, _MONTHS.get(month[:3].lower(), 0), day)
+    if match := _MON_D_Y_RE.search(text):
+        month, day, year = match.groups()
+        return _to_iso(year, _MONTHS.get(month[:3].lower(), 0), day)
+    if match := _M_D_Y_RE.match(text):
+        month, day, year = match.groups()
+        return _to_iso(year, month, day)
+    return ""
+
+
+def _warn_unparsed_date(text: str) -> None:
+    """Report a posting date no rule could read, once per SHAPE (digits collapsed to 9) so
+    a board with a distinct date on every job costs one line, not one per row. The set is
+    locked because ParallelFetcher runs different hosts concurrently, and a bare
+    check-then-add lets two threads log the same shape; the log call itself stays outside
+    the lock because whichever thread just added the shape is guaranteed to be the only
+    one that will ever log it."""
+    shape = re.sub(r"\d", "9", text)
+    with _warned_date_shapes_lock:
+        if shape in _warned_date_shapes:
+            return
+        _warned_date_shapes.add(shape)
+    catchup_log.warning(
+        "unrecognized date_posted shape %r (e.g. %r): early-stop for this source falls "
+        "back to the already-seen count", shape, text)
+
+
+def _posted_iso(raw: str) -> str:
+    """A board's displayed posting date -> ISO YYYY-MM-DD, or "" if nothing could read it.
+
+    _paginate_new compares this against a YYYY-MM-DD watermark with `<`, and the raw
+    strings are comparable neither to that nor to each other. Un-normalized, the operator
+    does not mis-order a few rows — it silently decides the entire run: "Posted Today" and
+    "August 18, 2026" sort ABOVE any "2026-…", so the stop can NEVER fire and every run
+    becomes a full-board pull; "07/29/2026" sorts BELOW it, so the stop fires on page one
+    and the run never sees past the newest page.
+
+    Relative days resolve against UTC today, matching the watermark's basis (first_seen,
+    which store._now() stamps in UTC). "30+ Days Ago" resolves to exactly 30 days back —
+    the newest date it can mean, which is the safe direction: too-new only makes the
+    caller page deeper, it can never stop it early.
+
+    An empty input is a source that carries no date at all (SuccessFactors, Goldman) —
+    normal, and not worth warning about; only an unreadable non-empty value is."""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    if iso := _parse_posted(text):
+        return iso
+    _warn_unparsed_date(text)
+    return ""
+
+
 def _url_slug(url: str) -> str:
     """Trailing path segment of `url` with trailing slashes stripped, or "" if pathless."""
     return urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
@@ -101,17 +191,18 @@ def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
 
 
 _STOP_AFTER_SEEN = 10  # no-watermark fallback: page until this many already-seen openings (cumulative)
-# Ceiling on ONE company's watermark-driven catch-up, so a long-stale ledger cannot turn
-# a run into a full-board pull of every stale company at ~1.6s per paced request.
-_MAX_CATCHUP_PAGES = 100
+# Ceiling on ONE company's pull in ONE run: a long-stale watermark catch-up and a fresh
+# company both page without a working stop signal, so either could turn into a full-board
+# pull at ~1.6s per paced request. Counted in JOBS, not pages: page size varies 10x across
+# ATSes, so the previous page cap silently meant 1,000 rows on SmartRecruiters and 100 on
+# Eightfold.
+_MAX_JOBS_PER_RUN = 500
 
 
 def _paginate_new(
     fetch_page: Callable[[int], tuple[list[Job], int | None]],
     seen: Collection[str],
     page_size: int,
-    seed_max_pages: int,
-    is_seed_run: bool,
     *,
     watermark: str = "",
     subject: str = "",
@@ -121,8 +212,10 @@ def _paginate_new(
     have paged past everything the ledger can be missing.
 
     `watermark` (this company's newest first_seen date, see SeenLedger) is that proof:
-    stop when a page's OLDEST date_posted predates it, because every role the board has
-    touched since the last run sorts above that point.
+    stop when a page's OLDEST posting date predates it, because every role the board has
+    touched since the last run sorts above that point. Dates go through `_posted_iso`
+    first — boards state them in formats that compare neither to the watermark nor to
+    each other, and the raw comparison silently decides the whole run (see there).
 
     Without a watermark or dates, fall back to `stop_after_seen` already-seen uids — a
     much weaker signal: boards re-stamp OLD roles to the top of the sort, so each one
@@ -131,8 +224,9 @@ def _paginate_new(
     stopped after page one and every later run repeated that same short stop — a
     self-perpetuating gap ordinary scanning could never close.
 
-    `is_seed_run` = this company's first appearance (no prior uids in the ledger): the cap
-    bounds the pull, because there is no backlog baseline to stop against."""
+    A company's first run has NEITHER signal (nothing of its own in `seen`, hence no
+    watermark and no already-seen hits), so `_MAX_JOBS_PER_RUN` is the only thing that
+    stops it — which is why that case needs no seed rule of its own."""
     jobs: list[Job] = []
     index = 0
     seen_count = 0
@@ -142,7 +236,8 @@ def _paginate_new(
         index += 1
         seen_count += sum(1 for job in page_jobs if job.job_uid in seen)
         fetched = index * page_size
-        oldest = min((job.date_posted for job in page_jobs if job.date_posted), default="")
+        oldest = min(filter(None, (_posted_iso(job.date_posted) for job in page_jobs)),
+                     default="")
         reached_backlog = (
             oldest < watermark if watermark and oldest else seen_count >= stop_after_seen
         )
@@ -150,18 +245,16 @@ def _paginate_new(
             not page_jobs                                 # source exhausted
             or reached_backlog
             or (total is not None and fetched >= total)   # covered all results
-            or (is_seed_run and index >= seed_max_pages)  # company's first run: bound the pull
         ):
             break
-        if index >= _MAX_CATCHUP_PAGES:
-            # Reachable only via the watermark rule (the seen-count rule stops far sooner):
-            # either the ledger is months stale or this board re-stamps its whole backlog.
+        if len(jobs) >= _MAX_JOBS_PER_RUN:
             # Roles older than the last page fetched stay unfetched, and the next run's
             # watermark will have advanced past them — so this needs a look, not a retry.
             catchup_log.warning(
-                "%s: hit _MAX_CATCHUP_PAGES (%d) with the board still newer than watermark "
-                "%s (oldest date_posted reached: %s); older roles were NOT fetched",
-                subject or "early-stop pagination", _MAX_CATCHUP_PAGES, watermark, oldest)
+                "%s: hit _MAX_JOBS_PER_RUN (%d) with the board still newer than watermark "
+                "%s (oldest posting date reached: %s); older roles were NOT fetched",
+                subject or "early-stop pagination", _MAX_JOBS_PER_RUN,
+                watermark or "(none: first run)", oldest or "(no usable dates)")
             break
     return jobs
 
@@ -286,9 +379,9 @@ class AtsFetcher(ABC):
 
     @staticmethod
     def uid_prefix(ats: str, company_name: str) -> str:
-        """uid namespace for one (ats, company) pair, shared by _uid, _company_known, and
-        external callers (e.g. seed_only) that test a uid's origin. Trailing ':' stops one
-        company name being a prefix of another."""
+        """uid namespace for one (ats, company) pair, shared by _uid, watermark lookups,
+        and external callers (e.g. seed_only) that test a uid's origin. Trailing ':' stops
+        one company name being a prefix of another."""
         return f"{ats}:{company_name}:"
 
     @property
@@ -320,11 +413,6 @@ class AtsFetcher(ABC):
                 f"{self._company.name}: missing '{key}' for ats={self.ats_name}"
             ) from exc
 
-    def _company_known(self, seen: Collection[str]) -> bool:
-        # True iff THIS company has a prior uid in `seen` — each company gets its own
-        # seed cap on first appearance, regardless of what else is already in the ledger.
-        return any(uid.startswith(self.own_uid_prefix) for uid in seen)
-
 
 class PagedFetcher(AtsFetcher):
     """Shared contract for sources that expose zero-based pages of jobs."""
@@ -351,23 +439,16 @@ class PagedFetcher(AtsFetcher):
 
 
 class EarlyStopPaginatedFetcher(PagedFetcher):
-    """Base for newest-first, paginated sources. Subclasses set `_PAGE`/`_SEED_MAX_PAGES`
-    and implement `_fetch_page`; `fetch` wires them through `_paginate_new` identically, so
-    every paginated source gets the same seed-cap + early-stop behaviour and a new one can't
-    forget it. Correctness depends on the source returning newest-first — each subclass
+    """Base for newest-first, paginated sources. Subclasses set `_PAGE` and implement
+    `_fetch_page`; `fetch` wires them through `_paginate_new` identically, so every
+    paginated source gets the same early-stop + `_MAX_JOBS_PER_RUN` behaviour and a new one
+    can't forget it. Correctness depends on the source returning newest-first — each subclass
     documents why it is. Subclasses that populate `date_posted` also get the watermark stop
     (see `_paginate_new`); ones that cannot (no per-item date) fall back to the weaker
     already-seen count and stay exposed to re-stamped backlog roles."""
 
-    _SEED_MAX_PAGES: int
-
-    def __init__(self, company: Company, http: HttpClient):
-        super().__init__(company, http)
-        self._require_positive_class_int("_SEED_MAX_PAGES")
-
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
-        return _paginate_new(self._fetch_page, seen.uids, self._PAGE, self._SEED_MAX_PAGES,
-                             is_seed_run=not self._company_known(seen.uids),
+        return _paginate_new(self._fetch_page, seen.uids, self._PAGE,
                              watermark=seen.watermark(self.own_uid_prefix),
                              subject=self._log_subject)
 
@@ -528,7 +609,6 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "workday"
     _PAGE = 20
-    _SEED_MAX_PAGES = 10
     _MAX_SEARCH_PAGES = 25  # hard bound for the searchText (relevance-ordered) mode
 
     _N_LOCATIONS = re.compile(r"\d+\s+locations?", re.IGNORECASE)
@@ -614,7 +694,6 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "oracle"
     _PAGE = 20
-    _SEED_MAX_PAGES = 10
     # Job text is split across several fields; the visa/clearance boilerplate PreFilter scans for
     # lives in ExternalQualificationsStr, NOT the ShortDescriptionStr blurb — concatenate them all.
     _DESC_FIELDS = ("ShortDescriptionStr", "ExternalDescriptionStr",
@@ -692,7 +771,6 @@ class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "smartrecruiters"
     _PAGE = 100  # API max page size
-    _SEED_MAX_PAGES = 10
 
     @property
     def host(self) -> str:
@@ -740,7 +818,6 @@ class JibeFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "jibe"
     _PAGE = 10
-    _SEED_MAX_PAGES = 10
 
     @property
     def host(self) -> str:
@@ -787,7 +864,6 @@ class EightfoldFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "eightfold"
     _PAGE = 10
-    _SEED_MAX_PAGES = 10
 
     def __init__(self, company: Company, http: HttpClient):
         super().__init__(company, http)
@@ -865,7 +941,6 @@ class RadancyFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "radancy"
     _PAGE = 15
-    _SEED_MAX_PAGES = 10
     _MAX_FULL_PAGES = 100
 
     _TOTAL_RE = re.compile(r'data-total-job-results="(\d+)"')
@@ -942,7 +1017,6 @@ class SuccessFactorsFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "successfactors"
     _PAGE = 25  # server-fixed rows per page
-    _SEED_MAX_PAGES = 10
 
     _ROW_RE = re.compile(r'<tr class="data-row">(.*?)</tr>', re.DOTALL)
     # Attribute order varies between the desktop and phone anchors -> lookahead on class.
@@ -1002,7 +1076,6 @@ class AvatureFetcher(AtsFetcher):
     ats_name = "avature"
     _RPP = 20  # requested page size; the server clamps it per tenant
     _MAX_PAGES = 120  # hard bound for the full-board mode
-    _SEED_MAX_PAGES = 10  # first-run cap for the newest_first mode
 
     _CARD_RE = re.compile(r'<article[^>]*class="[^"]*article--result[^"]*"[^>]*>(.*?)</article>',
                           re.DOTALL)
@@ -1036,8 +1109,7 @@ class AvatureFetcher(AtsFetcher):
         # Lenovo's board is >1200 rows (past its own "999" display cap); early-stop
         # keeps steady-state runs to ~2 pages instead of paging the whole board.
         if self._company.param_bool("newest_first"):
-            jobs = _paginate_new(self._fetch_page, seen.uids, self._RPP, self._SEED_MAX_PAGES,
-                                 is_seed_run=not self._company_known(seen.uids),
+            jobs = _paginate_new(self._fetch_page, seen.uids, self._RPP,
                                  watermark=seen.watermark(self.own_uid_prefix),
                                  subject=self._log_subject)
         else:
@@ -1119,12 +1191,11 @@ class AvatureFetcher(AtsFetcher):
 class AmazonFetcher(EarlyStopPaginatedFetcher):
     """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
     `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
-    so the seen-based early-stop applies. `hits` is unreliable, so total is unknown and the
-    page cap bounds only the first (seed) run."""
+    so the early-stop applies. `hits` is unreliable, so total is unknown and
+    `_MAX_JOBS_PER_RUN` is the only backstop when a run pages deeper than expected."""
 
     ats_name = "amazon"
     _PAGE = 100
-    _SEED_MAX_PAGES = 3
 
     @property
     def host(self) -> str:
@@ -1157,14 +1228,13 @@ class AmazonFetcher(EarlyStopPaginatedFetcher):
 class GoogleFetcher(EarlyStopPaginatedFetcher):
     """Google has no public careers API; job data is server-side-embedded as JSON inside
     an `AF_initDataCallback({key:'ds:1', data:[...]})` script block — parsed directly, no
-    browser or API key needed. `sort_by=date` lists newest first, so the seen-based
-    early-stop applies (the page cap bounds only the seed run); `query`/`location` optional."""
+    browser or API key needed. `sort_by=date` lists newest first, so the early-stop
+    applies (`_MAX_JOBS_PER_RUN` is the backstop); `query`/`location` optional."""
 
     ats_name = "google"
     # Search endpoint; also the base for per-job description URLs (see _jd_url).
     _BASE = "https://www.google.com/about/careers/applications/jobs/results"
     _PAGE = 20
-    _SEED_MAX_PAGES = 5
     _CALLBACK_RE = re.compile(r"AF_initDataCallback\(")
     # Positional indices into Google's ds:1 job record (positional schema; source:
     # notes/google_probe_log.md). Must be updated if Google changes the page layout.
@@ -2062,7 +2132,6 @@ class GoldmanFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "goldman"
     _PAGE = 50
-    _SEED_MAX_PAGES = 10
     _API = "https://api-higher.gs.com/gateway/api/v1/graphql"
     # Overridable via the `experiences` param (comma-separated) to scope e.g. campus-only.
     _DEFAULT_EXPERIENCES = "PROFESSIONAL,EARLY_CAREER,CAMPUS"

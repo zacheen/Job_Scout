@@ -21,10 +21,11 @@ DIGEST_TZ = ZoneInfo("America/New_York")
 DIGEST_CHECKPOINT_FILENAME = "digest_checkpoint.txt"
 
 # Untracked, gitignored append-only record at the repo root: one line per company whose
-# watermark catch-up hit _MAX_CATCHUP_PAGES and therefore left older roles unfetched
-# (see fetchers._paginate_new). Survives the post-scan reset --hard because it is
-# untracked, so it accumulates across runs — read it to decide whether the cap needs
-# raising, or whether a company needs a persistent coverage checkpoint instead.
+# pull hit _MAX_JOBS_PER_RUN and therefore left older roles unfetched, plus any
+# date_posted shape _posted_iso could not normalize (see fetchers._paginate_new).
+# Survives the post-scan reset --hard because it is untracked, so it accumulates across
+# runs — read it to decide whether the cap needs raising, or whether a company needs a
+# persistent coverage checkpoint instead.
 CATCHUP_LOG_FILENAME = "catchup_cap_hits.txt"
 
 
