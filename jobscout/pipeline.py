@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import NamedTuple
@@ -79,7 +80,7 @@ class Pipeline:
         # is the dedupe baseline. Taken BEFORE add_seen, so this run's own jobs don't dedup
         # themselves — and so no company's watermark has advanced to today yet.
         ledger = self._store.seen_ledger()
-        all_jobs = self._fetcher.fetch_all(ledger)
+        all_jobs = self._drop_untitled(self._fetcher.fetch_all(ledger))
         known = ledger.uids
         known_urls = self._store.known_urls()
         candidates = [j for j in all_jobs if self._prefilter.keep(j)]
@@ -161,6 +162,27 @@ class Pipeline:
         self._store.save()
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
         return True
+
+    @staticmethod
+    def _drop_untitled(jobs: list[Job]) -> list[Job]:
+        """Discard postings the source returned with no title, before run() records them.
+        Recording one is permanent damage: add_seen retires the uid — the posting's real
+        board id — so when the same req comes back with its title populated it reads as
+        already-seen and is never scored or emailed. Only Workday has produced these (121
+        ledger rows by 2026-08-19, ~1-6/day): its listing API intermittently returns an
+        item carrying nothing but externalPath, while a later request serves the same req
+        with its title, so dropping costs one refetch and recovers the role. Deriving the
+        title from the URL slug instead was rejected — Workday freezes the slug at
+        requisition creation, so it disagrees with the live title on 8% of the ledger's
+        86k Workday rows."""
+        kept, untitled = [], []
+        for job in jobs:
+            (kept if job.title.strip() else untitled).append(job)
+        if untitled:
+            log.warning("dropped %d untitled posting(s), left unrecorded so a later run can "
+                        "still score them: %s", len(untitled),
+                        Counter(job.company for job in untitled).most_common())
+        return kept
 
     def _annotate(self, job: Job) -> Job:
         return self._same_identity(self._annotator.annotate(job), job, "annotator")
