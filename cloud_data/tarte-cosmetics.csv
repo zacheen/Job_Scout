@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-tarte cosmetics:e3c2315a-4781-449f-9fe9-17d3d76d7b82,tarte cosmetics,Product Development Intern,NYC,Product,https://apply.workable.com/tarte-inc/j/66E81C77A4/apply,2026-08-07,2026-08-07T06:41:45+00:00,2026-08-06 23:41 Thu,,false,,,,false,simplify:Simplify Internships:e3c2315a-4781-449f-9fe9-17d3d76d7b82
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+tarte cosmetics:e3c2315a-4781-449f-9fe9-17d3d76d7b82,tarte cosmetics,Product Development Intern,NYC,Product,https://apply.workable.com/tarte-inc/j/66E81C77A4/apply,2026-08-07,2026-08-07,2026-08-07T06:41:45+00:00,2026-08-06 23:41 Thu,,false,,,,false,simplify:Simplify Internships:e3c2315a-4781-449f-9fe9-17d3d76d7b82

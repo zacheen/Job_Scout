@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-OceanComm:5aceb7eb-24ef-4a7a-abef-73e17a771b6f,OceanComm,Electronics Technician Intern,"Chicago, IL",Hardware,https://apply.workable.com/oceancomm/j/AB7EE4F02B/apply,2026-08-11,2026-08-11T02:17:23+00:00,2026-08-10 19:17 Mon,,false,,,,false,simplify:Simplify Internships:5aceb7eb-24ef-4a7a-abef-73e17a771b6f
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+OceanComm:5aceb7eb-24ef-4a7a-abef-73e17a771b6f,OceanComm,Electronics Technician Intern,"Chicago, IL",Hardware,https://apply.workable.com/oceancomm/j/AB7EE4F02B/apply,2026-08-11,2026-08-11,2026-08-11T02:17:23+00:00,2026-08-10 19:17 Mon,,false,,,,false,simplify:Simplify Internships:5aceb7eb-24ef-4a7a-abef-73e17a771b6f

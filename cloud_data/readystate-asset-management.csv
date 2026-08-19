@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-Readystate Asset Management:4171077008,Readystate Asset Management,Investment Intern - Summer 2027 & 2028,"Chicago, IL",Quant,https://job-boards.greenhouse.io/readystate/jobs/4171077008,2026-08-13,2026-08-17T23:17:35+00:00,2026-08-17 16:17 Mon,,false,,,,false,simplify:Simplify Internships:4171077008
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Readystate Asset Management:4171077008,Readystate Asset Management,Investment Intern - Summer 2027 & 2028,"Chicago, IL",Quant,https://job-boards.greenhouse.io/readystate/jobs/4171077008,2026-08-13,2026-08-13,2026-08-17T23:17:35+00:00,2026-08-17 16:17 Mon,,false,,,,false,simplify:Simplify Internships:4171077008

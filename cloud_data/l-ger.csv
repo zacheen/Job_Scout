@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-Léger:48f757b7-e402-4cf2-bbc5-0ab0560d8436,Léger,Research Intern,"Toronto, ON, Canada",AI/ML/Data,https://jobs.smartrecruiters.com/Leger2/744000141569336,2026-08-12,2026-08-12T01:41:48+00:00,2026-08-11 18:41 Tue,,false,,,,false,simplify:Simplify Internships:48f757b7-e402-4cf2-bbc5-0ab0560d8436
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Léger:48f757b7-e402-4cf2-bbc5-0ab0560d8436,Léger,Research Intern,"Toronto, ON, Canada",AI/ML/Data,https://jobs.smartrecruiters.com/Leger2/744000141569336,2026-08-12,2026-08-12,2026-08-12T01:41:48+00:00,2026-08-11 18:41 Tue,,false,,,,false,simplify:Simplify Internships:48f757b7-e402-4cf2-bbc5-0ab0560d8436

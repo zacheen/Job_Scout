@@ -1,3 +1,3 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-Xantium:4360768009,Xantium,Quantitative Developer Intern,"London, UK; NYC",Quant,https://job-boards.greenhouse.io/xantium/jobs/4360768009,2026-08-17,2026-08-17T22:39:38+00:00,2026-08-17 15:39 Mon,,false,,,,false,simplify:Simplify Internships:4360768009
-Xantium:4371217009,Xantium,Quantitative Researcher Intern,"London, UK; NYC",Quant,https://job-boards.greenhouse.io/xantium/jobs/4371217009,2026-08-17,2026-08-17T22:39:38+00:00,2026-08-17 15:39 Mon,,false,,,,false,simplify:Simplify Internships:4371217009
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Xantium:4360768009,Xantium,Quantitative Developer Intern,"London, UK; NYC",Quant,https://job-boards.greenhouse.io/xantium/jobs/4360768009,2026-08-17,2026-08-17,2026-08-17T22:39:38+00:00,2026-08-17 15:39 Mon,,false,,,,false,simplify:Simplify Internships:4360768009
+Xantium:4371217009,Xantium,Quantitative Researcher Intern,"London, UK; NYC",Quant,https://job-boards.greenhouse.io/xantium/jobs/4371217009,2026-08-17,2026-08-17,2026-08-17T22:39:38+00:00,2026-08-17 15:39 Mon,,false,,,,false,simplify:Simplify Internships:4371217009

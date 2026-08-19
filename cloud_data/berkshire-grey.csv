@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-Berkshire Grey:73bb6ea9-7c91-4d28-850a-8d24908aee9c,Berkshire Grey,Software Co-op,"Bedford, MA",Software,https://berkshiregrey.bamboohr.com/careers/749/,2026-07-28,2026-07-28T23:56:06+00:00,2026-07-28 16:56 Tue,,false,,,,false,simplify:Simplify Internships:73bb6ea9-7c91-4d28-850a-8d24908aee9c
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Berkshire Grey:73bb6ea9-7c91-4d28-850a-8d24908aee9c,Berkshire Grey,Software Co-op,"Bedford, MA",Software,https://berkshiregrey.bamboohr.com/careers/749/,2026-07-28,2026-07-28,2026-07-28T23:56:06+00:00,2026-07-28 16:56 Tue,,false,,,,false,simplify:Simplify Internships:73bb6ea9-7c91-4d28-850a-8d24908aee9c
