@@ -309,9 +309,13 @@ exclude_word_terms:
 # Drop a job when its DESCRIPTION contains any of these (lowercase substring; the text is
 # whitespace-collapsed and curly apostrophes straightened before matching, so a phrase still
 # hits across the line breaks strip_html leaves). Purpose: the formulaic "no visa/immigration
-# sponsorship" legal boilerplate. CAVEAT: Workday listings carry NO description (Oracle only
-# a short blurb) — those roles can't be caught here (the LLM sees the same text, so it
-# couldn't either). Substring redundancy is deliberate: "does not offer VISA sponsorship"
+# sponsorship" legal boilerplate. CAVEAT: most listings reach this check title-only, because
+# their listing API omits the body (Workday/BambooHR entirely, Oracle a short blurb) — those
+# roles can't be caught here (the LLM sees the same text, so it couldn't either). EXCEPTION:
+# a NEW PreFilter survivor whose JD URL JdUrlEnricher can resolve gets re-checked against
+# these terms with its real description (see pipeline._enrich_and_refilter) — that second
+# pass is what makes the citizenship/clearance rows below reach defense-prime Workday JDs.
+# Substring redundancy is deliberate: "does not offer VISA sponsorship"
 # does NOT contain "not offer sponsorship", so the visa/immigration middles get their own rows.
 exclude_description_terms:
   # broadest anchor: covers "will/do/does/can/cannot/may not sponsor" and "not sponsorship-eligible"
@@ -356,6 +360,16 @@ exclude_description_patterns:
   # Gap class excludes sentence punctuation on purpose: without it, "not eligible for
   # overtime. Visa sponsorship is available" would match and wrongly drop a job that DOES sponsor.
   - '\b(?:not eligible|ineligible) for (?:[^\s.,;:!?]+ ){0,3}sponsorship'
+  # US-citizenship requirements, which none of the fixed substrings above match: RTX writes
+  # "U.S. citizenship is required, as only U.S. citizens are authorized to access information
+  # under this program/contract."; GDIT writes "US citizenship required" -- neither carries
+  # the "be a" that exclude_description_terms' "be a us citizen" needs. Optional dots cover
+  # both the "U.S." and "US" spellings (_normalize_prose keeps the dots).
+  # Anchored on the requirement's VALUE, never on RTX's section header "U.S. Citizen, U.S.
+  # Person, or Immigration Status Requirements:" -- that header is stamped into EVERY RTX
+  # posting, including ones whose value is "None", so matching it would drop the whole board.
+  - 'u\.?s\.? citizenship (?:is )?(?:a )?(?:required|requirement)'
+  - 'only u\.?s\.? citizens'
 
 # AMBIGUOUS eligibility wording: usually restrictive, but NOT a guaranteed disqualifier — so a
 # match does NOT drop the job; it is still scored and emailed with a "possibly NO visa sponsorship

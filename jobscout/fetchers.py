@@ -23,6 +23,7 @@ from dataclasses import replace
 from .company_aliases import canonical_company
 from .config import Company
 from .models import EMPTY_SEEN_LEDGER, Job, SeenLedger
+from .protocols import Enricher
 
 log = logging.getLogger(__name__)
 # Cap-hit records go to their own logger so attach_catchup_log() can also persist them to
@@ -592,8 +593,9 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
                 location_display=location_display,
                 # externalPath alone 404s — the JD page only exists under /en-US/{site}.
                 url=f"https://{host}/en-US/{site}{item['externalPath']}",
-                # Workday listing API omits description; per-job fetches are too
-                # costly, so these roles are matched on title only.
+                # Workday listing API omits the body (per-role fetch for every LISTED
+                # job would be too costly). WorkdayJdSource backfills it later, but
+                # only for new PreFilter survivors, so this job is title-only for now.
                 description="",
                 department="",
                 date_posted=item.get("postedOn", ""),
@@ -1839,8 +1841,8 @@ class TeamtailorFetcher(AtsFetcher):
 class BambooHRFetcher(AtsFetcher):
     """BambooHR hosted boards: `GET {account}.bamboohr.com/careers/list` returns the whole
     board as {"meta":{"totalCount"},"result":[...]} in one anonymous request. Rows carry
-    no dates or descriptions -> single-shot, title-only matching. JD URL =
-    {account}.bamboohr.com/careers/{id}."""
+    no dates and no descriptions, so this stays a single request; the body is backfilled
+    per-job at enrich time by BambooHrJdSource. JD URL = {account}.bamboohr.com/careers/{id}."""
 
     ats_name = "bamboohr"
 
@@ -2760,4 +2762,142 @@ class DispatchingEnricher:
         for prefix, fetcher in self._prefixed:
             if job.job_uid.startswith(prefix):
                 return fetcher.enrich(job)
+        return job
+
+
+class JdSource(ABC):
+    """Reads a job-ad body out of one ATS's per-job detail endpoint, addressed by the
+    posting's own PUBLIC JD URL rather than by any listing-API id.
+
+    That URL is all an aggregator row carries, so this is the only handle available for
+    Simplify/SpeedyApply postings, whose links point at arbitrary employer ATSes.
+    Subclasses map a JD URL to its detail endpoint and pull the body out of the payload;
+    `description` adds the shared fetch + fail-open handling.
+    """
+
+    def __init__(self, http: HttpClient):
+        self._http = http
+
+    @abstractmethod
+    def detail_url(self, jd_url: str) -> str:
+        """The detail-endpoint URL serving `jd_url`, or "" when this source does not
+        recognize that host/path shape. Must not do any I/O. Public, unlike the `_body`
+        hook, so host dispatch can be verified without hitting the network."""
+
+    @abstractmethod
+    def _body(self, payload) -> str:
+        """The job-ad body (HTML or text) inside a detail-endpoint payload, or ""."""
+
+    def description(self, jd_url: str) -> str:
+        """Stripped job-ad text for `jd_url`, or "" when this source doesn't serve that
+        URL or the fetch failed. Callers rely on "" (never an exception) to keep the
+        Enricher fail-open contract."""
+        api = self.detail_url(jd_url)
+        if not api:
+            return ""
+        try:
+            return strip_html(self._body(self._http.get_json(api)))
+        except Exception as exc:
+            # Expected, not exceptional: a delisted or re-posted requisition 403s/404s on
+            # its old URL, and the caller's fallback (title-only matching) is unchanged.
+            log.info("%s: JD fetch failed for %s: %s", type(self).__name__, jd_url, exc)
+            return ""
+
+
+class WorkdayJdSource(JdSource):
+    """Workday CXS per-posting detail, reachable from the JD URL alone.
+
+    The endpoint needs a TENANT the JD URL never carries; the host's first label works as
+    the tenant on every board probed (nvidia / globalhr / gdit / gsk / homedepot / …).
+    A wrong guess just 403s into the fail-open path, so this cannot silently mis-fetch
+    another company's posting.
+    """
+
+    # Locale segment is optional: aggregator links appear both as /en-US/{site}/job/…
+    # and bare /{site}/job/…. `path` must start at "/job/", which is what forces the
+    # optional group to consume the locale instead of the site when both are present.
+    _JD_URL_RE = re.compile(
+        r"^https://(?P<host>[\w.-]+\.myworkdayjobs\.com)"
+        r"/(?:[a-z]{2}-[A-Za-z]{2}/)?(?P<site>[^/]+)(?P<path>/job/.+)$",
+        re.IGNORECASE,
+    )
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        host, site, path = match.group("host"), match.group("site"), match.group("path")
+        return f"https://{host}/wday/cxs/{host.split('.')[0]}/{site}{path}"
+
+    def _body(self, payload) -> str:
+        return (payload.get("jobPostingInfo") or {}).get("jobDescription") or ""
+
+
+class BambooHrJdSource(JdSource):
+    """BambooHR hosted-board per-posting detail: `/careers/{id}/detail` returns the body
+    under result.jobOpening.description (the /careers/{id}/ page itself is client-rendered,
+    so its HTML carries no job ad)."""
+
+    _JD_URL_RE = re.compile(
+        r"^https://(?P<host>[\w.-]+\.bamboohr\.com)/careers/(?P<id>\d+)/?$",
+        re.IGNORECASE,
+    )
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        return f"https://{match.group('host')}/careers/{match.group('id')}/detail"
+
+    def _body(self, payload) -> str:
+        opening = ((payload.get("result") or {}).get("jobOpening") or {})
+        return opening.get("description") or ""
+
+
+class JdUrlEnricher:
+    """Fills a still-empty description by fetching the job's own JD URL, dispatching on
+    that URL's HOST instead of on which fetcher produced the job. Satisfies the `Enricher`
+    protocol.
+
+    Aggregator rows are what forced this: Simplify/SpeedyApply publish a title, a company
+    and an apply link but never a body, and their links point at arbitrary employer ATSes,
+    so uid-prefix dispatch (DispatchingEnricher) cannot reach them.
+
+    Keying on the host is deliberate, not incidental: it also covers directly-fetched
+    Workday/BambooHR companies, whose listing APIs omit the body via the same vacuous-pass
+    route — narrowing this to aggregator uids would leave half the hole open. Cost stays
+    bounded because the pipeline enriches only new PreFilter survivors, not whole fetch
+    results.
+
+    Jobs that already have a description are left alone, so this composes safely behind a
+    fetcher's own richer enrich (see ChainedEnricher).
+    """
+
+    def __init__(self, sources: list[JdSource]):
+        self._sources = tuple(sources)
+
+    def enrich(self, job: Job) -> Job:
+        if job.description.strip() or not job.url:
+            return job
+        for source in self._sources:
+            description = source.description(job.url)
+            if description:
+                return replace(job, description=description)
+        return job
+
+
+class ChainedEnricher:
+    """Runs each enricher in order and returns the first result that actually changed the
+    job. Satisfies the `Enricher` protocol, and preserves its object-identity rule (an
+    unchanged job comes back as the SAME object) that the pipeline uses to skip a
+    redundant re-filter."""
+
+    def __init__(self, enrichers: list[Enricher]):
+        self._enrichers = tuple(enrichers)
+
+    def enrich(self, job: Job) -> Job:
+        for enricher in self._enrichers:
+            enriched = enricher.enrich(job)
+            if enriched is not job:
+                return enriched
         return job
