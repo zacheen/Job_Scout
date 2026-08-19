@@ -89,10 +89,19 @@ class Pipeline:
         # Record all new fetched jobs, not only candidates: PreFilter-rejected jobs are
         # otherwise never recorded and look "new" forever, defeating early-stop.
         new_fetched = [j for j in all_jobs if j.job_uid not in known]
-        for job in new_fetched:
+        # Re-stamped roles: uid already recorded, but the board now shows a different
+        # posting date. Written back so seen_snapshot stops flagging them — left alone they
+        # would fail that test on every future run and the already-seen stop could never
+        # fire on a board that re-stamps in bulk. Not added to `new_candidates`, so a
+        # re-stamp never re-emails a role. add_seen routes through merge_rows, which keeps
+        # the earlier first_seen and the better score, so nothing is lost by rewriting.
+        restamped = [j for j in all_jobs if j.job_uid in known
+                     and not ledger.seen_snapshot(j.job_uid, j.date_posted)]
+        for job in new_fetched + restamped:
             self._store.add_seen(job)
-        log.info("fetched=%d candidates=%d new=%d (recorded %d new fetched)",
-                 len(all_jobs), len(candidates), len(new_candidates), len(new_fetched))
+        log.info("fetched=%d candidates=%d new=%d (recorded %d new fetched, %d re-stamped)",
+                 len(all_jobs), len(candidates), len(new_candidates), len(new_fetched),
+                 len(restamped))
 
         if not self._store.is_seeded():
             self._store.save()

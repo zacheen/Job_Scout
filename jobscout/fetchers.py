@@ -7,14 +7,12 @@ import json
 import logging
 import random
 import re
-import threading
 import time
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
@@ -23,24 +21,12 @@ from dataclasses import replace
 
 from .company_aliases import canonical_company
 from .config import Company
+from .coverage import catchup_log
+from .dates import posted_iso
 from .models import EMPTY_SEEN_LEDGER, Job, SeenLedger
 from .protocols import Enricher
 
 log = logging.getLogger(__name__)
-# Cap-hit records go to their own logger so attach_catchup_log() can also persist them to
-# a file: by the time these matter, the run's console output is long gone. Propagates, so
-# they still show up in the normal log either way.
-catchup_log = logging.getLogger(f"{__name__}.catchup")
-
-
-def attach_catchup_log(path: Path) -> None:
-    """Additionally append `catchup_log` records to `path` (see CATCHUP_LOG_FILENAME).
-    No-op once attached, so a re-entered entry point cannot duplicate every line."""
-    if catchup_log.handlers:
-        return
-    handler = logging.FileHandler(path, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-    catchup_log.addHandler(handler)
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -64,95 +50,6 @@ def _unix_to_date(ts: int | float | None) -> str:
         return datetime.fromtimestamp(ts, timezone.utc).date().isoformat()
     except (TypeError, ValueError, OSError, OverflowError):
         return ""
-
-
-_ISO_DATE_PREFIX_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
-_DAYS_AGO_RE = re.compile(r"(\d+)\+?\s*days?\s+ago")
-_D_MON_Y_RE = re.compile(r"\b(\d{1,2})-([A-Za-z]{3,9})-(\d{4})\b")      # 13-Jul-2026
-_MON_D_Y_RE = re.compile(r"\b([A-Za-z]{3,9})\.?\s+(\d{1,2}),\s*(\d{4})\b")  # Aug. 5, 2026
-_M_D_Y_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")                # US order: 07/29/2026
-_MONTHS = {name: number for number, name in enumerate(
-    ("jan", "feb", "mar", "apr", "may", "jun",
-     "jul", "aug", "sep", "oct", "nov", "dec"), start=1)}
-_warned_date_shapes: set[str] = set()
-_warned_date_shapes_lock = threading.Lock()
-
-
-def _to_iso(year, month, day) -> str:
-    """(y, m, d) -> ISO date, or "" when the triple is not a real calendar date."""
-    try:
-        return date(int(year), int(month), int(day)).isoformat()
-    except (TypeError, ValueError):
-        return ""
-
-
-def _parse_posted(text: str) -> str:
-    """Recognized posting-date shape -> ISO YYYY-MM-DD; "" for anything else, INCLUDING a
-    shape that matches but does not name a real date (an unknown month abbreviation, say),
-    so the caller warns about those too instead of failing silently."""
-    if match := _ISO_DATE_PREFIX_RE.match(text):
-        return _to_iso(*match.groups())
-    lowered = text.lower()
-    today = datetime.now(timezone.utc).date()
-    if "today" in lowered:
-        return today.isoformat()
-    if "yesterday" in lowered:
-        return (today - timedelta(days=1)).isoformat()
-    if match := _DAYS_AGO_RE.search(lowered):
-        return (today - timedelta(days=int(match.group(1)))).isoformat()
-    if match := _D_MON_Y_RE.search(text):
-        day, month, year = match.groups()
-        return _to_iso(year, _MONTHS.get(month[:3].lower(), 0), day)
-    if match := _MON_D_Y_RE.search(text):
-        month, day, year = match.groups()
-        return _to_iso(year, _MONTHS.get(month[:3].lower(), 0), day)
-    if match := _M_D_Y_RE.match(text):
-        month, day, year = match.groups()
-        return _to_iso(year, month, day)
-    return ""
-
-
-def _warn_unparsed_date(text: str) -> None:
-    """Report a posting date no rule could read, once per SHAPE (digits collapsed to 9) so
-    a board with a distinct date on every job costs one line, not one per row. The set is
-    locked because ParallelFetcher runs different hosts concurrently, and a bare
-    check-then-add lets two threads log the same shape; the log call itself stays outside
-    the lock because whichever thread just added the shape is guaranteed to be the only
-    one that will ever log it."""
-    shape = re.sub(r"\d", "9", text)
-    with _warned_date_shapes_lock:
-        if shape in _warned_date_shapes:
-            return
-        _warned_date_shapes.add(shape)
-    catchup_log.warning(
-        "unrecognized date_posted shape %r (e.g. %r): early-stop for this source falls "
-        "back to the already-seen count", shape, text)
-
-
-def _posted_iso(raw: str) -> str:
-    """A board's displayed posting date -> ISO YYYY-MM-DD, or "" if nothing could read it.
-
-    _paginate_new compares this against a YYYY-MM-DD watermark with `<`, and the raw
-    strings are comparable neither to that nor to each other. Un-normalized, the operator
-    does not mis-order a few rows — it silently decides the entire run: "Posted Today" and
-    "August 18, 2026" sort ABOVE any "2026-…", so the stop can NEVER fire and every run
-    becomes a full-board pull; "07/29/2026" sorts BELOW it, so the stop fires on page one
-    and the run never sees past the newest page.
-
-    Relative days resolve against UTC today, matching the watermark's basis (first_seen,
-    which store._now() stamps in UTC). "30+ Days Ago" resolves to exactly 30 days back —
-    the newest date it can mean, which is the safe direction: too-new only makes the
-    caller page deeper, it can never stop it early.
-
-    An empty input is a source that carries no date at all (SuccessFactors, Goldman) —
-    normal, and not worth warning about; only an unreadable non-empty value is."""
-    text = (raw or "").strip()
-    if not text:
-        return ""
-    if iso := _parse_posted(text):
-        return iso
-    _warn_unparsed_date(text)
-    return ""
 
 
 def _url_slug(url: str) -> str:
@@ -190,18 +87,24 @@ def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
     return ""
 
 
-_STOP_AFTER_SEEN = 10  # no-watermark fallback: page until this many already-seen openings (cumulative)
+# No-watermark fallback: page until this many already-seen openings (cumulative). Above the
+# worst re-stamp burst measured so far (Google pushed 15 old roles onto its top two pages) —
+# on a source with no posting date, seen_snapshot can't tell a re-stamp from real depth, so
+# this margin alone has to absorb it.
+_STOP_AFTER_SEEN = 50
 # Ceiling on ONE company's pull in ONE run: a long-stale watermark catch-up and a fresh
 # company both page without a working stop signal, so either could turn into a full-board
 # pull at ~1.6s per paced request. Counted in JOBS, not pages: page size varies 10x across
 # ATSes, so the previous page cap silently meant 1,000 rows on SmartRecruiters and 100 on
-# Eightfold.
-_MAX_JOBS_PER_RUN = 500
+# Eightfold. Set above every company's measured single-day intake (busiest: Amazon 1,979,
+# Walmart 1,794, CVS Health 1,568), so a once-a-day local run clears a normal day's board
+# churn without the fuse blowing.
+_MAX_JOBS_PER_RUN = 2000
 
 
 def _paginate_new(
     fetch_page: Callable[[int], tuple[list[Job], int | None]],
-    seen: Collection[str],
+    seen: SeenLedger,
     page_size: int,
     *,
     watermark: str = "",
@@ -211,22 +114,28 @@ def _paginate_new(
     """Collect jobs from a newest-first source, stopping once the page contents prove we
     have paged past everything the ledger can be missing.
 
-    `watermark` (this company's newest first_seen date, see SeenLedger) is that proof:
-    stop when a page's OLDEST posting date predates it, because every role the board has
-    touched since the last run sorts above that point. Dates go through `_posted_iso`
-    first — boards state them in formats that compare neither to the watermark nor to
-    each other, and the raw comparison silently decides the whole run (see there).
+    Two independent proofs, and EITHER is enough — they fail on different boards, so
+    requiring both would mean never stopping on one of them:
 
-    Without a watermark or dates, fall back to `stop_after_seen` already-seen uids — a
-    much weaker signal: boards re-stamp OLD roles to the top of the sort, so each one
-    counts as already-seen without indicating how deep we are. Google re-stamped 15
-    roles across its top two pages (real backlog boundary: page ~32); a stale ledger
-    stopped after page one and every later run repeated that same short stop — a
-    self-perpetuating gap ordinary scanning could never close.
+    `watermark` (this company's newest first_seen date, see SeenLedger): stop when a page's
+    OLDEST posting date predates it, because every role the board has touched since the last
+    run sorts above that point. Dates go through `posted_iso` first — boards state them in
+    formats that compare neither to the watermark nor to each other, and the raw comparison
+    silently decides the whole run (see there). Useless on a board that stamps more than
+    `_MAX_JOBS_PER_RUN` roles inside the watermark's single day (CVS Health does).
 
-    A company's first run has NEITHER signal (nothing of its own in `seen`, hence no
-    watermark and no already-seen hits), so `_MAX_JOBS_PER_RUN` is the only thing that
-    stops it — which is why that case needs no seed rule of its own."""
+    `stop_after_seen` already-recorded SNAPSHOTS (SeenLedger.seen_snapshot — uid known AND
+    its posting date unchanged). Re-stamped roles deliberately do not count: a board that
+    pushes old roles back to the top would otherwise satisfy this without the run having
+    paged any deeper. Google re-stamped 15 roles across its top two pages (real backlog
+    boundary: page ~32); on plain uid membership a stale ledger stopped after page one and
+    every later run repeated that same short stop — a self-perpetuating gap ordinary
+    scanning could never close. Useless on a source that exposes no posting date, where
+    every re-stamp is invisible and this degrades to uid membership.
+
+    A company's first run has NEITHER proof (nothing of its own in `seen`, hence no watermark
+    and no snapshot hits), so `_MAX_JOBS_PER_RUN` is the only thing that stops it — which is
+    why that case needs no seed rule of its own."""
     jobs: list[Job] = []
     index = 0
     seen_count = 0
@@ -234,12 +143,14 @@ def _paginate_new(
         page_jobs, total = fetch_page(index)
         jobs.extend(page_jobs)
         index += 1
-        seen_count += sum(1 for job in page_jobs if job.job_uid in seen)
+        seen_count += sum(1 for job in page_jobs
+                          if seen.seen_snapshot(job.job_uid, job.date_posted))
         fetched = index * page_size
-        oldest = min(filter(None, (_posted_iso(job.date_posted) for job in page_jobs)),
+        oldest = min(filter(None, (posted_iso(job.date_posted) for job in page_jobs)),
                      default="")
         reached_backlog = (
-            oldest < watermark if watermark and oldest else seen_count >= stop_after_seen
+            (bool(watermark) and bool(oldest) and oldest < watermark)
+            or seen_count >= stop_after_seen
         )
         if (
             not page_jobs                                 # source exhausted
@@ -448,7 +359,7 @@ class EarlyStopPaginatedFetcher(PagedFetcher):
     already-seen count and stay exposed to re-stamped backlog roles."""
 
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
-        return _paginate_new(self._fetch_page, seen.uids, self._PAGE,
+        return _paginate_new(self._fetch_page, seen, self._PAGE,
                              watermark=seen.watermark(self.own_uid_prefix),
                              subject=self._log_subject)
 
@@ -1109,7 +1020,7 @@ class AvatureFetcher(AtsFetcher):
         # Lenovo's board is >1200 rows (past its own "999" display cap); early-stop
         # keeps steady-state runs to ~2 pages instead of paging the whole board.
         if self._company.param_bool("newest_first"):
-            jobs = _paginate_new(self._fetch_page, seen.uids, self._RPP,
+            jobs = _paginate_new(self._fetch_page, seen, self._RPP,
                                  watermark=seen.watermark(self.own_uid_prefix),
                                  subject=self._log_subject)
         else:

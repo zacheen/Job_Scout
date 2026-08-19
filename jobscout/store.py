@@ -16,10 +16,11 @@ import csv
 import logging
 import re
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .dates import posted_iso
 from .models import Job, Score, SeenLedger
 from .urls import canon_url
 
@@ -27,12 +28,13 @@ log = logging.getLogger(__name__)
 
 _FIELDS = [
     "job_key", "company", "title", "location", "department", "urls", "date_posted",
-    "first_seen", "first_seen_pt", "track", "scored", "score_method",
+    "date_posted_iso", "first_seen", "first_seen_pt", "track", "scored", "score_method",
     "experience_score", "reason", "emailed", "source_uids",
 ]
 
 # Fields describing the posting itself; on merge the newer snapshot wins.
-_CONTENT_FIELDS = ("company", "title", "location", "department", "date_posted")
+_CONTENT_FIELDS = ("company", "title", "location", "department", "date_posted",
+                   "date_posted_iso")
 # Fields written together by one scoring pass; on merge they move as a block.
 _SCORE_FIELDS = ("scored", "score_method", "experience_score", "reason")
 
@@ -48,6 +50,19 @@ def _now() -> str:
 
 
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _derive_posted_iso(row: dict) -> str:
+    """date_posted_iso for a row written before that column existed.
+
+    Resolved against the row's OWN first_seen, never today: the pipeline only writes a row
+    when its snapshot changed, so a stored date_posted is frozen at the day it was recorded
+    and its relative wording ("Posted Today") meant THAT day. Reading it as relative to now
+    would date every old row to today, and seen_snapshot would then call the whole ledger
+    re-stamped."""
+    day = row.get("first_seen", "")[:10]
+    reference = date.fromisoformat(day) if _ISO_DATE_RE.fullmatch(day) else None
+    return posted_iso(row.get("date_posted", ""), today=reference)
 
 
 # Deliberately America/Los_Angeles, not a fixed UTC-8: auto-switches PST(-8)/PDT(-7) so
@@ -171,12 +186,13 @@ class CsvStore:
         return set(self._by_uid)
 
     def seen_ledger(self) -> SeenLedger:
-        """known_uids() plus each company's newest first_seen date — the cutoff a
-        date-ordered fetcher pages down to. first_seen, not date_posted: merge_rows lets
-        a newer snapshot overwrite date_posted (_CONTENT_FIELDS) but only ever pulls
-        first_seen earlier (min-merge), so it's the one timestamp guaranteed not to
-        drift forward on us. Built per company namespace, so one stale company catches
-        up without making every other company page deeper."""
+        """known_uids(), each uid's recorded posting date (SeenLedger.seen_snapshot), and
+        each company's newest first_seen date — the cutoff a date-ordered fetcher pages down
+        to. The watermark is built from first_seen, not date_posted: merge_rows lets a newer
+        snapshot overwrite date_posted (_CONTENT_FIELDS) but only ever pulls first_seen
+        earlier (min-merge), so it's the one timestamp guaranteed not to drift forward on us.
+        Built per company namespace, so one stale company catches up without making every
+        other company page deeper."""
         watermarks: dict[str, str] = {}
         for uid, row in self._by_uid.items():
             namespace = _uid_namespace(uid)
@@ -188,7 +204,8 @@ class CsvStore:
                 continue
             if day > watermarks.get(namespace, ""):
                 watermarks[namespace] = day
-        return SeenLedger(frozenset(self._by_uid), watermarks)
+        posted = {uid: row["date_posted_iso"] for uid, row in self._by_uid.items()}
+        return SeenLedger(frozenset(self._by_uid), watermarks, posted)
 
     def known_urls(self) -> set[str]:
         # Cross-source email dedup: same role from two sources shares a URL but has
@@ -229,7 +246,7 @@ class CsvStore:
             reader = csv.DictReader(fh)
             legacy = "job_uid" in (reader.fieldnames or [])
             for raw in reader:
-                self._insert(self._from_legacy(raw) if legacy else self._normalize(raw))
+                self._insert(self._normalize(self._from_legacy(raw) if legacy else raw))
 
     def merge_rows(self, existing: dict, incoming: dict) -> dict:
         """Fold `incoming` into `existing` (same opening seen again) and return it.
@@ -342,6 +359,7 @@ class CsvStore:
             "department": job.department,
             "urls": job.url,
             "date_posted": job.date_posted,
+            "date_posted_iso": posted_iso(job.date_posted),
             "first_seen": _now(),
             "track": "",
             "scored": "false",
@@ -376,7 +394,11 @@ class CsvStore:
 
     @staticmethod
     def _normalize(raw: dict) -> dict:
-        return {field: (raw.get(field) or "") for field in _FIELDS}
+        """Every _FIELDS key present as a string. Also the single place legacy rows and
+        current rows converge, so back-filling date_posted_iso here covers both."""
+        row = {field: (raw.get(field) or "") for field in _FIELDS}
+        row["date_posted_iso"] = row["date_posted_iso"] or _derive_posted_iso(row)
+        return row
 
 
 def union_merge(primary_dir: Path, track_priority: Sequence[str] = (), *,

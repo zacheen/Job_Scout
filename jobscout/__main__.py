@@ -11,9 +11,10 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
 from .config import CATCHUP_LOG_FILENAME, Settings
+from .coverage import attach_catchup_log
 from .fetchers import (AtsFetcher, BambooHrJdSource, ChainedEnricher, DispatchingEnricher,
                        FetcherFactory, HttpClient, JdUrlEnricher, ParallelFetcher,
-                       WorkdayJdSource, attach_catchup_log)
+                       WorkdayJdSource)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline

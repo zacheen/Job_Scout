@@ -20,12 +20,12 @@ DIGEST_TZ = ZoneInfo("America/New_York")
 # reads it as the deletable window's lower bound.
 DIGEST_CHECKPOINT_FILENAME = "digest_checkpoint.txt"
 
-# Untracked, gitignored append-only record at the repo root: one line per company whose
-# pull hit _MAX_JOBS_PER_RUN and therefore left older roles unfetched, plus any
-# date_posted shape _posted_iso could not normalize (see fetchers._paginate_new).
-# Survives the post-scan reset --hard because it is untracked, so it accumulates across
-# runs — read it to decide whether the cap needs raising, or whether a company needs a
-# persistent coverage checkpoint instead.
+# Untracked, gitignored append-only record at the repo root, written by everything that
+# knows a run saw less than it should (coverage.catchup_log): one line per company whose
+# pull hit fetchers._MAX_JOBS_PER_RUN and so left older roles unfetched, plus any
+# date_posted shape dates.posted_iso could not read. Survives the post-scan reset --hard
+# because it is untracked, so it accumulates across runs — read it to decide whether the
+# cap needs raising, or whether a company needs a persistent coverage checkpoint instead.
 CATCHUP_LOG_FILENAME = "catchup_cap_hits.txt"
 
 
