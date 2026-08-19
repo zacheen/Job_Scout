@@ -42,6 +42,36 @@ user_agent: "job-scout/1.0 (+https://github.com/)"
 request_delay_min: 1.25
 request_delay_max: 2.0
 
+# Role nouns that only ever appear in a job TITLE. Defined once here and used twice via a
+# YAML anchor: as the `Other Technical` track's `word_keywords` (admission — does the role
+# reach a scorer at all) and as `title_keywords` (scoring — see KeywordScorer). The anchor
+# must be defined before either alias, so this block has to stay above `tracks:`. These
+# were two hand-maintained lists until they silently drifted apart; sharing one now means a
+# term added for admission also counts toward the score too, which is correct since both
+# answer the same question — "is this title a technical role carrying no domain word?"
+#
+# They are deliberately NOT skills. "Software Development Engineer" contains no skill
+# term, so on skill_keywords alone it scores the 40 floor and is dropped — exactly the
+# SWE postings worth applying to. Measured over 289 roles the LLM also scored, skills
+# alone emailed 52% of the ones worth sending; adding these reached 86%.
+#
+# They must stay TITLE-only, which is what makes them usable at all: a JD body repeats
+# "engineer" whatever the role is, so scoring descriptions with them would lift every
+# posting equally instead of separating them. Confined to the title it still takes TWO
+# hits to clear a 50 gate on a description-less listing, so "Software Engineer" passes
+# while "Litho Module Engineer" does not.
+title_keywords: &role_title_terms
+  - "engineer"
+  - "engr"       # Honeywell "Software Engr II"; no stemming, so an abbreviation needs its own entry
+  - "software"
+  - "developer"
+  - "swe"
+  - "programmer"
+  - "sde"
+  - "scientist"
+  - "researcher"
+  - "sciences"   # "Research Sciences Intern"; NOT "research" — it admits astronomy RAs / equity research
+
 # Each new role is routed to the FIRST track whose keyword hit count reaches its
 # `min_hits` (a hit = one occurrence of a keyword in the title or description; the
 # SAME keyword occurring N times counts as N hits). Order matters — list the more
@@ -50,9 +80,10 @@ request_delay_max: 2.0
 # is emailed only when its experience_score exceeds the gate for the scale that
 # produced it.
 #   llm_threshold     - OpenAI/CLI scorers: resume-vs-role fit, 0-100.
-#   keyword_threshold - keyword fallback: 40 + 3 * distinct skill_keywords matched
-#     (never leaves 40-100; 50 means "4 hits", not "half a fit"). Set equal to
-#     llm_threshold below for now, but tune independently.
+#   keyword_threshold - keyword fallback: 40 + 3 * distinct skill_keywords (title +
+#     description) and title_keywords (title only) matched (never leaves 40-100; 50
+#     means "4 hits", not "half a fit"). Set equal to llm_threshold below for now, but
+#     tune independently.
 # Both keys are required — the old shared `threshold` key raises at load.
 #
 # `word_keywords` (optional) match WHOLE-WORD against the TITLE only, and add to the
@@ -153,16 +184,7 @@ tracks:
     min_hits: 1
     keywords:
       - "research assistant" # kept per user decision 2026-08-05; the scorer judges field fit
-    word_keywords:
-      - "engineer"
-      - "engr"
-      - "developer"
-      - "scientist"
-      - "software"
-      - "programmer"
-      - "sde"
-      - "researcher"
-      - "sciences" # "Research Sciences Intern"; NOT "research" — it admits astronomy RAs / equity research
+    word_keywords: *role_title_terms  # shared with title_keywords; edit it at the anchor
 
 # Drop unwanted roles before any scoring (any tier): non-technical OR too-senior. Matched as a
 # lowercase substring in the title OR the department — so e.g. department "Sales"

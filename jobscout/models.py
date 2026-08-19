@@ -105,8 +105,9 @@ EMPTY_SEEN_LEDGER = SeenLedger(frozenset(), {}, {})
 class ScoreScale(StrEnum):
     """Which arithmetic produced an `experience_score`, and so which Track threshold
     gates it. Scores from different scales are NOT comparable: LLM is a resume-fit
-    judgement over the full 0-100 range, KEYWORD is `40 + 3 * distinct skill_keywords
-    matched`, which cannot leave 40-100 and says nothing about fit."""
+    judgement over the full 0-100 range, KEYWORD is `40 + weight * distinct
+    skill_keywords/title_keywords matched`, which cannot leave 40-100 and says nothing
+    about fit."""
 
     LLM = "llm"
     KEYWORD = "keyword"
@@ -119,10 +120,15 @@ class Score:
     # Required (no default) so no scorer can leave the score's meaning implicit; the
     # email gate reads this to pick the Track threshold.
     scale: ScoreScale
-    # Distinct skill_keywords matched; set only by KeywordScorer with keywords configured
-    # (None for LLM scorers and the no-keywords path). Needed because the clamped
+    # Distinct skill_keywords (scanned over title+description) plus title_keywords
+    # (title only) matched; set only by KeywordScorer with either list configured (None
+    # for LLM scorers and the no-keywords path). Needed because the clamped
     # experience_score can saturate at 100 — email and section sort use this instead.
     matches: int | None = None
     # Per-keyword breakdown behind `matches`: (keyword, occurrences in the job text),
     # ordered by count desc. Same None semantics as `matches`; email display only.
     match_counts: tuple[tuple[str, int], ...] | None = None
+    # The title_keywords half of `matches`, kept apart from match_counts so the email can
+    # mark it as the weaker signal: a role noun says the title is technical, not that the
+    # candidate fits. Disjoint from match_counts (KeywordScorer guarantees it).
+    title_match_counts: tuple[tuple[str, int], ...] | None = None

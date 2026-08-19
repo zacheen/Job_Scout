@@ -334,9 +334,14 @@ class Pipeline:
                 section_items = track_map.get(track_name)
                 if not section_items:
                     continue
-                # Tie-break on matches: keyword-scored items' experience_score all
-                # clamp to 100, so this must match what the email displays.
+                # Tie-break on the match breakdown, since keyword-scored items'
+                # experience_score all clamp to 100 and cannot order them alone. Skill
+                # hits outrank the combined count: a title_keywords hit ("engineer") only
+                # says the title is technical, not that the role fits. Both numbers are in
+                # the email, so the order stays explicable. LLM scores leave both None ->
+                # (0, 0), which orders them by experience_score exactly as before.
                 section_items.sort(key=lambda pair: (pair[1].experience_score,
+                                                     len(pair[1].match_counts or ()),
                                                      pair[1].matches or 0), reverse=True)
                 sections.append((track_name, section_items))
             if sections:

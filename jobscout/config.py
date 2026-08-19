@@ -86,6 +86,7 @@ class Settings:
     exempt_role_phrases: list[str]
     warn_description_terms: list[str]
     skill_keywords: list[str]
+    title_keywords: list[str]
     intern_terms: list[str]
     senior_terms: list[str]
     referral_companies: list[str]
@@ -129,6 +130,7 @@ class Settings:
             exempt_role_phrases=cfg.get("exempt_role_phrases", []),
             warn_description_terms=cfg.get("warn_description_terms", []),
             skill_keywords=[k.lower() for k in cfg.get("skill_keywords", [])],
+            title_keywords=[k.lower() for k in cfg.get("title_keywords", [])],
             intern_terms=cfg.get("intern_terms", ["intern", "internship", "co-op", "coop"]),
             senior_terms=cfg.get("senior_terms", []),
             referral_companies=cfg.get("referral_companies", []),
