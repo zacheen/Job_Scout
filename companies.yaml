@@ -663,7 +663,11 @@
 
 # --- GitHub job-list aggregators. One repo lists many employers; each role keeps its
 #     REAL company (so referral-company roles still group under Referral) and dedupes
-#     against direct-ATS roles by URL. seed_only per header above. ---
+#     against direct-ATS roles by URL. seed_only per header above.
+#     A new entry here MUST NOT be named like any real employer: store._merge_company
+#     tells a native fetcher's authoritative company name from an aggregator's free-text
+#     one by checking whether it matches a uid's middle segment, which IS this `name`.
+#     A collision would silently make merged rows drift between shards again. ---
 - {name: SpeedyApply AI, ats: speedyapply, repo: speedyapply/2027-AI-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
 - {name: SpeedyApply SWE, ats: speedyapply, repo: speedyapply/2027-SWE-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
 - {name: Simplify Internships, ats: simplify, repo: SimplifyJobs/Summer2026-Internships, seed_only: true}
