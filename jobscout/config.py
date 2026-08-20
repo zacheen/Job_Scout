@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from .models import ScoreScale
+from .models import DescriptionPolicy, ScoreScale
 
 # tz shared by every digest timestamp (email subject line, local_run.py's
 # footer) so footer times stay directly comparable to subject times across runs.
@@ -87,6 +87,7 @@ class Settings:
     warn_description_terms: list[str]
     skill_keywords: list[str]
     title_keywords: list[str]
+    level_title_terms: list[str]
     intern_terms: list[str]
     senior_terms: list[str]
     referral_companies: list[str]
@@ -97,6 +98,8 @@ class Settings:
     gpt_cli: str
     gpt_cli_args: list[str]
     max_description_chars: int
+    min_description_chars: int
+    description_truncation_marks: tuple[str, ...]
     score_workers: int
     request_timeout: int
     user_agent: str
@@ -115,6 +118,23 @@ class Settings:
         """Track names in config order — also CsvStore's track-conflict merge priority."""
         return [t.name for t in self.tracks]
 
+    @property
+    def scored_title_terms(self) -> list[str]:
+        """Everything KeywordScorer matches against the TITLE alone: the role nouns plus
+        the level terms. They are two config keys, not one, because `title_keywords` is
+        also `Other Technical`'s admission net (config.yaml explains the split) while
+        these only ever score a role some track already admitted."""
+        return [*self.title_keywords, *self.level_title_terms]
+
+    @property
+    def description_policy(self) -> DescriptionPolicy:
+        """The rule the scorer, its lenient companion and JdUrlEnricher must all apply to
+        the same body (see DescriptionPolicy). Each read builds a new instance; they cannot
+        disagree because DescriptionPolicy is frozen and compares by value, NOT because
+        callers share one object — build_scorer reads it once for its two scorers, while
+        __main__ reads it again for the enricher."""
+        return DescriptionPolicy(self.min_description_chars, self.description_truncation_marks)
+
     @classmethod
     def load(cls, root: Path) -> "Settings":
         cfg = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
@@ -131,6 +151,7 @@ class Settings:
             warn_description_terms=cfg.get("warn_description_terms", []),
             skill_keywords=[k.lower() for k in cfg.get("skill_keywords", [])],
             title_keywords=[k.lower() for k in cfg.get("title_keywords", [])],
+            level_title_terms=[k.lower() for k in cfg.get("level_title_terms", [])],
             intern_terms=cfg.get("intern_terms", ["intern", "internship", "co-op", "coop"]),
             senior_terms=cfg.get("senior_terms", []),
             referral_companies=cfg.get("referral_companies", []),
@@ -141,6 +162,9 @@ class Settings:
             gpt_cli=os.getenv("GPT_CLI") or cfg.get("gpt_cli", "codex"),
             gpt_cli_args=cfg.get("gpt_cli_args", ["exec"]),
             max_description_chars=int(cfg.get("max_description_chars", 8000)),
+            min_description_chars=int(cfg.get("min_description_chars", 400)),
+            description_truncation_marks=tuple(
+                cfg.get("description_truncation_marks", ("...", "…"))),
             score_workers=int(cfg.get("score_workers", 5)),
             request_timeout=int(cfg.get("request_timeout", 20)),
             user_agent=cfg.get("user_agent", "job-scout/1.0"),

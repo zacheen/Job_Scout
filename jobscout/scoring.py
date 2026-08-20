@@ -14,7 +14,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import replace
 
-from .models import Job, Score, ScoreScale
+from .models import DescriptionPolicy, Job, Score, ScoreScale
 from .protocols import JobScorer
 
 log = logging.getLogger(__name__)
@@ -219,7 +219,8 @@ class KeywordScorer:
     can never reach the ~4 distinct hits a description-backed role needs to clear a
     50-point keyword_threshold, so their hits weigh `_TITLE_ONLY_WEIGHT` instead of
     `_WEIGHT`. Groups that must never lose such a role skip the gate entirely — see
-    TitleOnlyAutoPass.
+    TitleOnlyAutoPass. "Title-only" is DescriptionPolicy's call, not an emptiness test:
+    a teaser body would otherwise claim the strict weight while carrying no requirements.
     """
 
     method_label = "Keyword"
@@ -229,7 +230,9 @@ class KeywordScorer:
     _WEIGHT = 3             # per distinct keyword with a description (>50 needs >= 4)
     _TITLE_ONLY_WEIGHT = 8  # per distinct keyword in a bare title (>50 needs >= 2)
 
-    def __init__(self, skill_keywords: list[str] = (), *, title_keywords: list[str] = ()):
+    def __init__(self, skill_keywords: list[str] = (), *,
+                 description_policy: DescriptionPolicy, title_keywords: list[str] = ()):
+        self._policy = description_policy
         # Both dicts are read-only after this point — score() relies on their keys staying
         # disjoint, which is enforced here and nowhere else.
         self._patterns = _compile_patterns(skill_keywords)
@@ -244,7 +247,7 @@ class KeywordScorer:
         return tuple(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
     def score(self, job: Job) -> Score:
-        title_only = not job.description.strip()
+        title_only = not self._policy.is_usable(job.description)
         matches = match_counts = title_match_counts = None
         if self._patterns or self._title_patterns:
             skills = _hit_counts(self._patterns, f"{job.title} {job.description}".lower())
@@ -271,15 +274,20 @@ class TitleOnlyAutoPass:
     instead of letting the gate judge text the source never provided. Wire it per group
     (see __main__) for the ones worth never missing.
 
+    "Description-less" is DescriptionPolicy's call, so a source that answers with a teaser
+    instead of the job ad cannot switch this off — the case it was written for is exactly
+    the one an emptiness test misses.
+
     `inner` is still consulted for those postings, and only its score and reason are
     replaced: the keyword breakdown it returns is what the email prints and what orders
     the section, since every auto-passed role shares one experience_score. So only wrap a
     scorer whose score() is cheap — wrapping an LLM tier would buy a judgement this then
     throws away (build_scorer never does: it pairs this with the keyword fallback only)."""
 
-    def __init__(self, inner: JobScorer, pass_score: int):
+    def __init__(self, inner: JobScorer, pass_score: int, description_policy: DescriptionPolicy):
         self._inner = inner
         self._pass_score = pass_score
+        self._policy = description_policy
 
     @property
     def method_label(self) -> str:
@@ -291,7 +299,7 @@ class TitleOnlyAutoPass:
 
     def score(self, job: Job) -> Score:
         scored = self._inner.score(job)
-        if job.description.strip():
+        if self._policy.is_usable(job.description):
             return scored
         return replace(scored, experience_score=_clamp(self._pass_score),
                        reason="title-only listing; auto-passed (no description to score)")
@@ -317,6 +325,8 @@ def build_scorer(settings) -> tuple[JobScorer, JobScorer | None]:
     # +1 over the highest keyword_threshold (this scorer's own gate), not one track's:
     # which track the job will route to isn't known here, so it must clear every track.
     pass_score = max((t.keyword_threshold for t in settings.tracks), default=50) + 1
+    policy = settings.description_policy
     keyword_scorer = KeywordScorer(settings.skill_keywords,
-                                   title_keywords=settings.title_keywords)
-    return keyword_scorer, TitleOnlyAutoPass(keyword_scorer, pass_score)
+                                   title_keywords=settings.scored_title_terms,
+                                   description_policy=policy)
+    return keyword_scorer, TitleOnlyAutoPass(keyword_scorer, pass_score, policy)

@@ -96,7 +96,8 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
             DispatchingEnricher(fetchers),
             # One shared client: unlike the parallel fetch stage, enrichment is a
             # sequential loop, so a second session adds no isolation.
-            JdUrlEnricher([WorkdayJdSource(jd_http), BambooHrJdSource(jd_http)]),
+            JdUrlEnricher([WorkdayJdSource(jd_http), BambooHrJdSource(jd_http)],
+                          settings.description_policy),
         ]),
         annotator=DescriptionFlagger(settings.warn_description_terms),
         router=TrackRouter(settings.tracks),

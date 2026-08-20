@@ -28,6 +28,25 @@ gpt_cli_args: ["exec", "-c", "model=gpt-5.6-luna", "-c", "model_reasoning_effort
 # Truncate each job description to this many characters before sending to the LLM.
 max_description_chars: 8000
 
+# Below this many characters a listing's body is treated as ABSENT rather than short
+# (models.DescriptionPolicy, which also rejects any body ending mid-sentence in "..."
+# regardless of length). Three things follow from that verdict: JdUrlEnricher fetches the
+# real JD, the keyword fallback switches to its title-only weight, and referral/intern
+# roles auto-pass. The floor exists because some search APIs answer with a marketing
+# teaser instead of the job ad — IBM's was ~250 chars of the same paragraph on every role
+# — and counting that as a description made those postings score LOWER than a bare title.
+# Raising this loosens the gate (more roles treated as title-only, so more auto-passes);
+# lowering it toward 0 restores the old non-empty test.
+min_description_chars: 400
+
+# A body ending in one of these was cut off mid-sentence, so it is a snippet at ANY length
+# and the floor above cannot catch it on its own. Empty list disables the rule. Checked
+# against 436 live bodies (IBM, Amazon, Greenhouse, Workday): none of them end this way,
+# while all 200 IBM teasers do.
+description_truncation_marks:
+  - "..."
+  - "…"
+
 # How many jobs to score concurrently (1 = sequential). Higher clears a backlog faster,
 # but the CLI path (codex exec) spawns one heavy subprocess per worker, and all workers
 # share your ChatGPT rate limit — raise cautiously.
@@ -72,6 +91,42 @@ title_keywords: &role_title_terms
   - "researcher"
   - "sciences"   # "Research Sciences Intern"; NOT "research" — it admits astronomy RAs / equity research
 
+# Seniority/level terms, matched against the TITLE only and added to the SAME KeywordScorer
+# hit count as `title_keywords` (Settings.scored_title_terms joins the two).
+#
+# Deliberately NOT folded into the &role_title_terms anchor above, despite both being
+# title-only: that list doubles as `Other Technical`'s admission net, where "intern" would
+# admit every Marketing / Pharmacy / Warehouse Intern posting and undo the guarantee its
+# comment makes. Kept separate they only ever score a role some track ALREADY admitted, so
+# their reach is confined to technical roles that also state a level — the target here.
+#
+# Why they are needed: of 12 roles the LLM emailed and the keyword fallback dropped, every
+# one scored 40-49, and every one states its level in the title ("Software Developer Spring
+# Co-op 2027", "Entry Level Software Developer", "New College Grad") — the part that makes
+# the role right for a student scored nothing, while "Senior Software Engineer" scored the
+# same 2 role-noun hits.
+#
+# Trade-off accepted: an admitted "<domain> Engineer Intern" now clears a description-less
+# gate on two hits, where before only titles like "Software Engineer" did.
+#
+# No stemming, and the pattern's trailing "s?" absorbs only a plural, so "intern" does NOT
+# match "internship" (nor "internal"/"international") and "grad" does NOT match "graduate"
+# — each form needs its own entry. "grad" does cover the "Grad" in "New College Grad".
+level_title_terms:
+  - "intern"
+  - "internship"
+  - "co-op"
+  - "coop"
+  - "grad"
+  - "graduate"
+  - "entry level"
+  - "early career"
+  - "university"
+  - "campus"
+  - "apprentice"
+  - "apprenticeship"
+  - "junior"
+
 # Each new role is routed to the FIRST track whose keyword hit count reaches its
 # `min_hits` (a hit = one occurrence of a keyword in the title or description; the
 # SAME keyword occurring N times counts as N hits). Order matters — list the more
@@ -81,9 +136,10 @@ title_keywords: &role_title_terms
 # produced it.
 #   llm_threshold     - OpenAI/CLI scorers: resume-vs-role fit, 0-100.
 #   keyword_threshold - keyword fallback: 40 + 3 * distinct skill_keywords (title +
-#     description) and title_keywords (title only) matched (never leaves 40-100; 50
-#     means "4 hits", not "half a fit"). Set equal to llm_threshold below for now, but
-#     tune independently.
+#     description) and title_keywords + level_title_terms (title only) matched (never
+#     leaves 40-100; 50 means "4 hits", not "half a fit"). A listing with no usable body
+#     (min_description_chars) weighs 8 per hit instead of 3, so 2 hits clear 50 there.
+#     Set equal to llm_threshold below for now, but tune independently.
 # Both keys are required — the old shared `threshold` key raises at load.
 #
 # `word_keywords` (optional) match WHOLE-WORD against the TITLE only, and add to the
@@ -422,9 +478,11 @@ warn_description_terms:
 # matches literally) and a trailing plural "s" is absorbed ("api" hits "APIs"), but it
 # does NOT stem — list "go" and "golang" (or "scikit-learn" and "sklearn") separately if
 # a JD may use either. Purely additive: editing this never affects routing or filtering.
-# Title-only listings (many list APIs return no description) weigh each distinct hit
-# higher (2 distinct clear a 50 threshold instead of 4); referral/intern title-only
-# roles skip the keyword gate entirely and are always emailed (see __main__ wiring).
+# Listings with no USABLE body (min_description_chars — no description at all, or a
+# teaser too short to hold requirements) weigh each distinct hit higher (2 distinct clear
+# a 50 threshold instead of 4); referral/intern ones skip the keyword gate entirely and
+# are always emailed (see __main__ wiring). So a term's value here is what it adds on
+# roles that DO have a real body — a term every body repeats buys nothing.
 skill_keywords:
   # Programming languages
   - "python"
@@ -449,6 +507,20 @@ skill_keywords:
   - "sklearn"
   # ML / CV models & concepts (singular form; the "s?" match covers plurals)
   - "computer vision"
+  # Unigrams the bigrams above cannot reach. Boundary-safe: "vision" does NOT match
+  # "visionary" (the lookahead rejects a following letter), which is what makes it usable
+  # in a description scan at all. Added after "Research Scientist- Vision-Language-Action
+  # (VLA) Models" scored 48 on "scientist" alone. Deliberately NOT added: "language" (hits
+  # "programming languages" in nearly every SWE body) and "cloud" (hits the "hybrid cloud"
+  # in marketing boilerplate) — both inflate every posting equally instead of separating
+  # them, the same failure mode "ai" already has.
+  - "vision"
+  - "multimodal"
+  - "vla"            # acronym and spelled-out form both occur; the parenthesis is a valid boundary
+  # llm/nlp are AI/ML TRACK keywords (admission) but were missing here (scoring), so a role
+  # admitted for saying them scored nothing for it.
+  - "llm"
+  - "nlp"
   - "machine learning"
   - "ml"
   - "deep learning"
