@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import NamedTuple
@@ -79,7 +80,7 @@ class Pipeline:
         # is the dedupe baseline. Taken BEFORE add_seen, so this run's own jobs don't dedup
         # themselves — and so no company's watermark has advanced to today yet.
         ledger = self._store.seen_ledger()
-        all_jobs = self._fetcher.fetch_all(ledger)
+        all_jobs = self._drop_untitled(self._fetcher.fetch_all(ledger))
         known = ledger.uids
         known_urls = self._store.known_urls()
         candidates = [j for j in all_jobs if self._prefilter.keep(j)]
@@ -88,10 +89,19 @@ class Pipeline:
         # Record all new fetched jobs, not only candidates: PreFilter-rejected jobs are
         # otherwise never recorded and look "new" forever, defeating early-stop.
         new_fetched = [j for j in all_jobs if j.job_uid not in known]
-        for job in new_fetched:
+        # Re-stamped roles: uid already recorded, but the board now shows a different
+        # posting date. Written back so seen_snapshot stops flagging them — left alone they
+        # would fail that test on every future run and the already-seen stop could never
+        # fire on a board that re-stamps in bulk. Not added to `new_candidates`, so a
+        # re-stamp never re-emails a role. add_seen routes through merge_rows, which keeps
+        # the earlier first_seen and the better score, so nothing is lost by rewriting.
+        restamped = [j for j in all_jobs if j.job_uid in known
+                     and not ledger.seen_snapshot(j.job_uid, j.date_posted)]
+        for job in new_fetched + restamped:
             self._store.add_seen(job)
-        log.info("fetched=%d candidates=%d new=%d (recorded %d new fetched)",
-                 len(all_jobs), len(candidates), len(new_candidates), len(new_fetched))
+        log.info("fetched=%d candidates=%d new=%d (recorded %d new fetched, %d re-stamped)",
+                 len(all_jobs), len(candidates), len(new_candidates), len(new_fetched),
+                 len(restamped))
 
         if not self._store.is_seeded():
             self._store.save()
@@ -161,6 +171,27 @@ class Pipeline:
         self._store.save()
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
         return True
+
+    @staticmethod
+    def _drop_untitled(jobs: list[Job]) -> list[Job]:
+        """Discard postings the source returned with no title, before run() records them.
+        Recording one is permanent damage: add_seen retires the uid — the posting's real
+        board id — so when the same req comes back with its title populated it reads as
+        already-seen and is never scored or emailed. Only Workday has produced these (121
+        ledger rows by 2026-08-19, ~1-6/day): its listing API intermittently returns an
+        item carrying nothing but externalPath, while a later request serves the same req
+        with its title, so dropping costs one refetch and recovers the role. Deriving the
+        title from the URL slug instead was rejected — Workday freezes the slug at
+        requisition creation, so it disagrees with the live title on 8% of the ledger's
+        86k Workday rows."""
+        kept, untitled = [], []
+        for job in jobs:
+            (kept if job.title.strip() else untitled).append(job)
+        if untitled:
+            log.warning("dropped %d untitled posting(s), left unrecorded so a later run can "
+                        "still score them: %s", len(untitled),
+                        Counter(job.company for job in untitled).most_common())
+        return kept
 
     def _annotate(self, job: Job) -> Job:
         return self._same_identity(self._annotator.annotate(job), job, "annotator")
@@ -303,9 +334,14 @@ class Pipeline:
                 section_items = track_map.get(track_name)
                 if not section_items:
                     continue
-                # Tie-break on matches: keyword-scored items' experience_score all
-                # clamp to 100, so this must match what the email displays.
+                # Tie-break on the match breakdown, since keyword-scored items'
+                # experience_score all clamp to 100 and cannot order them alone. Skill
+                # hits outrank the combined count: a title_keywords hit ("engineer") only
+                # says the title is technical, not that the role fits. Both numbers are in
+                # the email, so the order stays explicable. LLM scores leave both None ->
+                # (0, 0), which orders them by experience_score exactly as before.
                 section_items.sort(key=lambda pair: (pair[1].experience_score,
+                                                     len(pair[1].match_counts or ()),
                                                      pair[1].matches or 0), reverse=True)
                 sections.append((track_name, section_items))
             if sections:

@@ -11,8 +11,10 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
 from .config import CATCHUP_LOG_FILENAME, Settings
-from .fetchers import (AtsFetcher, DispatchingEnricher, FetcherFactory, HttpClient,
-                       ParallelFetcher, attach_catchup_log)
+from .coverage import attach_catchup_log
+from .fetchers import (AtsFetcher, BambooHrJdSource, ChainedEnricher, DispatchingEnricher,
+                       FetcherFactory, HttpClient, JdUrlEnricher, ParallelFetcher,
+                       WorkdayJdSource)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -50,6 +52,9 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         )
 
     fetchers = [FetcherFactory.create(c, make_http()) for c in settings.companies]
+    # Separate from the per-fetcher clients: the enrich stage fetches JD pages on hosts
+    # a fetcher may not own at all (an aggregator link can point anywhere).
+    jd_http = make_http()
     # seed_only sources (large GitHub aggregators) record their backlog without emailing on
     # first appearance — reuse AtsFetcher.uid_prefix so the uid format lives in one place.
     seed_only_prefixes = {
@@ -82,9 +87,17 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
             exclude_description_patterns=settings.exclude_description_patterns,
             exempt_role_phrases=settings.exempt_role_phrases,
         ),
-        # Backfills full descriptions (per-job detail call) for the few new prefilter
-        # survivors whose ATS omits them from the listing — currently only Oracle tenants.
-        enricher=DispatchingEnricher(fetchers),
+        # Backfills descriptions (one per-job detail call) for the few new prefilter
+        # survivors whose listing API omitted the body. Two arms, first hit wins:
+        # DispatchingEnricher (keyed on which fetcher produced the job, e.g. Oracle),
+        # then JdUrlEnricher (keyed on the JD URL's host -- see its docstring for why
+        # that's the only handle aggregator rows offer, and why it matters).
+        enricher=ChainedEnricher([
+            DispatchingEnricher(fetchers),
+            # One shared client: unlike the parallel fetch stage, enrichment is a
+            # sequential loop, so a second session adds no isolation.
+            JdUrlEnricher([WorkdayJdSource(jd_http), BambooHrJdSource(jd_http)]),
+        ]),
         annotator=DescriptionFlagger(settings.warn_description_terms),
         router=TrackRouter(settings.tracks),
         leveler=leveler,

@@ -68,6 +68,12 @@ class EmailNotifier:
                         if score.match_counts:
                             detail = " (" + ", ".join(
                                 f"{kw} x{n}" for kw, n in score.match_counts) + ")"
+                        # Title terms listed apart and without counts: a title says a word
+                        # at most once, and "engineer" is a far weaker signal than a
+                        # matched skill — merging them would read as equally strong.
+                        if score.title_match_counts:
+                            detail += " [title: " + ", ".join(
+                                kw for kw, _ in score.title_match_counts) + "]"
                         lines.append(f"  keyword matches: {score.matches}{detail}")
                     else:
                         lines.append(f"  experience: {score.experience_score}")

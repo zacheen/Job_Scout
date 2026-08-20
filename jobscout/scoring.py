@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
+from dataclasses import replace
 
 from .models import Job, Score, ScoreScale
 from .protocols import JobScorer
@@ -42,6 +43,20 @@ _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 def _clamp(value) -> int:
     return max(0, min(100, int(value)))
+
+
+def _compile_patterns(keywords) -> dict[str, re.Pattern]:
+    """keyword -> boundary-aware pattern. Custom lookarounds (not \\b) so "c++"/"c#"/"3d"
+    still match; the trailing "s?" absorbs plurals ("api" hits "APIs") and, as a side
+    effect, keeps "java" from bleeding into "javascript". The [a-z0-9] boundaries keep
+    short tokens (go/ai/ml/rl) out of google/email/html/world."""
+    return {kw: re.compile(rf"(?<![a-z0-9]){re.escape(kw)}s?(?![a-z0-9])")
+            for kw in (k.strip().lower() for k in keywords) if kw}
+
+
+def _hit_counts(patterns: dict[str, re.Pattern], text: str) -> dict[str, int]:
+    """keyword -> occurrences in `text`, omitting keywords that never appear."""
+    return {kw: n for kw, pat in patterns.items() if (n := len(pat.findall(text)))}
 
 
 def _parse_score(raw: str, scale: ScoreScale) -> Score:
@@ -190,13 +205,21 @@ class KeywordScorer:
     the resume prose — the latter floods matches with filler ("strong", "experience",
     "global") and misses short skills like "c++"/"go"/"cnn"/"git".
 
+    `title_keywords` are matched against the TITLE alone. Role nouns ("software",
+    "engineer") are what a plain "Software Development Engineer" posting is made of, yet
+    they are not skills, so without them such a title scores the 40 floor and is dropped
+    — measured over 289 jobs the LLM also judged, the skills list alone caught 52% of the
+    roles worth emailing, adding the title terms caught 86%. They must stay out of the
+    description scan: a JD body repeats "engineer" whatever the role is, so scoring it
+    there would lift every posting equally instead of separating them. The two kinds of
+    hit reach `Score` separately (`match_counts` vs `title_match_counts`) so the email can
+    show which is which — a title term says far less about fit than a matched skill does.
+
     Title-only listings (many list APIs omit the job-ad body — Eightfold, Workday, …)
     can never reach the ~4 distinct hits a description-backed role needs to clear a
     50-point keyword_threshold, so their hits weigh `_TITLE_ONLY_WEIGHT` instead of
-    `_WEIGHT`. An instance built with `title_only_pass_score` goes further and returns
-    exactly that score for EVERY title-only job — wire it per-group (referral/intern)
-    so high-value roles are emailed rather than silently dropped on text the source
-    never provided.
+    `_WEIGHT`. Groups that must never lose such a role skip the gate entirely — see
+    TitleOnlyAutoPass.
     """
 
     method_label = "Keyword"
@@ -206,48 +229,79 @@ class KeywordScorer:
     _WEIGHT = 3             # per distinct keyword with a description (>50 needs >= 4)
     _TITLE_ONLY_WEIGHT = 8  # per distinct keyword in a bare title (>50 needs >= 2)
 
-    def __init__(self, skill_keywords: list[str] = (), *,
-                 title_only_pass_score: int | None = None):
-        # keyword -> boundary-aware pattern. Custom lookarounds (not \b) so "c++"/"c#"/
-        # "3d" still match; the trailing "s?" absorbs plurals ("api" hits "APIs") and, as
-        # a side effect, keeps "java" from bleeding into "javascript". The [a-z0-9]
-        # boundaries keep short tokens (go/ai/ml/rl) out of google/email/html/world.
-        self._patterns = {
-            kw: re.compile(rf"(?<![a-z0-9]){re.escape(kw)}s?(?![a-z0-9])")
-            for kw in (k.strip().lower() for k in skill_keywords) if kw
-        }
-        self._title_only_pass_score = title_only_pass_score
+    def __init__(self, skill_keywords: list[str] = (), *, title_keywords: list[str] = ()):
+        # Both dicts are read-only after this point — score() relies on their keys staying
+        # disjoint, which is enforced here and nowhere else.
+        self._patterns = _compile_patterns(skill_keywords)
+        # A term on both lists stays a description keyword: that scan covers the title
+        # too, so it can only match more, and one term never counts under two rules.
+        self._title_patterns = {kw: pat
+                                for kw, pat in _compile_patterns(title_keywords).items()
+                                if kw not in self._patterns}
+
+    @staticmethod
+    def _breakdown(counts: dict[str, int]) -> tuple[tuple[str, int], ...]:
+        return tuple(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
     def score(self, job: Job) -> Score:
         title_only = not job.description.strip()
-        matches = match_counts = None
-        if self._patterns:
-            text = f"{job.title} {job.description}".lower()
-            counts = {kw: n for kw, pat in self._patterns.items()
-                      if (n := len(pat.findall(text)))}
-            # experience scores the DISTINCT skills matched; match_counts adds the
-            # per-keyword occurrence breakdown for the email.
-            matches = len(counts)
-            match_counts = tuple(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
-        if title_only and self._title_only_pass_score is not None:
-            return Score(_clamp(self._title_only_pass_score),
-                         "title-only listing; auto-passed (no description to score)",
-                         scale=self.scale, matches=matches, match_counts=match_counts)
+        matches = match_counts = title_match_counts = None
+        if self._patterns or self._title_patterns:
+            skills = _hit_counts(self._patterns, f"{job.title} {job.description}".lower())
+            titles = _hit_counts(self._title_patterns, job.title.lower())
+            # experience scores the DISTINCT terms matched (the two sets of keys are
+            # disjoint by construction); the breakdowns carry the per-keyword occurrence
+            # counts the email shows.
+            matches = len(skills) + len(titles)
+            match_counts = self._breakdown(skills)
+            title_match_counts = self._breakdown(titles)
         if matches is None:
-            # No skill_keywords configured: constant score puts every role on the same side
+            # No keywords configured at all: constant score puts every role on the same side
             # of the threshold, so matches stays None — no meaningful count to report.
             return Score(50, "keyword-only heuristic", scale=self.scale)
         weight = self._TITLE_ONLY_WEIGHT if title_only else self._WEIGHT
         reason = "keyword-only heuristic (title only)" if title_only else "keyword-only heuristic"
         return Score(_clamp(self._BASE + weight * matches), reason, scale=self.scale,
-                     matches=matches, match_counts=match_counts)
+                     matches=matches, match_counts=match_counts,
+                     title_match_counts=title_match_counts)
+
+
+class TitleOnlyAutoPass:
+    """Wraps a JobScorer and gives every DESCRIPTION-LESS posting a fixed passing score,
+    instead of letting the gate judge text the source never provided. Wire it per group
+    (see __main__) for the ones worth never missing.
+
+    `inner` is still consulted for those postings, and only its score and reason are
+    replaced: the keyword breakdown it returns is what the email prints and what orders
+    the section, since every auto-passed role shares one experience_score. So only wrap a
+    scorer whose score() is cheap — wrapping an LLM tier would buy a judgement this then
+    throws away (build_scorer never does: it pairs this with the keyword fallback only)."""
+
+    def __init__(self, inner: JobScorer, pass_score: int):
+        self._inner = inner
+        self._pass_score = pass_score
+
+    @property
+    def method_label(self) -> str:
+        return self._inner.method_label
+
+    @property
+    def scale(self) -> ScoreScale:
+        return self._inner.scale
+
+    def score(self, job: Job) -> Score:
+        scored = self._inner.score(job)
+        if job.description.strip():
+            return scored
+        return replace(scored, experience_score=_clamp(self._pass_score),
+                       reason="title-only listing; auto-passed (no description to score)")
 
 
 def build_scorer(settings) -> tuple[JobScorer, JobScorer | None]:
     """Second element: a lenient companion for groups that must never lose a title-only
-    role — it auto-passes those (see `KeywordScorer.title_only_pass_score`). None for
-    the LLM tiers, which can judge fit from a bare title themselves. Which groups get
-    the companion is the caller's wiring decision (__main__), not decided here.
+    role — it auto-passes those (see `TitleOnlyAutoPass`). None for the LLM tiers, which
+    can judge fit from a bare title themselves. Which groups get the companion is the
+    caller's wiring decision (__main__), not decided here.
     """
     if settings.openai_api_key:
         log.info("scorer: OpenAI API (%s)", settings.model)
@@ -263,5 +317,6 @@ def build_scorer(settings) -> tuple[JobScorer, JobScorer | None]:
     # +1 over the highest keyword_threshold (this scorer's own gate), not one track's:
     # which track the job will route to isn't known here, so it must clear every track.
     pass_score = max((t.keyword_threshold for t in settings.tracks), default=50) + 1
-    return (KeywordScorer(settings.skill_keywords),
-            KeywordScorer(settings.skill_keywords, title_only_pass_score=pass_score))
+    keyword_scorer = KeywordScorer(settings.skill_keywords,
+                                   title_keywords=settings.title_keywords)
+    return keyword_scorer, TitleOnlyAutoPass(keyword_scorer, pass_score)

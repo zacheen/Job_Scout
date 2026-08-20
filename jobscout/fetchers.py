@@ -10,10 +10,9 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
@@ -22,23 +21,12 @@ from dataclasses import replace
 
 from .company_aliases import canonical_company
 from .config import Company
+from .coverage import catchup_log
+from .dates import posted_iso
 from .models import EMPTY_SEEN_LEDGER, Job, SeenLedger
+from .protocols import Enricher
 
 log = logging.getLogger(__name__)
-# Cap-hit records go to their own logger so attach_catchup_log() can also persist them to
-# a file: by the time these matter, the run's console output is long gone. Propagates, so
-# they still show up in the normal log either way.
-catchup_log = logging.getLogger(f"{__name__}.catchup")
-
-
-def attach_catchup_log(path: Path) -> None:
-    """Additionally append `catchup_log` records to `path` (see CATCHUP_LOG_FILENAME).
-    No-op once attached, so a re-entered entry point cannot duplicate every line."""
-    if catchup_log.handlers:
-        return
-    handler = logging.FileHandler(path, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-    catchup_log.addHandler(handler)
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -99,18 +87,25 @@ def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
     return ""
 
 
-_STOP_AFTER_SEEN = 10  # no-watermark fallback: page until this many already-seen openings (cumulative)
-# Ceiling on ONE company's watermark-driven catch-up, so a long-stale ledger cannot turn
-# a run into a full-board pull of every stale company at ~1.6s per paced request.
-_MAX_CATCHUP_PAGES = 100
+# No-watermark fallback: page until this many already-seen openings (cumulative). Above the
+# worst re-stamp burst measured so far (Google pushed 15 old roles onto its top two pages) —
+# on a source with no posting date, seen_snapshot can't tell a re-stamp from real depth, so
+# this margin alone has to absorb it.
+_STOP_AFTER_SEEN = 50
+# Ceiling on ONE company's pull in ONE run: a long-stale watermark catch-up and a fresh
+# company both page without a working stop signal, so either could turn into a full-board
+# pull at ~1.6s per paced request. Counted in JOBS, not pages: page size varies 10x across
+# ATSes, so the previous page cap silently meant 1,000 rows on SmartRecruiters and 100 on
+# Eightfold. Set above every company's measured single-day intake (busiest: Amazon 1,979,
+# Walmart 1,794, CVS Health 1,568), so a once-a-day local run clears a normal day's board
+# churn without the fuse blowing.
+_MAX_JOBS_PER_RUN = 2000
 
 
 def _paginate_new(
     fetch_page: Callable[[int], tuple[list[Job], int | None]],
-    seen: Collection[str],
+    seen: SeenLedger,
     page_size: int,
-    seed_max_pages: int,
-    is_seed_run: bool,
     *,
     watermark: str = "",
     subject: str = "",
@@ -119,19 +114,28 @@ def _paginate_new(
     """Collect jobs from a newest-first source, stopping once the page contents prove we
     have paged past everything the ledger can be missing.
 
-    `watermark` (this company's newest first_seen date, see SeenLedger) is that proof:
-    stop when a page's OLDEST date_posted predates it, because every role the board has
-    touched since the last run sorts above that point.
+    Two independent proofs, and EITHER is enough — they fail on different boards, so
+    requiring both would mean never stopping on one of them:
 
-    Without a watermark or dates, fall back to `stop_after_seen` already-seen uids — a
-    much weaker signal: boards re-stamp OLD roles to the top of the sort, so each one
-    counts as already-seen without indicating how deep we are. Google re-stamped 15
-    roles across its top two pages (real backlog boundary: page ~32); a stale ledger
-    stopped after page one and every later run repeated that same short stop — a
-    self-perpetuating gap ordinary scanning could never close.
+    `watermark` (this company's newest first_seen date, see SeenLedger): stop when a page's
+    OLDEST posting date predates it, because every role the board has touched since the last
+    run sorts above that point. Dates go through `posted_iso` first — boards state them in
+    formats that compare neither to the watermark nor to each other, and the raw comparison
+    silently decides the whole run (see there). Useless on a board that stamps more than
+    `_MAX_JOBS_PER_RUN` roles inside the watermark's single day (CVS Health does).
 
-    `is_seed_run` = this company's first appearance (no prior uids in the ledger): the cap
-    bounds the pull, because there is no backlog baseline to stop against."""
+    `stop_after_seen` already-recorded SNAPSHOTS (SeenLedger.seen_snapshot — uid known AND
+    its posting date unchanged). Re-stamped roles deliberately do not count: a board that
+    pushes old roles back to the top would otherwise satisfy this without the run having
+    paged any deeper. Google re-stamped 15 roles across its top two pages (real backlog
+    boundary: page ~32); on plain uid membership a stale ledger stopped after page one and
+    every later run repeated that same short stop — a self-perpetuating gap ordinary
+    scanning could never close. Useless on a source that exposes no posting date, where
+    every re-stamp is invisible and this degrades to uid membership.
+
+    A company's first run has NEITHER proof (nothing of its own in `seen`, hence no watermark
+    and no snapshot hits), so `_MAX_JOBS_PER_RUN` is the only thing that stops it — which is
+    why that case needs no seed rule of its own."""
     jobs: list[Job] = []
     index = 0
     seen_count = 0
@@ -139,28 +143,29 @@ def _paginate_new(
         page_jobs, total = fetch_page(index)
         jobs.extend(page_jobs)
         index += 1
-        seen_count += sum(1 for job in page_jobs if job.job_uid in seen)
+        seen_count += sum(1 for job in page_jobs
+                          if seen.seen_snapshot(job.job_uid, job.date_posted))
         fetched = index * page_size
-        oldest = min((job.date_posted for job in page_jobs if job.date_posted), default="")
+        oldest = min(filter(None, (posted_iso(job.date_posted) for job in page_jobs)),
+                     default="")
         reached_backlog = (
-            oldest < watermark if watermark and oldest else seen_count >= stop_after_seen
+            (bool(watermark) and bool(oldest) and oldest < watermark)
+            or seen_count >= stop_after_seen
         )
         if (
             not page_jobs                                 # source exhausted
             or reached_backlog
             or (total is not None and fetched >= total)   # covered all results
-            or (is_seed_run and index >= seed_max_pages)  # company's first run: bound the pull
         ):
             break
-        if index >= _MAX_CATCHUP_PAGES:
-            # Reachable only via the watermark rule (the seen-count rule stops far sooner):
-            # either the ledger is months stale or this board re-stamps its whole backlog.
+        if len(jobs) >= _MAX_JOBS_PER_RUN:
             # Roles older than the last page fetched stay unfetched, and the next run's
             # watermark will have advanced past them — so this needs a look, not a retry.
             catchup_log.warning(
-                "%s: hit _MAX_CATCHUP_PAGES (%d) with the board still newer than watermark "
-                "%s (oldest date_posted reached: %s); older roles were NOT fetched",
-                subject or "early-stop pagination", _MAX_CATCHUP_PAGES, watermark, oldest)
+                "%s: hit _MAX_JOBS_PER_RUN (%d) with the board still newer than watermark "
+                "%s (oldest posting date reached: %s); older roles were NOT fetched",
+                subject or "early-stop pagination", _MAX_JOBS_PER_RUN,
+                watermark or "(none: first run)", oldest or "(no usable dates)")
             break
     return jobs
 
@@ -285,9 +290,9 @@ class AtsFetcher(ABC):
 
     @staticmethod
     def uid_prefix(ats: str, company_name: str) -> str:
-        """uid namespace for one (ats, company) pair, shared by _uid, _company_known, and
-        external callers (e.g. seed_only) that test a uid's origin. Trailing ':' stops one
-        company name being a prefix of another."""
+        """uid namespace for one (ats, company) pair, shared by _uid, watermark lookups,
+        and external callers (e.g. seed_only) that test a uid's origin. Trailing ':' stops
+        one company name being a prefix of another."""
         return f"{ats}:{company_name}:"
 
     @property
@@ -319,11 +324,6 @@ class AtsFetcher(ABC):
                 f"{self._company.name}: missing '{key}' for ats={self.ats_name}"
             ) from exc
 
-    def _company_known(self, seen: Collection[str]) -> bool:
-        # True iff THIS company has a prior uid in `seen` — each company gets its own
-        # seed cap on first appearance, regardless of what else is already in the ledger.
-        return any(uid.startswith(self.own_uid_prefix) for uid in seen)
-
 
 class PagedFetcher(AtsFetcher):
     """Shared contract for sources that expose zero-based pages of jobs."""
@@ -350,23 +350,16 @@ class PagedFetcher(AtsFetcher):
 
 
 class EarlyStopPaginatedFetcher(PagedFetcher):
-    """Base for newest-first, paginated sources. Subclasses set `_PAGE`/`_SEED_MAX_PAGES`
-    and implement `_fetch_page`; `fetch` wires them through `_paginate_new` identically, so
-    every paginated source gets the same seed-cap + early-stop behaviour and a new one can't
-    forget it. Correctness depends on the source returning newest-first — each subclass
+    """Base for newest-first, paginated sources. Subclasses set `_PAGE` and implement
+    `_fetch_page`; `fetch` wires them through `_paginate_new` identically, so every
+    paginated source gets the same early-stop + `_MAX_JOBS_PER_RUN` behaviour and a new one
+    can't forget it. Correctness depends on the source returning newest-first — each subclass
     documents why it is. Subclasses that populate `date_posted` also get the watermark stop
     (see `_paginate_new`); ones that cannot (no per-item date) fall back to the weaker
     already-seen count and stay exposed to re-stamped backlog roles."""
 
-    _SEED_MAX_PAGES: int
-
-    def __init__(self, company: Company, http: HttpClient):
-        super().__init__(company, http)
-        self._require_positive_class_int("_SEED_MAX_PAGES")
-
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
-        return _paginate_new(self._fetch_page, seen.uids, self._PAGE, self._SEED_MAX_PAGES,
-                             is_seed_run=not self._company_known(seen.uids),
+        return _paginate_new(self._fetch_page, seen, self._PAGE,
                              watermark=seen.watermark(self.own_uid_prefix),
                              subject=self._log_subject)
 
@@ -527,7 +520,6 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "workday"
     _PAGE = 20
-    _SEED_MAX_PAGES = 10
     _MAX_SEARCH_PAGES = 25  # hard bound for the searchText (relevance-ordered) mode
 
     _N_LOCATIONS = re.compile(r"\d+\s+locations?", re.IGNORECASE)
@@ -592,8 +584,9 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
                 location_display=location_display,
                 # externalPath alone 404s — the JD page only exists under /en-US/{site}.
                 url=f"https://{host}/en-US/{site}{item['externalPath']}",
-                # Workday listing API omits description; per-job fetches are too
-                # costly, so these roles are matched on title only.
+                # Workday listing API omits the body (per-role fetch for every LISTED
+                # job would be too costly). WorkdayJdSource backfills it later, but
+                # only for new PreFilter survivors, so this job is title-only for now.
                 description="",
                 department="",
                 date_posted=item.get("postedOn", ""),
@@ -612,7 +605,6 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "oracle"
     _PAGE = 20
-    _SEED_MAX_PAGES = 10
     # Job text is split across several fields; the visa/clearance boilerplate PreFilter scans for
     # lives in ExternalQualificationsStr, NOT the ShortDescriptionStr blurb — concatenate them all.
     _DESC_FIELDS = ("ShortDescriptionStr", "ExternalDescriptionStr",
@@ -690,7 +682,6 @@ class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "smartrecruiters"
     _PAGE = 100  # API max page size
-    _SEED_MAX_PAGES = 10
 
     @property
     def host(self) -> str:
@@ -738,7 +729,6 @@ class JibeFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "jibe"
     _PAGE = 10
-    _SEED_MAX_PAGES = 10
 
     @property
     def host(self) -> str:
@@ -785,7 +775,6 @@ class EightfoldFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "eightfold"
     _PAGE = 10
-    _SEED_MAX_PAGES = 10
 
     def __init__(self, company: Company, http: HttpClient):
         super().__init__(company, http)
@@ -863,7 +852,6 @@ class RadancyFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "radancy"
     _PAGE = 15
-    _SEED_MAX_PAGES = 10
     _MAX_FULL_PAGES = 100
 
     _TOTAL_RE = re.compile(r'data-total-job-results="(\d+)"')
@@ -940,7 +928,6 @@ class SuccessFactorsFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "successfactors"
     _PAGE = 25  # server-fixed rows per page
-    _SEED_MAX_PAGES = 10
 
     _ROW_RE = re.compile(r'<tr class="data-row">(.*?)</tr>', re.DOTALL)
     # Attribute order varies between the desktop and phone anchors -> lookahead on class.
@@ -1000,7 +987,6 @@ class AvatureFetcher(AtsFetcher):
     ats_name = "avature"
     _RPP = 20  # requested page size; the server clamps it per tenant
     _MAX_PAGES = 120  # hard bound for the full-board mode
-    _SEED_MAX_PAGES = 10  # first-run cap for the newest_first mode
 
     _CARD_RE = re.compile(r'<article[^>]*class="[^"]*article--result[^"]*"[^>]*>(.*?)</article>',
                           re.DOTALL)
@@ -1034,8 +1020,7 @@ class AvatureFetcher(AtsFetcher):
         # Lenovo's board is >1200 rows (past its own "999" display cap); early-stop
         # keeps steady-state runs to ~2 pages instead of paging the whole board.
         if self._company.param_bool("newest_first"):
-            jobs = _paginate_new(self._fetch_page, seen.uids, self._RPP, self._SEED_MAX_PAGES,
-                                 is_seed_run=not self._company_known(seen.uids),
+            jobs = _paginate_new(self._fetch_page, seen, self._RPP,
                                  watermark=seen.watermark(self.own_uid_prefix),
                                  subject=self._log_subject)
         else:
@@ -1117,12 +1102,11 @@ class AvatureFetcher(AtsFetcher):
 class AmazonFetcher(EarlyStopPaginatedFetcher):
     """amazon.jobs is keyword-search (not an all-jobs board); an optional `query` narrows it,
     `normalized_country_code[]=USA` restricts to the US, and `sort=recent` lists newest first
-    so the seen-based early-stop applies. `hits` is unreliable, so total is unknown and the
-    page cap bounds only the first (seed) run."""
+    so the early-stop applies. `hits` is unreliable, so total is unknown and
+    `_MAX_JOBS_PER_RUN` is the only backstop when a run pages deeper than expected."""
 
     ats_name = "amazon"
     _PAGE = 100
-    _SEED_MAX_PAGES = 3
 
     @property
     def host(self) -> str:
@@ -1155,14 +1139,13 @@ class AmazonFetcher(EarlyStopPaginatedFetcher):
 class GoogleFetcher(EarlyStopPaginatedFetcher):
     """Google has no public careers API; job data is server-side-embedded as JSON inside
     an `AF_initDataCallback({key:'ds:1', data:[...]})` script block — parsed directly, no
-    browser or API key needed. `sort_by=date` lists newest first, so the seen-based
-    early-stop applies (the page cap bounds only the seed run); `query`/`location` optional."""
+    browser or API key needed. `sort_by=date` lists newest first, so the early-stop
+    applies (`_MAX_JOBS_PER_RUN` is the backstop); `query`/`location` optional."""
 
     ats_name = "google"
     # Search endpoint; also the base for per-job description URLs (see _jd_url).
     _BASE = "https://www.google.com/about/careers/applications/jobs/results"
     _PAGE = 20
-    _SEED_MAX_PAGES = 5
     _CALLBACK_RE = re.compile(r"AF_initDataCallback\(")
     # Positional indices into Google's ds:1 job record (positional schema; source:
     # notes/google_probe_log.md). Must be updated if Google changes the page layout.
@@ -1839,8 +1822,8 @@ class TeamtailorFetcher(AtsFetcher):
 class BambooHRFetcher(AtsFetcher):
     """BambooHR hosted boards: `GET {account}.bamboohr.com/careers/list` returns the whole
     board as {"meta":{"totalCount"},"result":[...]} in one anonymous request. Rows carry
-    no dates or descriptions -> single-shot, title-only matching. JD URL =
-    {account}.bamboohr.com/careers/{id}."""
+    no dates and no descriptions, so this stays a single request; the body is backfilled
+    per-job at enrich time by BambooHrJdSource. JD URL = {account}.bamboohr.com/careers/{id}."""
 
     ats_name = "bamboohr"
 
@@ -2060,7 +2043,6 @@ class GoldmanFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "goldman"
     _PAGE = 50
-    _SEED_MAX_PAGES = 10
     _API = "https://api-higher.gs.com/gateway/api/v1/graphql"
     # Overridable via the `experiences` param (comma-separated) to scope e.g. campus-only.
     _DEFAULT_EXPERIENCES = "PROFESSIONAL,EARLY_CAREER,CAMPUS"
@@ -2760,4 +2742,142 @@ class DispatchingEnricher:
         for prefix, fetcher in self._prefixed:
             if job.job_uid.startswith(prefix):
                 return fetcher.enrich(job)
+        return job
+
+
+class JdSource(ABC):
+    """Reads a job-ad body out of one ATS's per-job detail endpoint, addressed by the
+    posting's own PUBLIC JD URL rather than by any listing-API id.
+
+    That URL is all an aggregator row carries, so this is the only handle available for
+    Simplify/SpeedyApply postings, whose links point at arbitrary employer ATSes.
+    Subclasses map a JD URL to its detail endpoint and pull the body out of the payload;
+    `description` adds the shared fetch + fail-open handling.
+    """
+
+    def __init__(self, http: HttpClient):
+        self._http = http
+
+    @abstractmethod
+    def detail_url(self, jd_url: str) -> str:
+        """The detail-endpoint URL serving `jd_url`, or "" when this source does not
+        recognize that host/path shape. Must not do any I/O. Public, unlike the `_body`
+        hook, so host dispatch can be verified without hitting the network."""
+
+    @abstractmethod
+    def _body(self, payload) -> str:
+        """The job-ad body (HTML or text) inside a detail-endpoint payload, or ""."""
+
+    def description(self, jd_url: str) -> str:
+        """Stripped job-ad text for `jd_url`, or "" when this source doesn't serve that
+        URL or the fetch failed. Callers rely on "" (never an exception) to keep the
+        Enricher fail-open contract."""
+        api = self.detail_url(jd_url)
+        if not api:
+            return ""
+        try:
+            return strip_html(self._body(self._http.get_json(api)))
+        except Exception as exc:
+            # Expected, not exceptional: a delisted or re-posted requisition 403s/404s on
+            # its old URL, and the caller's fallback (title-only matching) is unchanged.
+            log.info("%s: JD fetch failed for %s: %s", type(self).__name__, jd_url, exc)
+            return ""
+
+
+class WorkdayJdSource(JdSource):
+    """Workday CXS per-posting detail, reachable from the JD URL alone.
+
+    The endpoint needs a TENANT the JD URL never carries; the host's first label works as
+    the tenant on every board probed (nvidia / globalhr / gdit / gsk / homedepot / …).
+    A wrong guess just 403s into the fail-open path, so this cannot silently mis-fetch
+    another company's posting.
+    """
+
+    # Locale segment is optional: aggregator links appear both as /en-US/{site}/job/…
+    # and bare /{site}/job/…. `path` must start at "/job/", which is what forces the
+    # optional group to consume the locale instead of the site when both are present.
+    _JD_URL_RE = re.compile(
+        r"^https://(?P<host>[\w.-]+\.myworkdayjobs\.com)"
+        r"/(?:[a-z]{2}-[A-Za-z]{2}/)?(?P<site>[^/]+)(?P<path>/job/.+)$",
+        re.IGNORECASE,
+    )
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        host, site, path = match.group("host"), match.group("site"), match.group("path")
+        return f"https://{host}/wday/cxs/{host.split('.')[0]}/{site}{path}"
+
+    def _body(self, payload) -> str:
+        return (payload.get("jobPostingInfo") or {}).get("jobDescription") or ""
+
+
+class BambooHrJdSource(JdSource):
+    """BambooHR hosted-board per-posting detail: `/careers/{id}/detail` returns the body
+    under result.jobOpening.description (the /careers/{id}/ page itself is client-rendered,
+    so its HTML carries no job ad)."""
+
+    _JD_URL_RE = re.compile(
+        r"^https://(?P<host>[\w.-]+\.bamboohr\.com)/careers/(?P<id>\d+)/?$",
+        re.IGNORECASE,
+    )
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        return f"https://{match.group('host')}/careers/{match.group('id')}/detail"
+
+    def _body(self, payload) -> str:
+        opening = ((payload.get("result") or {}).get("jobOpening") or {})
+        return opening.get("description") or ""
+
+
+class JdUrlEnricher:
+    """Fills a still-empty description by fetching the job's own JD URL, dispatching on
+    that URL's HOST instead of on which fetcher produced the job. Satisfies the `Enricher`
+    protocol.
+
+    Aggregator rows are what forced this: Simplify/SpeedyApply publish a title, a company
+    and an apply link but never a body, and their links point at arbitrary employer ATSes,
+    so uid-prefix dispatch (DispatchingEnricher) cannot reach them.
+
+    Keying on the host is deliberate, not incidental: it also covers directly-fetched
+    Workday/BambooHR companies, whose listing APIs omit the body via the same vacuous-pass
+    route — narrowing this to aggregator uids would leave half the hole open. Cost stays
+    bounded because the pipeline enriches only new PreFilter survivors, not whole fetch
+    results.
+
+    Jobs that already have a description are left alone, so this composes safely behind a
+    fetcher's own richer enrich (see ChainedEnricher).
+    """
+
+    def __init__(self, sources: list[JdSource]):
+        self._sources = tuple(sources)
+
+    def enrich(self, job: Job) -> Job:
+        if job.description.strip() or not job.url:
+            return job
+        for source in self._sources:
+            description = source.description(job.url)
+            if description:
+                return replace(job, description=description)
+        return job
+
+
+class ChainedEnricher:
+    """Runs each enricher in order and returns the first result that actually changed the
+    job. Satisfies the `Enricher` protocol, and preserves its object-identity rule (an
+    unchanged job comes back as the SAME object) that the pipeline uses to skip a
+    redundant re-filter."""
+
+    def __init__(self, enrichers: list[Enricher]):
+        self._enrichers = tuple(enrichers)
+
+    def enrich(self, job: Job) -> Job:
+        for enricher in self._enrichers:
+            enriched = enricher.enrich(job)
+            if enriched is not job:
+                return enriched
         return job
