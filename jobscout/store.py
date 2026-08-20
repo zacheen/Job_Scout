@@ -32,9 +32,10 @@ _FIELDS = [
     "experience_score", "reason", "emailed", "source_uids",
 ]
 
-# Fields describing the posting itself; on merge the newer snapshot wins.
-_CONTENT_FIELDS = ("company", "title", "location", "department", "date_posted",
-                   "date_posted_iso")
+# Fields describing the posting itself; on merge the newer snapshot wins. "company" is
+# deliberately NOT one of them: merge_rows decides it by source authority, not recency
+# (see _merge_company).
+_CONTENT_FIELDS = ("title", "location", "department", "date_posted", "date_posted_iso")
 # Fields written together by one scoring pass; on merge they move as a block.
 _SCORE_FIELDS = ("scored", "score_method", "experience_score", "reason")
 
@@ -122,6 +123,39 @@ def _score_rank(row: dict) -> int:
     if row.get("scored") != "true":
         return _UNSCORED_RANK
     return _METHOD_RANK.get(row.get("score_method", ""), _METHOD_RANK[""])
+
+
+def _reported_companies(uids: list[str]) -> set[str]:
+    """The company names these uids carry in their "{ats}:{name}:{id}" middle segment.
+
+    For a native fetcher that segment is the companies.yaml entry name, i.e. the real
+    employer. For an aggregator it is the AGGREGATOR's own entry name ("Simplify
+    Internships", "SpeedyApply AI"/"SpeedyApply SWE"), which never equals an employer —
+    so a caller can recognise a natively-reported name without knowing which sources are
+    aggregators. Legacy uids predating the 3-part format contribute nothing."""
+    names = set()
+    for uid in uids:
+        parts = uid.split(":", 2)
+        if len(parts) == 3:
+            names.add(parts[1].strip())
+    return names
+
+
+def _merge_company(newer_company: str, older_company: str, uids: list[str]) -> str:
+    """Employer name for a merged row: the one a NATIVE fetcher reported, else
+    `newer_company` (what _CONTENT_FIELDS-style recency would have picked).
+
+    Recency alone is wrong here because save() files a row under its CURRENT company, so
+    a role that both a campus board and an aggregator list would migrate between the two
+    boards' shards — and back — purely on which concurrent fetcher finished last
+    (2026-08-20: 7 rows, e.g. Tenstorrent vs Tenstorrent University). companies.yaml's
+    spelling is authoritative; an aggregator's per-row employer name is free text.
+
+    Two natively-reported names both stay eligible, so recency still breaks that tie —
+    Amazon and Amazon Interns are separate boards that really do both list one req."""
+    reported = _reported_companies(uids)
+    native = [name for name in (newer_company, older_company) if name.strip() in reported]
+    return native[0] if len(native) == 1 else newer_company
 
 
 def row_sort_key(row: dict) -> tuple[str, str, str, str]:
@@ -252,7 +286,10 @@ class CsvStore:
         """Fold `incoming` into `existing` (same opening seen again) and return it.
         existing's job_key stays: identity never changes after creation. Re-indexes
         itself, so merged-in urls/uids are immediately findable."""
-        newer = incoming if incoming["first_seen"] >= existing["first_seen"] else existing
+        if incoming["first_seen"] >= existing["first_seen"]:
+            newer, older = incoming, existing
+        else:
+            newer, older = existing, incoming
         for field in _CONTENT_FIELDS:
             existing[field] = newer[field]
 
@@ -266,6 +303,9 @@ class CsvStore:
         uids = _split_multi(existing["source_uids"])
         uids += [u for u in _split_multi(incoming["source_uids"]) if u not in uids]
         existing["source_uids"] = _join_multi(uids)
+
+        # Must follow the uid union: the decision needs the uids of BOTH rows.
+        existing["company"] = _merge_company(newer["company"], older["company"], uids)
 
         if _score_rank(incoming) < _score_rank(existing):
             for field in _SCORE_FIELDS:
@@ -294,8 +334,9 @@ class CsvStore:
                                         lineterminator="\n")
                 writer.writeheader()
                 writer.writerows(rows)
-        # A merge can re-attribute rows to another company (content fields: newest wins),
-        # emptying a shard. Delete it, or the next load resurrects the stale rows.
+        # A merge can re-attribute rows to another company (_merge_company: source
+        # authority, falling back to recency), emptying a shard. Delete it, or the next
+        # load resurrects the stale rows.
         for stale in self._dir.glob("*.csv"):
             if stale.stem not in by_slug:
                 log.warning("deleting orphan shard %s (no rows reference it after save)", stale)

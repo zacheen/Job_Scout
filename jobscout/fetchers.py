@@ -23,7 +23,7 @@ from .company_aliases import canonical_company
 from .config import Company
 from .coverage import catchup_log
 from .dates import posted_iso
-from .models import EMPTY_SEEN_LEDGER, Job, SeenLedger
+from .models import EMPTY_SEEN_LEDGER, DescriptionPolicy, Job, SeenLedger
 from .protocols import Enricher
 
 log = logging.getLogger(__name__)
@@ -45,7 +45,15 @@ def _first_match(pattern: re.Pattern, text: str) -> str:
 
 
 def _unix_to_date(ts: int | float | None) -> str:
-    """Unix seconds -> ISO date (YYYY-MM-DD), or '' if missing/out of range."""
+    """Unix seconds -> ISO date (YYYY-MM-DD), or '' if missing/unset/out of range.
+
+    A falsy ts is treated as MISSING, not as epoch 0: Eightfold sends 0 for a job whose
+    posted timestamp was never set, and 0 converts happily to "1970-01-01" instead of
+    raising. That date is not merely wrong — _paginate_new stops on a page's oldest date,
+    so one such row would truncate the company's pull (dates._EARLIEST_PLAUSIBLE_POSTING
+    is the second line of defence, for rows already stored)."""
+    if not ts:
+        return ""
     try:
         return datetime.fromtimestamp(ts, timezone.utc).date().isoformat()
     except (TypeError, ValueError, OSError, OverflowError):
@@ -1107,10 +1115,21 @@ class AmazonFetcher(EarlyStopPaginatedFetcher):
 
     ats_name = "amazon"
     _PAGE = 100
+    # search.json splits the posting: `description` is duties only, and the skills sit in
+    # the two qualifications fields. Reading `description` alone scores a role on prose
+    # that names no technology — measured on "Design Technologist II, Prime Video": 49
+    # from `description`, 58 once the qualifications are appended (python/git/front-end
+    # appear only there). Order matches the posting; `description_short` is a ~200-char
+    # teaser and deliberately unused.
+    _BODY_FIELDS = ("description", "basic_qualifications", "preferred_qualifications")
 
     @property
     def host(self) -> str:
         return "www.amazon.jobs"
+
+    def _extract_description(self, item: dict) -> str:
+        return "\n".join(text for f in self._BODY_FIELDS
+                         if (text := strip_html(item.get(f) or "")))
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         query = self._company.params.get("query", "")
@@ -1127,7 +1146,7 @@ class AmazonFetcher(EarlyStopPaginatedFetcher):
                 title=item.get("title", ""),
                 location=item.get("location", ""),
                 url="https://www.amazon.jobs" + (item.get("job_path") or ""),
-                description=strip_html(item.get("description", "")),
+                description=self._extract_description(item),
                 department=item.get("job_category", ""),
                 date_posted=item.get("posted_date", ""),
             )
@@ -1219,9 +1238,10 @@ class GoogleFetcher(EarlyStopPaginatedFetcher):
     @classmethod
     def _posted_date(cls, rec: list) -> str:
         # rec[_I_POSTED][0] is the unix-second timestamp `sort_by=date` orders on.
+        # _unix_to_date, not a local conversion, so the unset-epoch guard applies here too.
         try:
-            return datetime.fromtimestamp(rec[cls._I_POSTED][0], timezone.utc).date().isoformat()
-        except (IndexError, TypeError, ValueError, OverflowError):
+            return _unix_to_date(rec[cls._I_POSTED][0])
+        except (IndexError, TypeError, KeyError):
             return ""
 
 
@@ -1627,8 +1647,10 @@ class IbmFetcher(BoundedPaginatedFetcher):
     _API = "https://www-api.ibm.com/search/api/v2"
     _PAGE = 100
     _MAX_PAGES = 10  # hard bound: no dates, no early-stop
-    _FIELDS = ["title", "url", "description", "field_keyword_05", "field_keyword_08",
-               "field_keyword_19"]
+    # `body` is the real job ad; `description` is a ~250-char search-index teaser (see
+    # _fetch_page). Unknown names make the whitelist 400, so probe before adding one.
+    _FIELDS = ["title", "url", "description", "body", "field_keyword_05",
+               "field_keyword_08", "field_keyword_19"]
     _JOB_ID_RE = re.compile(r"jobId=(\d+)")
 
     @property
@@ -1659,7 +1681,14 @@ class IbmFetcher(BoundedPaginatedFetcher):
                     # PreFilter's include terms, so the spelled-out country is appended.
                     location=f"{city}, {country}" if city else country,
                     url=url,
-                    description=source.get("description", ""),
+                    # `body`, never `description`: the latter is a search-result teaser,
+                    # ~250 chars of the same marketing paragraph on every role, cut off
+                    # mid-sentence. It names no requirement, yet being non-empty it used
+                    # to suppress the JD backfill and the title-only scoring weight both
+                    # (see models.DescriptionPolicy) — measured 49 vs 91 on one 2027
+                    # co-op posting. `body` was populated on 300/300 US rows probed;
+                    # the teaser stays as the fallback in case that ever changes.
+                    description=strip_html(source.get("body") or source.get("description", "")),
                     department=source.get("field_keyword_08", ""),
                     date_posted="",  # index exposes no date field
                 )
@@ -2849,15 +2878,20 @@ class JdUrlEnricher:
     bounded because the pipeline enriches only new PreFilter survivors, not whole fetch
     results.
 
-    Jobs that already have a description are left alone, so this composes safely behind a
-    fetcher's own richer enrich (see ChainedEnricher).
+    Jobs that already have a USABLE description are left alone, so this composes safely
+    behind a fetcher's own richer enrich (see ChainedEnricher). Usable, not merely
+    non-empty (models.DescriptionPolicy): a source answering with a teaser instead of the
+    job ad is precisely the case worth a detail call, and an emptiness test skips it. That
+    widens the set of jobs enriched, so it costs one extra request per short-bodied new
+    PreFilter survivor — bounded by the same "new survivors only" rule as before.
     """
 
-    def __init__(self, sources: list[JdSource]):
+    def __init__(self, sources: list[JdSource], description_policy: DescriptionPolicy):
         self._sources = tuple(sources)
+        self._policy = description_policy
 
     def enrich(self, job: Job) -> Job:
-        if job.description.strip() or not job.url:
+        if self._policy.is_usable(job.description) or not job.url:
             return job
         for source in self._sources:
             description = source.description(job.url)

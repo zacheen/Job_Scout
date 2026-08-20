@@ -19,6 +19,14 @@ No code maintains this file; extend the dict by hand when the dropped-jobs audit
 - Deliberately NOT aliased: Alarm.com/OpenEye and SRA Internships/Samsung Research
   America — those are overlapping NATIVE greenhouse boards of related but distinct
   entities, and this map is never applied to native fetchers anyway.
+
+This map is only half the defence. It fixes spellings BEFORE a row exists, for the case
+where the two sources share no URL and job_key is the only thing that could match them.
+Once a row does merge, store._merge_company re-picks the employer name from the uids,
+preferring whichever spelling a native fetcher reported — so an unaliased variant no
+longer makes the row migrate between shards; only the unmergeable duplicates above still
+need an entry here. Both mechanisms rely on aggregator names in companies.yaml never
+colliding with a real employer's self-reported name.
 """
 
 # Seeded 2026-08-04 from the 16 aggregator-involved cross-name duplicate groups

@@ -48,6 +48,37 @@ class Job:
         return self.location_display or self.location
 
 
+@dataclass(frozen=True)
+class DescriptionPolicy:
+    """Does a listing's body carry enough text to be worth scoring?
+
+    NOT the same question as "is it non-empty", and the difference is not academic. Some
+    listing APIs answer with a marketing teaser instead of the job ad — IBM's careers
+    index sends the same ~250-char paragraph on every role, cut off mid-sentence — and an
+    emptiness test reads that as a real description. It then disables all three mechanisms
+    that exist to carry a body-less posting: JdUrlEnricher skips the JD backfill,
+    KeywordScorer drops from `_TITLE_ONLY_WEIGHT` to `_WEIGHT`, and TitleOnlyAutoPass
+    stops firing. So a teaser scores STRICTLY LOWER than no description at all — measured
+    on IBM "Software Developer Spring Co-op 2027": 49 with the teaser, 56 on the bare
+    title, 91 on the real body.
+
+    `min_chars` is a floor on substance, not a quality judgement. A body too short to hold
+    a requirements list cannot move a keyword count either way, so calling it absent only
+    ever loosens the gate — the deliberate direction, since a missed role costs more than
+    a re-read one.
+    """
+
+    min_chars: int
+    # A body ending mid-sentence is a search-index snippet at ANY length, so the floor
+    # alone is not enough (IBM's teaser clears any floor set below ~250). A tuple, not a
+    # list, because str.endswith rejects a list. Empty disables the rule.
+    truncation_marks: tuple[str, ...]
+
+    def is_usable(self, description: str) -> bool:
+        text = description.strip()
+        return len(text) >= self.min_chars and not text.endswith(self.truncation_marks)
+
+
 # eq=False: frozen+eq would synthesise a __hash__ over `watermarks`, which raises
 # TypeError on any dict. Nothing compares ledgers by value, so keep object identity.
 @dataclass(frozen=True, eq=False)
