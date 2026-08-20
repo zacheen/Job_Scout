@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-Zoomifier:149cce4b-7421-4fc6-8841-bd40fabd4c41,Zoomifier,Software Development Intern,NYC,Software,https://jobs.smartrecruiters.com/CustomShow/75886593,2026-08-18,2026-08-18T01:42:04+00:00,2026-08-17 18:42 Mon,,false,,,,false,simplify:Simplify Internships:149cce4b-7421-4fc6-8841-bd40fabd4c41
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Zoomifier:149cce4b-7421-4fc6-8841-bd40fabd4c41,Zoomifier,Software Development Intern,NYC,Software,https://jobs.smartrecruiters.com/CustomShow/75886593,2026-08-18,2026-08-18,2026-08-18T01:42:04+00:00,2026-08-17 18:42 Mon,,false,,,,false,simplify:Simplify Internships:149cce4b-7421-4fc6-8841-bd40fabd4c41
