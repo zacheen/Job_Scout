@@ -25,8 +25,16 @@ _MONTHS = {name: number for number, name in enumerate(
     ("jan", "feb", "mar", "apr", "may", "jun",
      "jul", "aug", "sep", "oct", "nov", "dec"), start=1)}
 
-_warned_date_shapes: set[str] = set()
-_warned_date_shapes_lock = threading.Lock()
+# A date below this is a sentinel, not a posting: an unset epoch field serializes as
+# "1970-01-01" (1969-12-31 once a timezone shifts it). Eightfold does this, and HP's board
+# carried 9 such rows. _paginate_new stops on the MINIMUM date of a page, so ONE of them
+# anywhere on page 1 reads as "paged past the backlog" and silently truncates that
+# company's whole pull. Rejecting them only ever makes a caller page deeper, so the bound
+# is safe to keep loose.
+_EARLIEST_PLAUSIBLE_POSTING = "2000-01-01"
+
+_warned_date_keys: set[str] = set()
+_warned_date_keys_lock = threading.Lock()
 
 
 def _to_iso(year, month, day) -> str:
@@ -68,22 +76,45 @@ def _parse(text: str, today: date) -> str:
     return ""
 
 
+def _shape(text: str) -> str:
+    """`text` with digits collapsed to 9, so a board carrying a distinct date on every job
+    costs one log line rather than one per row."""
+    return re.sub(r"\d", "9", text)
+
+
+def _first_warning_for(key: str) -> bool:
+    """True only for the first caller to pass `key`; the caller logs only on True.
+
+    Locked because ParallelFetcher runs different hosts concurrently, and a bare
+    check-then-add lets two threads log the same key. Callers log OUTSIDE the lock —
+    whichever thread just added the key is guaranteed to be the only one given True."""
+    with _warned_date_keys_lock:
+        if key in _warned_date_keys:
+            return False
+        _warned_date_keys.add(key)
+    return True
+
+
 def _warn_unparsed(text: str) -> None:
-    """Report a posting date no rule could read, once per SHAPE (digits collapsed to 9) so
-    a board with a distinct date on every job costs one line, not one per row. The set is
-    locked because ParallelFetcher runs different hosts concurrently, and a bare
-    check-then-add lets two threads log the same shape; the log call itself stays outside
-    the lock because whichever thread just added the shape is guaranteed to be the only one
-    that will ever log it."""
-    shape = re.sub(r"\d", "9", text)
-    with _warned_date_shapes_lock:
-        if shape in _warned_date_shapes:
-            return
-        _warned_date_shapes.add(shape)
-    catchup_log.warning(
-        "unrecognized date_posted shape %r (e.g. %r): the role's posting date is unknown, "
-        "so early-stop falls back to the already-seen count and re-stamps of it cannot be "
-        "detected", shape, text)
+    """Report a posting date no rule could read."""
+    shape = _shape(text)
+    if _first_warning_for(f"unparsed:{shape}"):
+        catchup_log.warning(
+            "unrecognized date_posted shape %r (e.g. %r): the role's posting date is "
+            "unknown, so early-stop falls back to the already-seen count and re-stamps of "
+            "it cannot be detected", shape, text)
+
+
+def _warn_implausible(text: str, iso: str) -> None:
+    """Report a date that parsed cleanly but predates _EARLIEST_PLAUSIBLE_POSTING."""
+    if _first_warning_for(f"implausible:{_shape(text)}"):
+        # ASCII only: this lands in catchup_cap_hits.txt and on a cp950 console, where a
+        # dash or quote outside ASCII prints as mojibake.
+        catchup_log.warning(
+            "date_posted %r reads as %s, before %s, so the role is treated as dateless. "
+            "This is what an unset epoch field looks like, and _paginate_new stops on a "
+            "page's OLDEST date, so honoring it would truncate this company's pull",
+            text, iso, _EARLIEST_PLAUSIBLE_POSTING)
 
 
 def posted_iso(raw: str, *, today: date | None = None) -> str:
@@ -106,12 +137,21 @@ def posted_iso(raw: str, *, today: date | None = None) -> str:
     "30+ Days Ago" resolves to exactly 30 days back — the newest date it can mean, which is
     the safe direction: too-new only makes a caller page deeper, never stop early.
 
+    A date that parses but predates _EARLIEST_PLAUSIBLE_POSTING is reported as no date, and
+    that check lives HERE rather than at each epoch conversion: the sentinel also arrives
+    pre-stringified from a ledger row written before those conversions were guarded, and
+    only this path is shared by _paginate_new and SeenLedger.seen_snapshot.
+
     An empty input is a source that carries no posting date at all (SuccessFactors,
     Goldman) — normal, and not worth warning about; only an unreadable value is."""
     text = (raw or "").strip()
     if not text:
         return ""
-    if iso := _parse(text, today or datetime.now(timezone.utc).date()):
-        return iso
-    _warn_unparsed(text)
-    return ""
+    iso = _parse(text, today or datetime.now(timezone.utc).date())
+    if not iso:
+        _warn_unparsed(text)
+        return ""
+    if iso < _EARLIEST_PLAUSIBLE_POSTING:
+        _warn_implausible(text, iso)
+        return ""
+    return iso

@@ -45,7 +45,15 @@ def _first_match(pattern: re.Pattern, text: str) -> str:
 
 
 def _unix_to_date(ts: int | float | None) -> str:
-    """Unix seconds -> ISO date (YYYY-MM-DD), or '' if missing/out of range."""
+    """Unix seconds -> ISO date (YYYY-MM-DD), or '' if missing/unset/out of range.
+
+    A falsy ts is treated as MISSING, not as epoch 0: Eightfold sends 0 for a job whose
+    posted timestamp was never set, and 0 converts happily to "1970-01-01" instead of
+    raising. That date is not merely wrong — _paginate_new stops on a page's oldest date,
+    so one such row would truncate the company's pull (dates._EARLIEST_PLAUSIBLE_POSTING
+    is the second line of defence, for rows already stored)."""
+    if not ts:
+        return ""
     try:
         return datetime.fromtimestamp(ts, timezone.utc).date().isoformat()
     except (TypeError, ValueError, OSError, OverflowError):
@@ -1219,9 +1227,10 @@ class GoogleFetcher(EarlyStopPaginatedFetcher):
     @classmethod
     def _posted_date(cls, rec: list) -> str:
         # rec[_I_POSTED][0] is the unix-second timestamp `sort_by=date` orders on.
+        # _unix_to_date, not a local conversion, so the unset-epoch guard applies here too.
         try:
-            return datetime.fromtimestamp(rec[cls._I_POSTED][0], timezone.utc).date().isoformat()
-        except (IndexError, TypeError, ValueError, OverflowError):
+            return _unix_to_date(rec[cls._I_POSTED][0])
+        except (IndexError, TypeError, KeyError):
             return ""
 
 
