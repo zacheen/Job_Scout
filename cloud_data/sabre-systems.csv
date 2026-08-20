@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Sabre Systems:d32abe7f-a579-49b8-9d71-10a16fdf5fc6,Sabre Systems,AI Intern,"Lexington Park, MD",AI/ML/Data,https://careers.sabresystems.com/jobs/4759?icims=1,2026-08-26,2026-08-26,2026-08-26T15:59:48+00:00,2026-08-26 08:59 Wed,AI / ML,true,Keyword,51,title-only listing; auto-passed (no description to score),true,simplify:Simplify Internships:d32abe7f-a579-49b8-9d71-10a16fdf5fc6

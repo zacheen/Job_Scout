@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Steven's Capital Management:3350268b-7da8-41ee-bcc6-c85f795975ac,Steven's Capital Management,Software Engineer,"Radnor, PA",Software Engineering,https://grnh.se/abfli75k1us,2026-08-26,2026-08-26,2026-08-26T01:41:34+00:00,2026-08-25 18:41 Tue,Software Engineering,true,Keyword,56,keyword-only heuristic (title only),true,simplify:Simplify Internships:3350268b-7da8-41ee-bcc6-c85f795975ac

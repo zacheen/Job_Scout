@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+BTI360:8155152,BTI360,Software Engineer Intern,"Herndon, VA",Software,https://job-boards.greenhouse.io/bti36021/jobs/8155152,2026-08-24,2026-08-24,2026-08-24T22:41:24+00:00,2026-08-24 15:41 Mon,Software Engineering,true,Keyword,51,title-only listing; auto-passed (no description to score),true,simplify:Simplify Internships:8155152

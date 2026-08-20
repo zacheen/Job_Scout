@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Fullbay:e4dd1ece-36bc-4785-88a7-beb7bdfb4414,Fullbay,Software Engineer Intern,"Phoenix, AZ",Software,https://fullbay.bamboohr.com/careers/131/,2026-08-21,2026-08-21,2026-08-21T20:40:40+00:00,2026-08-21 13:40 Fri,AI / ML,true,Keyword,64,keyword-only heuristic,true,simplify:Simplify Internships:e4dd1ece-36bc-4785-88a7-beb7bdfb4414

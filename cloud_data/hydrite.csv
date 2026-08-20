@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Hydrite:8144502,Hydrite,Junior IT Developer,"Brookfield, WI",,https://job-boards.greenhouse.io/hydritechemicalco/jobs/8144502,,,2026-08-21T13:10:37+00:00,2026-08-21 06:10 Fri,Other Technical,true,Keyword,56,keyword-only heuristic (title only),true,speedyapply:SpeedyApply SWE:8144502

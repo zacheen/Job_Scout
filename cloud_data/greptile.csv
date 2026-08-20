@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Greptile:ce412761-a605-4540-9fb5-624c67ba2b02,Greptile,Frontend Engineer,"San Francisco, CA",,https://jobs.ashbyhq.com/greptile/ce412761-a605-4540-9fb5-624c67ba2b02,,,2026-08-22T12:59:32+00:00,2026-08-22 05:59 Sat,Software Engineering,true,Keyword,56,keyword-only heuristic (title only),true,speedyapply:SpeedyApply SWE:ce412761-a605-4540-9fb5-624c67ba2b02
