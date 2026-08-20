@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+DigitalOcean:8101988,DigitalOcean,Software Engineer - Automation,"Seattle, WA",,https://www.digitalocean.com/careers/position/apply/?gh_jid=8101988,,,2026-08-21T13:10:37+00:00,2026-08-21 06:10 Fri,Software Engineering,true,Keyword,64,keyword-only heuristic (title only),true,speedyapply:SpeedyApply SWE:8101988
