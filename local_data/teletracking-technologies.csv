@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+TeleTracking Technologies:5397299008,TeleTracking Technologies,Software Engineer I,"Pittsburgh, PA",,https://job-boards.greenhouse.io/teletrackingtechnologiesinc/jobs/5397299008,,,2026-08-28T22:17:38+00:00,2026-08-28 15:17 Fri,Software Engineering,true,Keyword,56,keyword-only heuristic (title only),true,speedyapply:SpeedyApply SWE:5397299008

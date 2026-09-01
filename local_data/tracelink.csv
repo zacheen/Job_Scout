@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+TraceLink:5217396007,TraceLink,Software Engineer I,"Wilmington, MA",,https://www.tracelink.com/about/culture-and-careers/jobs?gh_jid=5217396007,,,2026-08-25T13:11:15+00:00,2026-08-25 06:11 Tue,Software Engineering,true,Keyword,56,keyword-only heuristic (title only),true,speedyapply:SpeedyApply SWE:5217396007
