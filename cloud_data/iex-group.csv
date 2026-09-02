@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+IEX Group:8172248,IEX Group,Software Development Engineer in Test Intern,"New York City, NY",,https://iex.io/careers/apply?gh_jid=8172248,,,2026-09-02T16:41:58+00:00,2026-09-02 09:41 Wed,Software Engineering,true,Keyword,51,title-only listing; auto-passed (no description to score),true,speedyapply:SpeedyApply SWE:8172248
