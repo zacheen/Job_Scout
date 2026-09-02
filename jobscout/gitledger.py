@@ -26,6 +26,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -33,6 +35,11 @@ BRANCH = "data"
 # Untracked, and shared by every script that resets/pushes the ledger, so they
 # exclude each other and not just other copies of themselves.
 LOCK_FILENAME = "local_run.lock"
+# Untracked record of every sweep_pack_garbage pass that had something to report.
+PACK_GARBAGE_LOG = "pack_garbage.txt"
+# A repack renames <hash>.pack into place before <hash>.idx, so for a moment a
+# live pack is indistinguishable from an orphan. Only sweep packs older than this.
+SWEEP_MIN_AGE_SECONDS = 600
 
 # Shard files rescued from a hard-reset, one list per ledger dir, same order as
 # the dirs passed in. A dir that did not exist contributes an empty list, so the
@@ -49,10 +56,10 @@ def acquire_single_instance_lock(root: Path) -> None:
 
     Two concurrent runs fetch, hard-reset and push the same repo, so besides
     clobbering each other's ledger their git auto-gc passes collide: on Windows
-    the losing gc cannot unlink a pack another git process still has mapped, so
-    it deletes the .idx, leaves the .pack, and the orphan becomes permanent
-    garbage (2026-08-18: 59 MB of it, from a debugger run and a shell run
-    overlapping).
+    the losing gc cannot unlink a pack another process holds open, so it deletes
+    the .idx, leaves the .pack, and the orphan becomes garbage until
+    sweep_pack_garbage collects it (2026-08-18: 59 MB of it, from a debugger run
+    and a shell run overlapping).
 
     The handle is deliberately never closed — it is parked in a module global so
     it outlives this call, and the OS drops the lock when the process exits.
@@ -78,8 +85,14 @@ def acquire_single_instance_lock(root: Path) -> None:
 
 
 def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    """Run git in `root`, echoing output to the console."""
-    proc = subprocess.run(["git", "-C", str(root), *args])
+    """Run git in `root`, echoing output to the console.
+
+    stdin is closed so an auto-gc that cannot unlink a pack gives up silently
+    instead of blocking the run on Windows git's `Should I try again? (y/n)`
+    prompt, which it only asks when stdin and stderr are both consoles. The
+    orphaned pack it leaves behind is sweep_pack_garbage's job.
+    """
+    proc = subprocess.run(["git", "-C", str(root), *args], stdin=subprocess.DEVNULL)
     if check and proc.returncode != 0:
         raise SystemExit(f"git {' '.join(args)} failed (exit {proc.returncode})")
     return proc
@@ -182,6 +195,71 @@ def commit_and_push(root: Path, ledger_dirs: Sequence[Path], message: str,
             sync_with_remote(root, ledger_dirs, merge, branch=branch)
     raise SystemExit("push failed twice; resolve manually (git pull --rebase, "
                      "then re-run)")
+
+
+def sweep_pack_garbage(root: Path, min_age_seconds: float = SWEEP_MIN_AGE_SECONDS) -> None:
+    """Delete packs a git gc could not unlink, and append what it found to PACK_GARBAGE_LOG.
+
+    Windows refuses to unlink a file another process holds open without
+    FILE_SHARE_DELETE, which GitKraken and AV scanners do not pass. gc deletes
+    the .idx before the .pack, so the survivor is an .idx-less .pack that git can
+    no longer read and never revisits — gc only ever tries to unlink the pack it
+    just replaced, not older garbage — so it accumulates until swept (2026-09-02:
+    275 MiB of it). Call this after the run's last git command, under the
+    single-instance lock, so no ledger run of ours is mid-repack.
+
+    Nothing here can fail the run: locked files are logged and retried next
+    sweep. The log matters because git() leaves git no console to report the
+    failed unlink on, making this the only trace that it happened.
+    """
+    pack_dir = root / ".git" / "objects" / "pack"
+    if not pack_dir.is_dir():
+        return
+
+    now = time.time()
+    freed = 0
+    removed: list[str] = []
+    left: list[str] = []
+    for pack in sorted(pack_dir.glob("*.pack")):
+        base = pack.with_suffix("")
+        # .keep marks a pack an in-flight fetch is still assembling: its .idx is
+        # missing for the opposite reason an orphan's is, and gc honours it too.
+        if base.with_suffix(".idx").exists() or base.with_suffix(".keep").exists():
+            continue
+        try:
+            stat = pack.stat()
+        except OSError:
+            continue  # vanished under us
+        age = now - stat.st_mtime
+        if age < min_age_seconds:
+            left.append(f"  too new  {pack.name} ({age:.0f}s old, {_mib(stat.st_size)})")
+            continue
+        try:
+            pack.unlink()
+        except OSError as err:
+            left.append(f"  locked   {pack.name} ({_mib(stat.st_size)}): {err.strerror}")
+            continue
+        freed += stat.st_size
+        removed.append(f"  removed  {pack.name} ({_mib(stat.st_size)})")
+        for suffix in (".rev", ".mtimes", ".bitmap", ".promisor"):
+            sibling = base.with_suffix(suffix)
+            try:
+                sibling.unlink(missing_ok=True)
+            except OSError as err:
+                left.append(f"  locked   {sibling.name}: {err.strerror}")
+
+    if not removed and not left:
+        return
+    header = (f"{datetime.now():%Y-%m-%d %H:%M:%S} reclaimed {_mib(freed)} from "
+              f"{len(removed)} pack(s), {len(left)} file(s) left behind")
+    with (root / PACK_GARBAGE_LOG).open("a", encoding="utf-8") as fh:
+        fh.write("\n".join([header, *removed, *left]) + "\n")
+    log.info("pack garbage: reclaimed %s, %d file(s) left behind (see %s)",
+             _mib(freed), len(left), PACK_GARBAGE_LOG)
+
+
+def _mib(size: int) -> str:
+    return f"{size / (1 << 20):.1f} MiB"
 
 
 def _matchable(root: Path, paths: Sequence[str]) -> list[str]:

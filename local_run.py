@@ -23,6 +23,8 @@ re-emailing) in local scans until you fold them in.
     4. run the normal scan (jobscout main, same as run.py)
     5. merge again and commit + push both dirs; if the cloud pushed while we
        were scanning, re-merge and retry the push once
+    6. delete the packs this run's auto-gc could not unlink, which it cannot
+       report now that git has no console to ask on (gitledger.sweep_pack_garbage)
 
 Steps 0, 1, 2 and 5 are git plumbing shared with merge_seen_jobs.py — see
 jobscout/gitledger.py. Only the merge policy (_merge_ledgers) is local to here.
@@ -143,6 +145,9 @@ def main() -> None:
     _sync_with_remote(settings)  # post-scan: re-align with the remote tip, fold scan finds into cloud_data
     gitledger.commit_and_push(ROOT, _ledger_dirs(settings), "update job ledger (local run)",
                               lambda snaps: _merge_ledgers(settings, snaps))
+    # after the last git call, still holding the lock: no repack of ours can be
+    # mid-rename, so an .idx-less .pack here is garbage and not a newborn
+    gitledger.sweep_pack_garbage(ROOT)
 
 
 if __name__ == "__main__":

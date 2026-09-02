@@ -177,6 +177,10 @@ def main() -> int:
         _stage(dest, source, args.delete_source and source_existed, message)
     else:
         gitledger.commit_and_push(ROOT, ledger_dirs, message, fold)
+    # After the last git call of either mode, still holding the lock, so an
+    # .idx-less .pack here is garbage and not a pack being renamed into place.
+    # --stage-only sweeps too: the garbage outlives whichever run created it.
+    gitledger.sweep_pack_garbage(ROOT)
     # Last, not right after the fold: a rejected push re-runs fold, and the
     # counts have to describe the ledger that actually reached the remote.
     assert store is not None  # fold() ran on every path above
