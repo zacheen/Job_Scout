@@ -17,3 +17,5 @@ __pycache__/
 notes/
 # Single-instance lock held by local_run.py — local only, never commit.
 local_run.lock
+# Orphaned-pack sweep log (see gitledger.sweep_pack_garbage) — local only.
+pack_garbage.txt
