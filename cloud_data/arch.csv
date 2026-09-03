@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Arch:9fde8d03-9f47-44ac-bd14-53829722c06d,Arch,Software Engineer - Early Careers - 2027 Start,"New York City, NY",,https://jobs.ashbyhq.com/arch.co/9fde8d03-9f47-44ac-bd14-53829722c06d,,,2026-09-03T16:18:21+00:00,2026-09-03 09:18 Thu,Software Engineering,true,Keyword,64,keyword-only heuristic (title only),true,speedyapply:SpeedyApply SWE:9fde8d03-9f47-44ac-bd14-53829722c06d
