@@ -1050,9 +1050,15 @@ class AvatureFetcher(AtsFetcher):
         for _ in range(self._MAX_PAGES):
             cards, page_total = self._get_cards(offset)
             total = total if total is not None else page_total
-            if not cards:
+            # WARNING: end-of-board isn't always `not cards`. Two Sigma's /careers/OpenRoles
+            # repeats a link-less "no results" article forever with no "N results" total,
+            # so neither break below ever fires there and the loop burns all _MAX_PAGES
+            # requests. Breaking on parsed-job count covers both shapes: a card with no
+            # JobDetail link is never a real posting.
+            page_jobs = [job for card in cards if (job := self._to_job(card)) is not None]
+            if not page_jobs:
                 break
-            jobs.extend(job for card in cards if (job := self._to_job(card)) is not None)
+            jobs.extend(page_jobs)
             offset += len(cards)
             if total is not None and offset >= total:
                 break

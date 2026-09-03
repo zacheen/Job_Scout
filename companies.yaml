@@ -121,7 +121,7 @@
 
 # --- Intern-sheet quant/finance NEW-FETCHER cases (2026-07-12) ---
 - {name: Goldman Sachs, ats: goldman, seed_only: true}   # ~1322 prof+early + 151 campus; GraphQL
-- {name: Two Sigma, ats: avature, host: careers.twosigma.com, path: /careers/OpenRoles}  # ~100 (NYC); Avature w/ custom path
+- {name: Two Sigma, ats: avature, host: careers.twosigma.com, path: /careers/OpenRoles}  # ~46 (NYC); no "N results" total (see AvatureFetcher._fetch_all_pages)
 - {name: D.E. Shaw, ats: deshaw}                          # ~91 external (NYC); __NEXT_DATA__
 - {name: Visa, ats: visa, seed_only: true}                # first-party search.visa.com (SmartRecruiters "Visa" is a stale decoy)
 # CV batch 2026-07-10 (robotics / drones / AV theme; all boards live-verified). seed_only
