@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Skyward:1ea4c927-ae9b-4c03-a0ae-cb2af5e5a8cb,Skyward,Software Engineer Intern,"Stevens Point, WI",Software,https://jobs.smartrecruiters.com/Skyward1/744000147320799,2026-09-03,2026-09-03,2026-09-04T03:16:45+00:00,2026-09-03 20:16 Thu,Software Engineering,true,Keyword,51,title-only listing; auto-passed (no description to score),true,simplify:Simplify Internships:1ea4c927-ae9b-4c03-a0ae-cb2af5e5a8cb
