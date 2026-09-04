@@ -85,6 +85,7 @@ class Settings:
     exclude_description_patterns: list[str]
     exempt_role_phrases: list[str]
     warn_description_terms: list[str]
+    warn_description_patterns: list[str]
     skill_keywords: list[str]
     title_keywords: list[str]
     level_title_terms: list[str]
@@ -149,6 +150,7 @@ class Settings:
             exclude_description_patterns=cfg.get("exclude_description_patterns", []),
             exempt_role_phrases=cfg.get("exempt_role_phrases", []),
             warn_description_terms=cfg.get("warn_description_terms", []),
+            warn_description_patterns=cfg.get("warn_description_patterns", []),
             skill_keywords=[k.lower() for k in cfg.get("skill_keywords", [])],
             title_keywords=[k.lower() for k in cfg.get("title_keywords", [])],
             level_title_terms=[k.lower() for k in cfg.get("level_title_terms", [])],
