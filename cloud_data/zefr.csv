@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Zefr:b481bf4b-9149-40bf-bf0a-ea29580c5d66,Zefr,Data Engineer,"Marina del Rey, CA",,https://jobs.ashbyhq.com/zefr/b481bf4b-9149-40bf-bf0a-ea29580c5d66,,,2026-09-04T16:16:54+00:00,2026-09-04 09:16 Fri,Software Engineering,true,Keyword,48,keyword-only heuristic (title only),false,speedyapply:SpeedyApply AI:b481bf4b-9149-40bf-bf0a-ea29580c5d66
