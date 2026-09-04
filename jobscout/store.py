@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 import re
+import time
 from collections.abc import Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -25,6 +27,15 @@ from .models import Job, Score, SeenLedger
 from .urls import canon_url
 
 log = logging.getLogger(__name__)
+
+# Retried because the failure is transient: a Windows EINVAL on a shard that opens fine
+# minutes later, caused by GitKraken watching the ~2700-file ledger dir. Delay stays short
+# because save() blocks the run's commit/push, and a longer-lived lock won't clear anyway.
+_SHARD_WRITE_ATTEMPTS = 3
+_SHARD_RETRY_SECONDS = 0.5
+# Suffix, not a replaced extension, so a "*.csv" glob never matches it; otherwise a
+# half-written shard would load as real and confuse the orphan sweep.
+_SHARD_TMP_SUFFIX = ".csv.tmp"
 
 _FIELDS = [
     "job_key", "company", "title", "location", "department", "urls", "date_posted",
@@ -319,28 +330,93 @@ class CsvStore:
         return existing
 
     def save(self) -> None:
+        """Write every shard; never raise.
+
+        Callers run this only after the digest was emailed, and the emailed flags exist
+        only in memory here. Raising would strand every remaining shard (re-emailing those
+        companies next run) and, in local_run.py, skip commit/push for shards that DID
+        write — turning one bad shard into a lost run.
+        """
         self._dir.mkdir(parents=True, exist_ok=True)
+        # _write_rows unlinks its own temp file on failure, so one survives only a killed
+        # process — but commit_and_push stages the shard dirs with `git add -A`, which
+        # would commit it. Sweeping at the START also clears an earlier run's leftovers.
+        for leftover in self._dir.glob(f"*{_SHARD_TMP_SUFFIX}"):
+            log.warning("removing leftover temp shard %s", leftover)
+            try:
+                leftover.unlink()
+            except OSError as exc:
+                log.error("could not remove leftover temp shard %s: %s", leftover, exc)
         by_slug: dict[str, list[dict]] = {}
         for row in self._rows:
             # Recompute here since merge_rows() can change first_seen after creation.
             row["first_seen_pt"] = _humanize(row["first_seen"])
             by_slug.setdefault(_company_slug(row["company"]), []).append(row)
+        unwritten: list[str] = []
         for slug, rows in by_slug.items():
-            rows.sort(key=row_sort_key)
-            with (self._dir / f"{slug}.csv").open("w", newline="", encoding="utf-8") as fh:
-                # lineterminator: csv defaults to CRLF; LF keeps local (Windows) and cloud
-                # (Linux runner) commits byte-identical, avoiding whole-file EOL diffs.
-                writer = csv.DictWriter(fh, fieldnames=_FIELDS, extrasaction="ignore",
-                                        lineterminator="\n")
-                writer.writeheader()
-                writer.writerows(rows)
+            try:
+                self._write_shard(slug, sorted(rows, key=row_sort_key))
+            except Exception as exc:
+                # Deliberately broad: writerows can also raise csv.Error or UnicodeEncodeError
+                # on a bad row, and letting that escape would strand remaining shards just
+                # like an OSError would.
+                log.error("shard %s not written, skipping it: %s", slug, exc)
+                unwritten.append(slug)
         # A merge can re-attribute rows to another company (_merge_company: source
         # authority, falling back to recency), emptying a shard. Delete it, or the next
         # load resurrects the stale rows.
         for stale in self._dir.glob("*.csv"):
             if stale.stem not in by_slug:
                 log.warning("deleting orphan shard %s (no rows reference it after save)", stale)
-                stale.unlink()
+                try:
+                    stale.unlink()
+                except OSError as exc:
+                    log.error("could not delete orphan shard %s: %s", stale, exc)
+        if unwritten:
+            log.error("%d shard(s) unsaved: %s; those companies re-surface and re-email "
+                      "next run", len(unwritten), ", ".join(sorted(unwritten)))
+
+    def _write_shard(self, slug: str, rows: list[dict]) -> None:
+        """Write one shard, retrying a transient OSError; the final attempt is unguarded.
+
+        Retry is this method's only job — save() owns "one bad shard must not stop the
+        rest" and catches the non-OSError failures via that unguarded last attempt. A
+        shard that exhausts retries keeps its prior contents (_write_rows never truncates
+        in place), so the cost is stale rows for one company, not lost history.
+        """
+        path = self._dir / f"{slug}.csv"
+        for attempt in range(1, _SHARD_WRITE_ATTEMPTS):
+            try:
+                self._write_rows(path, rows)
+                return
+            except OSError as exc:
+                log.warning("shard %s write failed (attempt %d/%d): %s; retrying in %.1fs",
+                            path, attempt, _SHARD_WRITE_ATTEMPTS, exc, _SHARD_RETRY_SECONDS)
+                time.sleep(_SHARD_RETRY_SECONDS)
+        self._write_rows(path, rows)
+
+    @staticmethod
+    def _write_rows(path: Path, rows: list[dict]) -> None:
+        """Write `rows` to `path` via a sibling temp file, replacing it only once complete.
+
+        Writing in place truncates on open, so any mid-write failure would lose that
+        company's history to a header-plus-partial-row file; this way the existing shard
+        stays byte-for-byte intact, merely one run stale. The temp file must be a sibling
+        so os.replace stays on one volume, where it is atomic.
+        """
+        tmp = path.with_name(path.name.removesuffix(".csv") + _SHARD_TMP_SUFFIX)
+        try:
+            with tmp.open("w", newline="", encoding="utf-8") as fh:
+                # lineterminator: csv defaults to CRLF; LF keeps local (Windows) and cloud
+                # (Linux runner) commits byte-identical, avoiding whole-file EOL diffs.
+                writer = csv.DictWriter(fh, fieldnames=_FIELDS, extrasaction="ignore",
+                                        lineterminator="\n")
+                writer.writeheader()
+                writer.writerows(rows)
+            os.replace(tmp, path)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
     # ---- internals -----------------------------------------------------------
 
