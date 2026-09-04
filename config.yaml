@@ -438,6 +438,13 @@ exclude_description_patterns:
   # Gap class excludes sentence punctuation on purpose: without it, "not eligible for
   # overtime. Visa sponsorship is available" would match and wrongly drop a job that DOES sponsor.
   - '\b(?:not eligible|ineligible) for (?:[^\s.,;:!?]+ ){0,3}sponsorship'
+  # "<EMPLOYER> is not offering current or future visa sponsorship" (SAP's wording on every
+  # US intern req). No fixed substring reaches it: the words before "sponsorship" vary per
+  # employer, and "not offering" isn't a substring of the "not offer sponsorship" rows above.
+  # Reuses that rule's punctuation-free gap class to avoid crossing a sentence boundary. The
+  # leading gap admits "not be/currently/able to offer"; "only" is excluded because "we not
+  # only provide sponsorship, but also ..." reverses the meaning while fitting the shape exactly.
+  - '\bnot (?!only )(?:[^\s.,;:!?]+ ){0,2}(?:(?:offer|support)(?:s|ing)?|provid(?:es?|ing)) (?:[^\s.,;:!?]+ ){0,4}sponsorship'
   # US-citizenship requirements, which none of the fixed substrings above match: RTX writes
   # "U.S. citizenship is required, as only U.S. citizens are authorized to access information
   # under this program/contract."; GDIT writes "US citizenship required" -- neither carries

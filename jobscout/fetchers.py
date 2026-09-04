@@ -95,6 +95,20 @@ def _balanced_span(text: str, start: int, open_ch: str, close_ch: str) -> str:
     return ""
 
 
+def _balanced_element(markup: str, start: int, tag: str) -> str:
+    """The `tag` element beginning at markup[start], opening tag through its matching close,
+    or "" when that close never comes. Depth counting is the point: SuccessFactors wraps the
+    job ad in a <span> and nests styling <span>s inside it, so the FIRST </span> is not the
+    end and a non-greedy regex stops there. Precondition: markup[start] opens a `tag` tag."""
+    boundary = re.compile(rf"<{tag}\b[^>]*>|</{tag}\s*>", re.IGNORECASE)
+    depth = 0
+    for match in boundary.finditer(markup, start):
+        depth += -1 if match.group().startswith("</") else 1
+        if depth == 0:
+            return markup[start:match.end()]
+    return ""
+
+
 # No-watermark fallback: page until this many already-seen openings (cumulative). Above the
 # worst re-stamp burst measured so far (Google pushed 15 old roles onto its top two pages) —
 # on a source with no posting date, seen_snapshot can't tell a re-stamp from real depth, so
@@ -2866,6 +2880,16 @@ class JdSource(ABC):
     def _body(self, payload) -> str:
         """The job-ad body (HTML or text) inside a detail-endpoint payload, or ""."""
 
+    def _payload(self, api: str):
+        """The hook that performs the network fetch (`detail_url` must not), returning what
+        `_body` is handed: the parsed JSON body, since most detail endpoints are JSON APIs.
+        Sources whose "endpoint" is a server-rendered HTML page override this to hand `_body`
+        the markup instead. Whatever a subclass returns here must match what that SAME
+        subclass's `_body` expects — the pair is not independently type-checked, and a
+        mismatch raises inside `description`'s fail-open except, surfacing as an ordinary
+        "JD fetch failed" info log rather than an error."""
+        return self._http.get_json(api)
+
     def description(self, jd_url: str) -> str:
         """Stripped job-ad text for `jd_url`, or "" when this source doesn't serve that
         URL or the fetch failed. Callers rely on "" (never an exception) to keep the
@@ -2874,7 +2898,7 @@ class JdSource(ABC):
         if not api:
             return ""
         try:
-            return strip_html(self._body(self._http.get_json(api)))
+            return strip_html(self._body(self._payload(api)))
         except Exception as exc:
             # Expected, not exceptional: a delisted or re-posted requisition 403s/404s on
             # its old URL, and the caller's fallback (title-only matching) is unchanged.
@@ -2932,20 +2956,57 @@ class BambooHrJdSource(JdSource):
         return opening.get("description") or ""
 
 
+class SuccessFactorsJdSource(JdSource):
+    """SAP SuccessFactors Career Site Builder per-posting detail (jobs.sap.com, Hyundai's
+    careers-americas, and CSB tenants reached through aggregator links).
+
+    Unlike the JSON sources above, the JD URL IS the detail endpoint: CSB serves the job ad
+    server-rendered, so `detail_url` hands the URL back unchanged and `_body` reads markup.
+    SuccessFactorsFetcher's own listing rows carry no body at all, which let "no visa
+    sponsorship" boilerplate reach the email through the vacuous pass in
+    PreFilter._description_allowed.
+
+    Dispatch is on the PATH shape, not the host: CSB tenants all run vanity domains with no
+    shared suffix to key on. Verified against the full ledger, the shape matches CSB boards
+    only; a false match just costs one wasted request, never a wrong description.
+    """
+
+    # The optional segment before /job/ is the tenant's career site (Hyundai's /hma/,
+    # /hmma/); SAP's board has none. The trailing number is the requisition id.
+    _JD_URL_RE = re.compile(r"^https://[\w.-]+(?:/[^/]+)?/job/[^/]+/\d+/?$", re.IGNORECASE)
+    # Lookahead on the class so the match still STARTS at "<span" -- _balanced_element needs
+    # the element's own offset, and class is not guaranteed to be the first attribute.
+    _BODY_RE = re.compile(r'<span(?=[^>]*class="jobdescription")[^>]*>', re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        jd_url = (jd_url or "").strip()
+        return jd_url if self._JD_URL_RE.match(jd_url) else ""
+
+    def _payload(self, api: str) -> str:
+        return self._http.get_text(api)
+
+    def _body(self, payload: str) -> str:
+        match = self._BODY_RE.search(payload)
+        return _balanced_element(payload, match.start(), "span") if match else ""
+
+
 class JdUrlEnricher:
     """Fills a still-empty description by fetching the job's own JD URL, dispatching on
-    that URL's HOST instead of on which fetcher produced the job. Satisfies the `Enricher`
+    that URL instead of on which fetcher produced the job. Satisfies the `Enricher`
     protocol.
 
     Aggregator rows are what forced this: Simplify/SpeedyApply publish a title, a company
     and an apply link but never a body, and their links point at arbitrary employer ATSes,
     so uid-prefix dispatch (DispatchingEnricher) cannot reach them.
 
-    Keying on the host is deliberate, not incidental: it also covers directly-fetched
-    Workday/BambooHR companies, whose listing APIs omit the body via the same vacuous-pass
-    route — narrowing this to aggregator uids would leave half the hole open. Cost stays
-    bounded because the pipeline enriches only new PreFilter survivors, not whole fetch
-    results.
+    Keying on the URL is deliberate, not incidental: it also covers directly-fetched
+    Workday/BambooHR/SuccessFactors companies, whose listing APIs omit the body via the same
+    vacuous-pass route — narrowing this to aggregator uids would leave half the hole open.
+    Cost stays bounded because the pipeline enriches only new PreFilter survivors, not whole
+    fetch results.
+
+    Each source decides what it recognizes: host for the Workday/BambooHR APIs, path shape
+    for SuccessFactors, whose tenants share no domain suffix.
 
     Jobs that already have a USABLE description are left alone, so this composes safely
     behind a fetcher's own richer enrich (see ChainedEnricher). Usable, not merely
