@@ -196,22 +196,33 @@ class DescriptionFlagger:
     unambiguously mean "we don't sponsor"; this one is for AMBIGUOUS boilerplate like
     "authorized to work without sponsorship", which usually implies no sponsorship but
     sometimes just describes the candidate pool — so the role is still emailed, flagged.
-    Same matching semantics as the exclude list (normalized substring).
+    Split into the same two lists as PreFilter's description scan: normalized substrings,
+    plus raw regexes for boilerplate whose middle words vary per employer.
     """
 
-    def __init__(self, warn_description_terms: list[str],
+    def __init__(self, *, warn_description_terms: list[str], warn_description_patterns: list[str],
                  note: str = "possibly NO visa sponsorship — description says {term!r}"):
         self._terms = [_normalize_prose(t) for t in warn_description_terms if t.strip()]
+        self._warn_description_re = _raw_re(warn_description_patterns)
         self._note = note
 
     def annotate(self, job: Job) -> Job:
-        if not self._terms or not job.description:
+        if not job.description:
             return job
-        description = _normalize_prose(job.description)
-        term = next((t for t in self._terms if t in description), None)
+        term = self._first_match(_normalize_prose(job.description))
         if term is None:
             return job
         return replace(job, note=self._note.format(term=term))
+
+    def _first_match(self, description: str) -> str | None:
+        """The matched TEXT, never the fragment that matched it — the note quotes this
+        straight into the digest, where a raw regex would be unreadable."""
+        hit = next((t for t in self._terms if t in description), None)
+        if hit is not None:
+            return hit
+        match = (self._warn_description_re.search(description)
+                 if self._warn_description_re else None)
+        return match.group(0) if match else None
 
 
 class TrackRouter:

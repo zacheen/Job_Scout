@@ -2973,6 +2973,8 @@ class SuccessFactorsJdSource(JdSource):
 
     # The optional segment before /job/ is the tenant's career site (Hyundai's /hma/,
     # /hmma/); SAP's board has none. The trailing number is the requisition id.
+    # RadancyJdSource's non-collision claim rests on this shape ending TWO segments before
+    # its own — re-verify that before loosening this regex for a new tenant.
     _JD_URL_RE = re.compile(r"^https://[\w.-]+(?:/[^/]+)?/job/[^/]+/\d+/?$", re.IGNORECASE)
     # Lookahead on the class so the match still STARTS at "<span" -- _balanced_element needs
     # the element's own offset, and class is not guaranteed to be the first attribute.
@@ -2988,6 +2990,54 @@ class SuccessFactorsJdSource(JdSource):
     def _body(self, payload: str) -> str:
         match = self._BODY_RE.search(payload)
         return _balanced_element(payload, match.start(), "span") if match else ""
+
+
+class RadancyJdSource(JdSource):
+    """Radancy (TalentBrew) per-posting detail for the boards RadancyFetcher pulls
+    (jobs.spectrum.com, disneycareers.com, careers.arm.com, jobs.intuit.com).
+
+    Like SuccessFactors, the JD URL IS the detail endpoint, so `detail_url` hands it back
+    unchanged and `_body` reads markup. The body comes from the page's schema.org
+    JobPosting block, not the rendered ad: the visible ad is assembled client-side, while
+    that script tag is server-rendered and carries the whole ad as HTML. Without it this
+    source would need a browser.
+
+    RadancyFetcher's search cards carry no body at all, so without this source every
+    Radancy role reaches the email through the vacuous pass in
+    PreFilter._description_allowed — including Spectrum reqs whose ad OPENS on a
+    no-sponsorship line.
+
+    Dispatch is on the PATH shape, not the host: these boards run vanity domains with no
+    shared suffix. The shape is /job/<city>/<slug>/<board-id>/<req-id>, with an optional
+    locale segment for Disney's /en/. It cannot collide with SuccessFactorsJdSource's
+    /job/<slug>/<req-id>, which anchors its end two segments earlier.
+    """
+
+    _JD_URL_RE = re.compile(
+        r"^https://[\w.-]+(?:/[a-z]{2})?/job/[^/]+/[^/]+/\d+/\d+/?$", re.IGNORECASE)
+    _LD_JSON_RE = re.compile(
+        r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>',
+        re.IGNORECASE | re.DOTALL)
+
+    def detail_url(self, jd_url: str) -> str:
+        jd_url = (jd_url or "").strip()
+        return jd_url if self._JD_URL_RE.match(jd_url) else ""
+
+    def _payload(self, api: str) -> str:
+        return self._http.get_text(api)
+
+    def _body(self, payload: str) -> str:
+        for block in self._LD_JSON_RE.findall(payload):
+            try:
+                data = json.loads(block)
+            except ValueError:
+                # All four boards emit exactly ONE block, a bare JobPosting dict (probed
+                # 2026-09-03 — no array, no @graph wrapper). The loop and this skip only
+                # guard a tenant that later adds a second, malformed block ahead of it.
+                continue
+            if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                return data.get("description") or ""
+        return ""
 
 
 class JdUrlEnricher:

@@ -14,7 +14,7 @@ from .config import CATCHUP_LOG_FILENAME, Settings
 from .coverage import attach_catchup_log
 from .fetchers import (AtsFetcher, BambooHrJdSource, ChainedEnricher, DispatchingEnricher,
                        FetcherFactory, HttpClient, JdUrlEnricher, ParallelFetcher,
-                       SuccessFactorsJdSource, WorkdayJdSource)
+                       RadancyJdSource, SuccessFactorsJdSource, WorkdayJdSource)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -97,10 +97,13 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
             # One shared client: unlike the parallel fetch stage, enrichment is a
             # sequential loop, so a second session adds no isolation.
             JdUrlEnricher([WorkdayJdSource(jd_http), BambooHrJdSource(jd_http),
-                           SuccessFactorsJdSource(jd_http)],
+                           SuccessFactorsJdSource(jd_http), RadancyJdSource(jd_http)],
                           settings.description_policy),
         ]),
-        annotator=DescriptionFlagger(settings.warn_description_terms),
+        annotator=DescriptionFlagger(
+            warn_description_terms=settings.warn_description_terms,
+            warn_description_patterns=settings.warn_description_patterns,
+        ),
         router=TrackRouter(settings.tracks),
         leveler=leveler,
         scorer=scorer,

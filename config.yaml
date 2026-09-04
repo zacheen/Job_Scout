@@ -469,13 +469,24 @@ exclude_description_patterns:
 #      the surrounding phrases instead.
 warn_description_terms:
   - "not require sponsorship" # "must not require sponsorship now or in the future"
-  - "without sponsorship"     # "authorized to work ... without sponsorship"
-  - "without the need for sponsorship"
-  - "without the need for visa sponsorship"
+  # The three "without ... sponsorship" spellings that used to sit here are now a single row
+  # in warn_description_patterns below.
   - "international traffic in arms"  # ITAR spelled out, e.g. "...Regulations (ITAR)"
   - "export control"                 # "export control laws/regulations"; also catches "export controls"/"export controlled" (space form)
   - "export-controlled"              # hyphen spelling the space term above misses
   - "export regulations"             # SpaceX phrasing: "U.S. Government export regulations"
+
+# Raw-regex counterpart of warn_description_terms: same haystack, same annotate-never-drop
+# outcome, for wildcard cases no fixed substring reaches. The caveat line quotes the TEXT that
+# matched rather than the fragment, so a regex never reaches the digest.
+warn_description_patterns:
+  # "without <qualifier> sponsorship". The qualifier is what varies per employer, and
+  # enumerating it lost: "without sponsorship", "without the need for visa sponsorship" and
+  # Spectrum's "work lawfully in the U.S. without employment-based immigration sponsorship,
+  # now or in the future" share only the two anchor words. Same punctuation-free gap class as
+  # the exclude patterns, so a match cannot run past a sentence end into "... without
+  # restriction. Sponsorship is available", which reverses the meaning.
+  - '\bwithout (?:[^\s.,;:!?]+ ){0,4}sponsorship'
 
 # The candidate's real technical skills, used ONLY by the keyword-only scorer (the
 # fallback when no OpenAI key / GPT CLI is available — e.g. cloud runs). Scores DISTINCT
