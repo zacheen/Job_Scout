@@ -481,12 +481,15 @@ warn_description_terms:
 # matched rather than the fragment, so a regex never reaches the digest.
 warn_description_patterns:
   # "without <qualifier> sponsorship". The qualifier is what varies per employer, and
-  # enumerating it lost: "without sponsorship", "without the need for visa sponsorship" and
-  # Spectrum's "work lawfully in the U.S. without employment-based immigration sponsorship,
-  # now or in the future" share only the two anchor words. Same punctuation-free gap class as
-  # the exclude patterns, so a match cannot run past a sentence end into "... without
-  # restriction. Sponsorship is available", which reverses the meaning.
-  - '\bwithout (?:[^\s.,;:!?]+ ){0,4}sponsorship'
+  # enumerating it lost: "without sponsorship", "without the need for visa sponsorship",
+  # Spectrum's "without employment-based immigration sponsorship" and IBM's "without a need
+  # for current or future visa sponsorship" share only the two anchor words. The gap is 7
+  # because that IBM spelling needs exactly 7; swept over 566 live IBM US job bodies it hit
+  # 19 rows, all of them real no-sponsorship wording and none a false positive. Same
+  # punctuation-free gap class as the exclude patterns, so a match cannot run past a
+  # sentence end into "... without restriction. Sponsorship is available", which would
+  # reverse the meaning.
+  - '\bwithout (?:[^\s.,;:!?]+ ){0,7}sponsorship'
 
 # The candidate's real technical skills, used ONLY by the keyword-only scorer (the
 # fallback when no OpenAI key / GPT CLI is available — e.g. cloud runs). Scores DISTINCT
