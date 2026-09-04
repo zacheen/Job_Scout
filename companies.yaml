@@ -17,6 +17,8 @@
 #   jazzhr:     account          -> {account}.applytojob.com/apply (server-rendered HTML board)
 #   rippling:   board            -> api.rippling.com/platform/api/ats/v1/board/{board}/jobs
 #   gem:        board            -> jobs.gem.com/{board} (anonymous GraphQL; no dates)
+#   keka:       host, identifier (portal GUID); portal (optional khConfig.portalName)
+#               -> {host}/careers/api/embedjobs/{portal|default}/active/{identifier}
 #   eightfold:  host, domain; api (optional "legacy" -> /api/apply/v2/jobs for tenants
 #               that gate PCSX — Netflix). Both flavors newest-first.
 #   radancy:    host, path (optional, default /search-jobs/results); full_scan (optional,
@@ -121,7 +123,7 @@
 
 # --- Intern-sheet quant/finance NEW-FETCHER cases (2026-07-12) ---
 - {name: Goldman Sachs, ats: goldman, seed_only: true}   # ~1322 prof+early + 151 campus; GraphQL
-- {name: Two Sigma, ats: avature, host: careers.twosigma.com, path: /careers/OpenRoles}  # ~100 (NYC); Avature w/ custom path
+- {name: Two Sigma, ats: avature, host: careers.twosigma.com, path: /careers/OpenRoles}  # ~46 (NYC); no "N results" total (see AvatureFetcher._fetch_all_pages)
 - {name: D.E. Shaw, ats: deshaw}                          # ~91 external (NYC); __NEXT_DATA__
 - {name: Visa, ats: visa, seed_only: true}                # first-party search.visa.com (SmartRecruiters "Visa" is a stale decoy)
 # CV batch 2026-07-10 (robotics / drones / AV theme; all boards live-verified). seed_only
@@ -474,6 +476,12 @@
 # Next.js /jobs board, one clean <h2><a> per card. The lookahead excludes the /jobs/company
 # and /jobs/talent-network pages that live under the same path.
 - {name: Run Robotics, ats: scoped_html, url: "https://runrobotics.ai/jobs", scope_start: '<main', scope_end: '</main>', link_pattern: '/jobs/(?!company$|talent-network$)[a-z0-9-]+$', id_pattern: '/jobs/([a-z0-9-]+)$', location: "San Francisco, CA"}  # 3 roles at add time
+
+# --- Requested first-party Keka portal (2026-09-03) ---
+# Attentive.ai (Beam AI, construction takeoff/estimating): the careers page renders
+# nothing scrapable, so this hits the JSON its own embed script calls. The board is
+# mostly Noida — PreFilter keeps only the San Jose CV pair — so no seed_only is needed.
+- {name: Attentive.ai, ats: keka, host: attentiveos.keka.com, identifier: 693c4b09-f58f-405d-a2c6-dee3227d1ea4}  # 24 roles, 2 US, at add time
 
 # --- Computer vision expansion: 50 additional companies (live-verified 2026-07-17) ---
 # Autonomous vehicles / automaker (6)

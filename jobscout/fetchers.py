@@ -1050,9 +1050,15 @@ class AvatureFetcher(AtsFetcher):
         for _ in range(self._MAX_PAGES):
             cards, page_total = self._get_cards(offset)
             total = total if total is not None else page_total
-            if not cards:
+            # WARNING: end-of-board isn't always `not cards`. Two Sigma's /careers/OpenRoles
+            # repeats a link-less "no results" article forever with no "N results" total,
+            # so neither break below ever fires there and the loop burns all _MAX_PAGES
+            # requests. Breaking on parsed-job count covers both shapes: a card with no
+            # JobDetail link is never a real posting.
+            page_jobs = [job for card in cards if (job := self._to_job(card)) is not None]
+            if not page_jobs:
                 break
-            jobs.extend(job for card in cards if (job := self._to_job(card)) is not None)
+            jobs.extend(page_jobs)
             offset += len(cards)
             if total is not None and offset >= total:
                 break
@@ -1512,6 +1518,68 @@ class RipplingFetcher(AtsFetcher):
             if location and location not in record["locations"]:
                 record["locations"].append(location)
         return merged
+
+
+class KekaFetcher(AtsFetcher):
+    """Keka careers portals (`{host}/careers/`). The visible page is a three-stage JS
+    assembly — an empty shell fetches a layout fragment, which loads an embed script that
+    renders the cards — so no posting is ever present in fetched HTML. This calls the JSON
+    the embed script itself calls: one anonymous GET returning the whole board with FULL
+    descriptions and publish dates.
+
+    `identifier` is the portal GUID, which the shell page prints in its own fetch path.
+    `portal` mirrors khConfig.portalName, and the embed script defaults it DIFFERENTLY in
+    the two places it appears — the API path falls back to "default", the JD URL to no
+    segment at all — so both are derived here from the one param."""
+
+    ats_name = "keka"
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
+        host = self._param("host")
+        identifier = self._param("identifier")
+        portal = self._company.params.get("portal", "")
+        # Fallbacks differ ON PURPOSE (see class docstring) — do not merge into one expression.
+        api_portal = portal or "default"
+        jd_portal_segment = f"{portal}/" if portal else ""
+        data = self._http.get_json(
+            f"https://{host}/careers/api/embedjobs/{api_portal}/active/{identifier}"
+        )  # a BARE array, like Lever — no wrapper object to unpack
+        jd_base = f"https://{host}/careers/{jd_portal_segment}jobdetails/"
+        return [
+            Job(
+                job_uid=self._uid(item["id"]),
+                company=self._company.name,
+                title=item.get("title", ""),
+                location=self._join_locations(item.get("jobLocations") or []),
+                url=f"{jd_base}{item['id']}",
+                description=strip_html(item.get("description", "")),
+                department=item.get("departmentName", ""),
+                date_posted=str(item.get("publishedOn") or ""),
+            )
+            # Single unpaged request: an uncaught KeyError here zeroes the whole company, not just one row.
+            for item in data if item.get("id")
+        ]
+
+    @staticmethod
+    def _join_locations(locations: list[dict]) -> str:
+        """Render each location as "<label>, <state>, <country>", joined by "; ".
+
+        The label is `name` (what the card shows) and not `city`, whose value is a
+        placeholder on remote entries — "Remote (US)" carries city "0000". State and
+        country are appended because PreFilter matches ", CA"-style codes and spelled-out
+        country names, and `name` alone carries neither."""
+        rendered: list[str] = []
+        for location in locations:
+            parts = (location.get("name") or location.get("city"),
+                     location.get("state"), location.get("countryName"))
+            text = ", ".join(part for part in parts if part)
+            if text and text not in rendered:
+                rendered.append(text)
+        return "; ".join(rendered)
 
 
 class GemFetcher(AtsFetcher):
@@ -2694,6 +2762,7 @@ class FetcherFactory:
         JazzHRFetcher.ats_name: JazzHRFetcher,
         RipplingFetcher.ats_name: RipplingFetcher,
         GemFetcher.ats_name: GemFetcher,
+        KekaFetcher.ats_name: KekaFetcher,
         GoldmanFetcher.ats_name: GoldmanFetcher,
         JobviteFetcher.ats_name: JobviteFetcher,
         WhatnotFetcher.ats_name: WhatnotFetcher,
