@@ -679,6 +679,7 @@
 - {name: SpeedyApply AI, ats: speedyapply, repo: speedyapply/2027-AI-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
 - {name: SpeedyApply SWE, ats: speedyapply, repo: speedyapply/2027-SWE-College-Jobs, files: "README.md,NEW_GRAD_USA.md", seed_only: true}
 - {name: Simplify Internships, ats: simplify, repo: SimplifyJobs/Summer2026-Internships, seed_only: true}
+- {name: Simplify New Grad, ats: simplify, repo: SimplifyJobs/New-Grad-Positions, seed_only: true}  # same listings.json schema and dev branch as the internships repo; ~2.9k active rows across ~1.1k employers
 
 # --- Deferred: Meta's current page no longer carries the __NEXT_DATA__ used by a recent
 #     community scraper; Tesla's cua-api remains behind Akamai browser/TLS checks. ---
