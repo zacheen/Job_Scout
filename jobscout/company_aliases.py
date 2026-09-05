@@ -19,6 +19,17 @@ No code maintains this file; extend the dict by hand when the dropped-jobs audit
 - Deliberately NOT aliased: Alarm.com/OpenEye and SRA Internships/Samsung Research
   America — those are overlapping NATIVE greenhouse boards of related but distinct
   entities, and this map is never applied to native fetchers anyway.
+- Decide by the apply URL's ATS tenant AND site, never by name similarity. Rejected
+  2026-09-05: "DellFor Technologies" is a SmartRecruiters staffing firm, not Dell (a
+  referral company, so the mislabel would land in the digest's top Referral group);
+  "Wonder" and "Genentech" each share a tenant with a real entry (Grubhub, Roche) but
+  sit on a different site; "Teledyne" resolves to a FLIR-only Workday tenant today, so
+  the parent name would mislabel a future Teledyne e2v/Marine row on another tenant.
+- Campus-board pairs are NOT aliased either (Autodesk / KLA split one Workday tenant
+  across two sites, Axon / Tenstorrent run separate greenhouse boards): both sides
+  are companies.yaml entries, and store._merge_company already stops a merged row
+  drifting between their shards. "Rockwell Automation" is left alone for the mirror
+  image of that reason, its only entry is the Early Careers board.
 
 This map is only half the defence. It fixes spellings BEFORE a row exists, for the case
 where the two sources share no URL and job_key is the only thing that could match them.
@@ -34,13 +45,29 @@ colliding with a real employer's self-reported name.
 COMPANY_ALIASES: dict[str, str] = {
     # Companies with a native fetcher: right side = companies.yaml `name`.
     "1X": "1X Technologies",
+    "Arlo Technologies": "Arlo",
+    "Bosch Home Comfort": "Bosch",
+    "Broadcom Limited": "Broadcom",
+    "Cadence Design Systems": "Cadence",
     "Etched.ai": "Etched",
+    "Ford Motor Company": "Ford",
+    "Gritt": "Gritt Robotics",
     "Gritt Robotics Inc": "Gritt Robotics",
+    "Hewlett Packard Enterprise": "HPE",
+    "JP Morgan Chase": "JPMorgan Chase",
+    "KLA Corporation": "KLA",
+    "Micron Technology": "Micron",
+    "Motorola": "Motorola Solutions",
     "Nissan Global": "Nissan",
+    "NXP Semiconductors": "NXP",
     "Perplexity AI": "Perplexity",
     "Plus": "PlusAI",
     "Rivian and Volkswagen Group Technologies": "Rivian",
+    "Robert Bosch Venture Capital": "Bosch",
     "Saronic Technologies": "Saronic",
+    "The Home Depot": "Home Depot",
+    "WeRide.ai": "WeRide",
+    "Xfinity": "Comcast",
     # Aggregator-only spelling variants.
     "Adaptive": "Adaptive Security",
     "Apex": "Apex Technology",
