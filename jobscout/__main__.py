@@ -11,7 +11,7 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
 from .config import CATCHUP_LOG_FILENAME, Settings
-from .coverage import attach_catchup_log
+from .coverage import attach_catchup_annotations, attach_catchup_log
 from .fetchers import (AtsFetcher, BambooHrJdSource, ChainedEnricher, DispatchingEnricher,
                        FetcherFactory, HttpClient, JdUrlEnricher, ParallelFetcher,
                        RadancyJdSource, SuccessFactorsJdSource, WorkdayJdSource)
@@ -31,6 +31,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root = Path(__file__).resolve().parent.parent
     attach_catchup_log(root / CATCHUP_LOG_FILENAME)
+    attach_catchup_annotations()  # no-op off a runner; the cloud's only user-visible channel
     if load_dotenv is not None:
         load_dotenv(root / ".env")  # local dev; no-op in Actions (no .env there)
     settings = Settings.load(root)

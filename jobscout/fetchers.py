@@ -322,9 +322,11 @@ class AtsFetcher(ABC):
         return self.uid_prefix(self.ats_name, self._company.name)
 
     @property
-    def _log_subject(self) -> str:
-        """Identifier for this fetcher's own warnings. Company, not host: hosts are shared
-        by whole ATS tenants, so a host alone can't tell you which board truncated."""
+    def log_subject(self) -> str:
+        """Identifier for warnings about this fetcher. Company, not host: hosts are shared
+        by whole ATS tenants, so a host alone can't tell you which board truncated. Public
+        because ParallelFetcher reports a fetcher's failure on its behalf — the fetcher
+        raised out of `fetch`, so it never got to name itself."""
         return f"{self.ats_name} {self._company.name}"
 
     def enrich(self, job: Job) -> Job:
@@ -383,7 +385,7 @@ class EarlyStopPaginatedFetcher(PagedFetcher):
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         return _paginate_new(self._fetch_page, seen, self._PAGE,
                              watermark=seen.watermark(self.own_uid_prefix),
-                             subject=self._log_subject)
+                             subject=self.log_subject)
 
 
 class BoundedPaginatedFetcher(PagedFetcher):
@@ -398,7 +400,7 @@ class BoundedPaginatedFetcher(PagedFetcher):
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         return _paginate_bounded_or_warn(
             self._fetch_page, self._PAGE, self._MAX_PAGES,
-            subject=self._log_subject, cap_name="_MAX_PAGES",
+            subject=self.log_subject, cap_name="_MAX_PAGES",
         )
 
 
@@ -580,7 +582,7 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
         if self._search_text:
             return _paginate_bounded_or_warn(
                 self._fetch_page, self._PAGE, self._MAX_SEARCH_PAGES,
-                subject=f"{self._log_subject} search", cap_name="_MAX_SEARCH_PAGES",
+                subject=f"{self.log_subject} search", cap_name="_MAX_SEARCH_PAGES",
             )
         return super().fetch(seen)
 
@@ -906,7 +908,7 @@ class RadancyFetcher(EarlyStopPaginatedFetcher):
             raise ValueError(f"{self._company.name}: radancy max_pages must be >= 1")
         return _paginate_bounded_or_warn(
             self._fetch_page, self._PAGE, max_pages,
-            subject=f"{self._log_subject} full scan", cap_name="max_pages",
+            subject=f"{self.log_subject} full scan", cap_name="max_pages",
         )
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
@@ -1044,7 +1046,7 @@ class AvatureFetcher(AtsFetcher):
         if self._company.param_bool("newest_first"):
             jobs = _paginate_new(self._fetch_page, seen, self._RPP,
                                  watermark=seen.watermark(self.own_uid_prefix),
-                                 subject=self._log_subject)
+                                 subject=self.log_subject)
         else:
             jobs = self._fetch_all_pages()
         return self._dedupe(jobs)
@@ -1361,7 +1363,7 @@ class AppleFetcher(AtsFetcher):
 
         return _paginate_bounded_or_warn(
             fetch_page, self._PAGE, max_pages,
-            subject=f"{self._log_subject} full scan", cap_name="max_pages",
+            subject=f"{self.log_subject} full scan", cap_name="max_pages",
         )
 
 
@@ -2815,7 +2817,10 @@ class ParallelFetcher:
             try:
                 groups.setdefault(fetcher.host, []).append(fetcher)
             except Exception as exc:  # a bad host config must not drop every company
-                log.warning("skipping a %s company (host lookup failed): %s", fetcher.ats_name, exc)
+                # Same class of loss as a failed fetch, and reachable from one typo in
+                # companies.yaml: many `host` properties are _param() lookups, which raise
+                # KeyError on a missing key. So it reports through the same channel.
+                self._report_dark(fetcher.log_subject, f"host lookup failed: {exc}")
         if not groups:
             return []
         jobs: list[Job] = []
@@ -2831,12 +2836,35 @@ class ParallelFetcher:
         jobs: list[Job] = []
         for fetcher in fetchers:
             try:
-                jobs.extend(fetcher.fetch(seen))
+                fetched = fetcher.fetch(seen)
             except Exception as exc:  # one company failing must not abort the run
-                log.warning("fetch failed for a %s company: %s", fetcher.ats_name, exc)
+                self._report_dark(fetcher.log_subject, f"fetch failed: {exc}")
+                continue
+            # An empty pull is the SILENT form of the same failure — no exception, just a
+            # board that answered with nothing — so it needs the same report. Gated on
+            # has_rows because a genuinely new company fetching nothing is not a fault.
+            # Still fires on a live company that legitimately has zero openings today;
+            # fetch() may not filter by `seen`, so "no NEW roles" never reaches here and
+            # the two cases are indistinguishable from the return value alone.
+            if not fetched and seen.has_rows(fetcher.own_uid_prefix):
+                self._report_dark(fetcher.log_subject,
+                                  "fetch returned 0 roles, but the ledger holds rows from "
+                                  "it; the source may be refusing this run")
+            jobs.extend(fetched)
         # Logged when this host group finishes; the timestamp + elapsed expose the slowest host.
         log.info("host %s done: %d jobs in %.1fs", host, len(jobs), time.perf_counter() - started)
         return jobs
+
+    @staticmethod
+    def _report_dark(subject: str, detail: str) -> None:
+        """A source contributed nothing this run. catchup_log, not `log`: this is the
+        "saw less than it should" channel, and the only one that survives the run
+        (coverage.attach_catchup_log / attach_catchup_annotations). Left on `log` it was
+        invisible for weeks — the run still exits 0, so a cloud scan stayed green while
+        DEJobs returned nothing from 2026-08-19 to at least 2026-09-05, and only a ledger
+        diff against local runs found it. Takes the subject already resolved, like
+        _paginate_new does, so it never touches a fetcher that just raised."""
+        catchup_log.warning("%s: %s", subject, detail)
 
 
 class DispatchingEnricher:
