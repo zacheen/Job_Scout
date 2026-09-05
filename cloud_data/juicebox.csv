@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Juicebox:1af7ec98-9c2e-4101-868e-58e6f35cd23a,Juicebox,Software Engineer Intern,"San Francisco, CA",,https://jobs.ashbyhq.com/juicebox/1af7ec98-9c2e-4101-868e-58e6f35cd23a,,,2026-09-05T15:16:52+00:00,2026-09-05 08:16 Sat,Software Engineering,true,Keyword,51,title-only listing; auto-passed (no description to score),true,speedyapply:SpeedyApply SWE:1af7ec98-9c2e-4101-868e-58e6f35cd23a
