@@ -1,2 +1,0 @@
-job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-hatch I.T.:7f2e771d-2363-4e85-b62f-ca130c478a97,hatch I.T.,Junior Data Engineer - DEA,"Arlington, VA",,https://jobs.lever.co/hatchit/7f2e771d-2363-4e85-b62f-ca130c478a97,,,2026-08-28T22:17:38+00:00,2026-08-28 15:17 Fri,Software Engineering,true,Keyword,56,keyword-only heuristic (title only),true,speedyapply:SpeedyApply AI:7f2e771d-2363-4e85-b62f-ca130c478a97
