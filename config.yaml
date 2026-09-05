@@ -417,9 +417,8 @@ exclude_description_terms:
   - "unable to provide visa sponsorship"
   - "unable to offer sponsorship"
   - "unable to offer visa sponsorship"
-  - "sponsorship is not available"
-  - "sponsorship not available"
-  - "sponsorship is unavailable"
+  # The three "sponsorship (is) not available / is unavailable" spellings that used to sit
+  # here are now a single row in exclude_description_patterns below.
   # "(not eligible|ineligible) for … sponsorship" moved to exclude_description_patterns
   # below (needs a regex wildcard for employers naming themselves mid-phrase).
   # US-citizenship / security-clearance requirements — a visa candidate can't meet these
@@ -444,7 +443,19 @@ exclude_description_patterns:
   # Reuses that rule's punctuation-free gap class to avoid crossing a sentence boundary. The
   # leading gap admits "not be/currently/able to offer"; "only" is excluded because "we not
   # only provide sponsorship, but also ..." reverses the meaning while fitting the shape exactly.
-  - '\bnot (?!only )(?:[^\s.,;:!?]+ ){0,2}(?:(?:offer|support)(?:s|ing)?|provid(?:es?|ing)) (?:[^\s.,;:!?]+ ){0,4}sponsorship'
+  # No \b before "not": eBay writes "cannot offer any sort of visa sponsorship" — "not"
+  # inside "cannot" has no word boundary, the same reason exclude_description_terms keeps
+  # "not sponsor" a substring. Safe because the regex needs a SPACE right after "not";
+  # "notice"/"nothing" continue with a letter instead.
+  - 'not (?!only )(?:[^\s.,;:!?]+ ){0,2}(?:(?:offer|support)(?:s|ing)?|provid(?:es?|ing)) (?:[^\s.,;:!?]+ ){0,4}sponsorship'
+  # "Visa sponsorship through <EMPLOYER> is not available for this position now or any time
+  # in the future" (PayPal stamps this on every US req). Gap is 3 because that is what
+  # PayPal's self-naming middle ("through paypal is") needs; swept over 832 live Workday
+  # bodies (PayPal/eBay/Cisco/Micron), it hit 94 rows, every one the PayPal sentence, and
+  # widening the gap to 6 added nothing. Same punctuation-free gap class as the rules above,
+  # so a match cannot cross a sentence end into "... sponsorship is available. Relocation is
+  # not available".
+  - '\bsponsorship (?:[^\s.,;:!?]+ ){0,3}(?:not available|unavailable)'
   # US-citizenship requirements, which none of the fixed substrings above match: RTX writes
   # "U.S. citizenship is required, as only U.S. citizens are authorized to access information
   # under this program/contract."; GDIT writes "US citizenship required" -- neither carries
