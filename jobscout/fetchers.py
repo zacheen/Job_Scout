@@ -2904,6 +2904,15 @@ class JdSource(ABC):
         recognize that host/path shape. Must not do any I/O. Public, unlike the `_body`
         hook, so host dispatch can be verified without hitting the network."""
 
+    @staticmethod
+    def _passthrough(jd_url: str, pattern: re.Pattern[str]) -> str:
+        """`detail_url`'s body for boards that serve the ad at the JD URL itself, so the
+        URL IS its own detail endpoint. Takes the pattern as an argument rather than
+        reading a class attribute, which would turn `detail_url` into an implicit
+        subclass requirement no ABCMeta check can enforce."""
+        jd_url = (jd_url or "").strip()
+        return jd_url if pattern.match(jd_url) else ""
+
     @abstractmethod
     def _body(self, payload) -> str:
         """The job-ad body (HTML or text) inside a detail-endpoint payload, or ""."""
@@ -3009,8 +3018,7 @@ class SuccessFactorsJdSource(JdSource):
     _BODY_RE = re.compile(r'<span(?=[^>]*class="jobdescription")[^>]*>', re.IGNORECASE)
 
     def detail_url(self, jd_url: str) -> str:
-        jd_url = (jd_url or "").strip()
-        return jd_url if self._JD_URL_RE.match(jd_url) else ""
+        return self._passthrough(jd_url, self._JD_URL_RE)
 
     def _payload(self, api: str) -> str:
         return self._http.get_text(api)
@@ -3020,15 +3028,40 @@ class SuccessFactorsJdSource(JdSource):
         return _balanced_element(payload, match.start(), "span") if match else ""
 
 
-class RadancyJdSource(JdSource):
+class LdJsonJdSource(JdSource):
+    """Base for boards that assemble the visible ad client-side but server-render it into
+    a schema.org JobPosting ld+json block. Without that block these boards would need a
+    browser, since the rendered ad is absent from the markup.
+
+    The JD URL IS the detail endpoint on all of them, so this class supplies the markup
+    fetch and the extraction and subclasses add only `detail_url`.
+    """
+
+    _LD_JSON_RE = re.compile(
+        r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>',
+        re.IGNORECASE | re.DOTALL)
+
+    def _payload(self, api: str) -> str:
+        return self._http.get_text(api)
+
+    def _body(self, payload: str) -> str:
+        for block in self._LD_JSON_RE.findall(payload):
+            try:
+                data = json.loads(block)
+            except ValueError:
+                # Every board probed emits exactly ONE block, a bare JobPosting dict
+                # (Radancy 2026-09-03, Ashby 2026-09-05 — no array, no @graph wrapper).
+                # The loop and this skip only guard a tenant that later adds a second,
+                # malformed block ahead of it.
+                continue
+            if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                return data.get("description") or ""
+        return ""
+
+
+class RadancyJdSource(LdJsonJdSource):
     """Radancy (TalentBrew) per-posting detail for the boards RadancyFetcher pulls
     (jobs.spectrum.com, disneycareers.com, careers.arm.com, jobs.intuit.com).
-
-    Like SuccessFactors, the JD URL IS the detail endpoint, so `detail_url` hands it back
-    unchanged and `_body` reads markup. The body comes from the page's schema.org
-    JobPosting block, not the rendered ad: the visible ad is assembled client-side, while
-    that script tag is server-rendered and carries the whole ad as HTML. Without it this
-    source would need a browser.
 
     RadancyFetcher's search cards carry no body at all, so without this source every
     Radancy role reaches the email through the vacuous pass in
@@ -3043,29 +3076,33 @@ class RadancyJdSource(JdSource):
 
     _JD_URL_RE = re.compile(
         r"^https://[\w.-]+(?:/[a-z]{2})?/job/[^/]+/[^/]+/\d+/\d+/?$", re.IGNORECASE)
-    _LD_JSON_RE = re.compile(
-        r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>',
-        re.IGNORECASE | re.DOTALL)
 
     def detail_url(self, jd_url: str) -> str:
-        jd_url = (jd_url or "").strip()
-        return jd_url if self._JD_URL_RE.match(jd_url) else ""
+        return self._passthrough(jd_url, self._JD_URL_RE)
 
-    def _payload(self, api: str) -> str:
-        return self._http.get_text(api)
 
-    def _body(self, payload: str) -> str:
-        for block in self._LD_JSON_RE.findall(payload):
-            try:
-                data = json.loads(block)
-            except ValueError:
-                # All four boards emit exactly ONE block, a bare JobPosting dict (probed
-                # 2026-09-03 — no array, no @graph wrapper). The loop and this skip only
-                # guard a tenant that later adds a second, malformed block ahead of it.
-                continue
-            if isinstance(data, dict) and data.get("@type") == "JobPosting":
-                return data.get("description") or ""
-        return ""
+class AshbyJdSource(LdJsonJdSource):
+    """Ashby hosted-board per-posting detail (jobs.ashbyhq.com).
+
+    Only aggregator rows reach it: AshbyFetcher's listing API already carries
+    descriptionPlain, so a configured Ashby company never arrives body-less.
+
+    Aggregators link the apply form (/{uuid}/application, 556 of 8638 ledger URLs) as
+    often as the ad, but Ashby serves BYTE-IDENTICAL markup for both — the Overview/
+    Application split is client-side routing — so no URL rewriting is needed. The path is
+    still pinned to {org}/{uuid} so the board root, which carries no JobPosting block,
+    cannot cost a wasted request.
+
+    A delisted posting answers 200 with a JD-less shell, not the 403/404 `description`
+    assumes, so it fails open via `_body`'s empty return, never `description`'s `except`.
+    """
+
+    _JD_URL_RE = re.compile(
+        rf"^https://jobs\.ashbyhq\.com/[^/?#]+/{_UUID_RE}(?:/application)?/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        return self._passthrough(jd_url, self._JD_URL_RE)
 
 
 class JdUrlEnricher:
