@@ -322,9 +322,11 @@ class AtsFetcher(ABC):
         return self.uid_prefix(self.ats_name, self._company.name)
 
     @property
-    def _log_subject(self) -> str:
-        """Identifier for this fetcher's own warnings. Company, not host: hosts are shared
-        by whole ATS tenants, so a host alone can't tell you which board truncated."""
+    def log_subject(self) -> str:
+        """Identifier for warnings about this fetcher. Company, not host: hosts are shared
+        by whole ATS tenants, so a host alone can't tell you which board truncated. Public
+        because ParallelFetcher reports a fetcher's failure on its behalf — the fetcher
+        raised out of `fetch`, so it never got to name itself."""
         return f"{self.ats_name} {self._company.name}"
 
     def enrich(self, job: Job) -> Job:
@@ -383,7 +385,7 @@ class EarlyStopPaginatedFetcher(PagedFetcher):
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         return _paginate_new(self._fetch_page, seen, self._PAGE,
                              watermark=seen.watermark(self.own_uid_prefix),
-                             subject=self._log_subject)
+                             subject=self.log_subject)
 
 
 class BoundedPaginatedFetcher(PagedFetcher):
@@ -398,7 +400,7 @@ class BoundedPaginatedFetcher(PagedFetcher):
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         return _paginate_bounded_or_warn(
             self._fetch_page, self._PAGE, self._MAX_PAGES,
-            subject=self._log_subject, cap_name="_MAX_PAGES",
+            subject=self.log_subject, cap_name="_MAX_PAGES",
         )
 
 
@@ -580,7 +582,7 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
         if self._search_text:
             return _paginate_bounded_or_warn(
                 self._fetch_page, self._PAGE, self._MAX_SEARCH_PAGES,
-                subject=f"{self._log_subject} search", cap_name="_MAX_SEARCH_PAGES",
+                subject=f"{self.log_subject} search", cap_name="_MAX_SEARCH_PAGES",
             )
         return super().fetch(seen)
 
@@ -906,7 +908,7 @@ class RadancyFetcher(EarlyStopPaginatedFetcher):
             raise ValueError(f"{self._company.name}: radancy max_pages must be >= 1")
         return _paginate_bounded_or_warn(
             self._fetch_page, self._PAGE, max_pages,
-            subject=f"{self._log_subject} full scan", cap_name="max_pages",
+            subject=f"{self.log_subject} full scan", cap_name="max_pages",
         )
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
@@ -1044,7 +1046,7 @@ class AvatureFetcher(AtsFetcher):
         if self._company.param_bool("newest_first"):
             jobs = _paginate_new(self._fetch_page, seen, self._RPP,
                                  watermark=seen.watermark(self.own_uid_prefix),
-                                 subject=self._log_subject)
+                                 subject=self.log_subject)
         else:
             jobs = self._fetch_all_pages()
         return self._dedupe(jobs)
@@ -1361,7 +1363,7 @@ class AppleFetcher(AtsFetcher):
 
         return _paginate_bounded_or_warn(
             fetch_page, self._PAGE, max_pages,
-            subject=f"{self._log_subject} full scan", cap_name="max_pages",
+            subject=f"{self.log_subject} full scan", cap_name="max_pages",
         )
 
 
@@ -2815,7 +2817,10 @@ class ParallelFetcher:
             try:
                 groups.setdefault(fetcher.host, []).append(fetcher)
             except Exception as exc:  # a bad host config must not drop every company
-                log.warning("skipping a %s company (host lookup failed): %s", fetcher.ats_name, exc)
+                # Same class of loss as a failed fetch, and reachable from one typo in
+                # companies.yaml: many `host` properties are _param() lookups, which raise
+                # KeyError on a missing key. So it reports through the same channel.
+                self._report_dark(fetcher.log_subject, f"host lookup failed: {exc}")
         if not groups:
             return []
         jobs: list[Job] = []
@@ -2831,12 +2836,35 @@ class ParallelFetcher:
         jobs: list[Job] = []
         for fetcher in fetchers:
             try:
-                jobs.extend(fetcher.fetch(seen))
+                fetched = fetcher.fetch(seen)
             except Exception as exc:  # one company failing must not abort the run
-                log.warning("fetch failed for a %s company: %s", fetcher.ats_name, exc)
+                self._report_dark(fetcher.log_subject, f"fetch failed: {exc}")
+                continue
+            # An empty pull is the SILENT form of the same failure — no exception, just a
+            # board that answered with nothing — so it needs the same report. Gated on
+            # has_rows because a genuinely new company fetching nothing is not a fault.
+            # Still fires on a live company that legitimately has zero openings today;
+            # fetch() may not filter by `seen`, so "no NEW roles" never reaches here and
+            # the two cases are indistinguishable from the return value alone.
+            if not fetched and seen.has_rows(fetcher.own_uid_prefix):
+                self._report_dark(fetcher.log_subject,
+                                  "fetch returned 0 roles, but the ledger holds rows from "
+                                  "it; the source may be refusing this run")
+            jobs.extend(fetched)
         # Logged when this host group finishes; the timestamp + elapsed expose the slowest host.
         log.info("host %s done: %d jobs in %.1fs", host, len(jobs), time.perf_counter() - started)
         return jobs
+
+    @staticmethod
+    def _report_dark(subject: str, detail: str) -> None:
+        """A source contributed nothing this run. catchup_log, not `log`: this is the
+        "saw less than it should" channel, and the only one that survives the run
+        (coverage.attach_catchup_log / attach_catchup_annotations). Left on `log` it was
+        invisible for weeks — the run still exits 0, so a cloud scan stayed green while
+        DEJobs returned nothing from 2026-08-19 to at least 2026-09-05, and only a ledger
+        diff against local runs found it. Takes the subject already resolved, like
+        _paginate_new does, so it never touches a fetcher that just raised."""
+        catchup_log.warning("%s: %s", subject, detail)
 
 
 class DispatchingEnricher:
@@ -2875,6 +2903,15 @@ class JdSource(ABC):
         """The detail-endpoint URL serving `jd_url`, or "" when this source does not
         recognize that host/path shape. Must not do any I/O. Public, unlike the `_body`
         hook, so host dispatch can be verified without hitting the network."""
+
+    @staticmethod
+    def _passthrough(jd_url: str, pattern: re.Pattern[str]) -> str:
+        """`detail_url`'s body for boards that serve the ad at the JD URL itself, so the
+        URL IS its own detail endpoint. Takes the pattern as an argument rather than
+        reading a class attribute, which would turn `detail_url` into an implicit
+        subclass requirement no ABCMeta check can enforce."""
+        jd_url = (jd_url or "").strip()
+        return jd_url if pattern.match(jd_url) else ""
 
     @abstractmethod
     def _body(self, payload) -> str:
@@ -2981,8 +3018,7 @@ class SuccessFactorsJdSource(JdSource):
     _BODY_RE = re.compile(r'<span(?=[^>]*class="jobdescription")[^>]*>', re.IGNORECASE)
 
     def detail_url(self, jd_url: str) -> str:
-        jd_url = (jd_url or "").strip()
-        return jd_url if self._JD_URL_RE.match(jd_url) else ""
+        return self._passthrough(jd_url, self._JD_URL_RE)
 
     def _payload(self, api: str) -> str:
         return self._http.get_text(api)
@@ -2992,15 +3028,41 @@ class SuccessFactorsJdSource(JdSource):
         return _balanced_element(payload, match.start(), "span") if match else ""
 
 
-class RadancyJdSource(JdSource):
+class LdJsonJdSource(JdSource):
+    """Base for boards that assemble the visible ad client-side but server-render it into
+    a schema.org JobPosting ld+json block. Without that block these boards would need a
+    browser, since the rendered ad is absent from the markup.
+
+    The JD URL is usually the detail endpoint itself — IcimsJdSource is the exception,
+    rewriting it first. Either way this class supplies the markup fetch and the
+    extraction, and subclasses add only `detail_url`.
+    """
+
+    _LD_JSON_RE = re.compile(
+        r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>',
+        re.IGNORECASE | re.DOTALL)
+
+    def _payload(self, api: str) -> str:
+        return self._http.get_text(api)
+
+    def _body(self, payload: str) -> str:
+        for block in self._LD_JSON_RE.findall(payload):
+            try:
+                data = json.loads(block)
+            except ValueError:
+                # Every board probed emits exactly ONE block, a bare JobPosting dict
+                # (Radancy 2026-09-03, Ashby 2026-09-05 — no array, no @graph wrapper).
+                # The loop and this skip only guard a tenant that later adds a second,
+                # malformed block ahead of it.
+                continue
+            if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                return data.get("description") or ""
+        return ""
+
+
+class RadancyJdSource(LdJsonJdSource):
     """Radancy (TalentBrew) per-posting detail for the boards RadancyFetcher pulls
     (jobs.spectrum.com, disneycareers.com, careers.arm.com, jobs.intuit.com).
-
-    Like SuccessFactors, the JD URL IS the detail endpoint, so `detail_url` hands it back
-    unchanged and `_body` reads markup. The body comes from the page's schema.org
-    JobPosting block, not the rendered ad: the visible ad is assembled client-side, while
-    that script tag is server-rendered and carries the whole ad as HTML. Without it this
-    source would need a browser.
 
     RadancyFetcher's search cards carry no body at all, so without this source every
     Radancy role reaches the email through the vacuous pass in
@@ -3015,29 +3077,67 @@ class RadancyJdSource(JdSource):
 
     _JD_URL_RE = re.compile(
         r"^https://[\w.-]+(?:/[a-z]{2})?/job/[^/]+/[^/]+/\d+/\d+/?$", re.IGNORECASE)
-    _LD_JSON_RE = re.compile(
-        r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>',
-        re.IGNORECASE | re.DOTALL)
+
+    def detail_url(self, jd_url: str) -> str:
+        return self._passthrough(jd_url, self._JD_URL_RE)
+
+
+class AshbyJdSource(LdJsonJdSource):
+    """Ashby hosted-board per-posting detail (jobs.ashbyhq.com).
+
+    Only aggregator rows reach it: AshbyFetcher's listing API already carries
+    descriptionPlain, so a configured Ashby company never arrives body-less.
+
+    Aggregators link the apply form (/{uuid}/application, 556 of 8638 ledger URLs) as
+    often as the ad, but Ashby serves BYTE-IDENTICAL markup for both — the Overview/
+    Application split is client-side routing — so no URL rewriting is needed. The path is
+    still pinned to {org}/{uuid} so the board root, which carries no JobPosting block,
+    cannot cost a wasted request.
+
+    A delisted posting answers 200 with a JD-less shell, not the 403/404 `description`
+    assumes, so it fails open via `_body`'s empty return, never `description`'s `except`.
+    """
+
+    _JD_URL_RE = re.compile(
+        rf"^https://jobs\.ashbyhq\.com/[^/?#]+/{_UUID_RE}(?:/application)?/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        return self._passthrough(jd_url, self._JD_URL_RE)
+
+
+class IcimsJdSource(LdJsonJdSource):
+    """iCIMS hosted-board per-posting detail ({tenant}.icims.com).
+
+    Only aggregator rows reach it. JibeFetcher also links icims.com job pages
+    (meta_data.canonical_url), but its listing already carries the body, so
+    JdUrlEnricher's usable-description gate skips those.
+
+    The public JD URL is a JS shell carrying no ld+json at all; the ad lives at the SAME
+    URL plus in_iframe=1, the address the page's own noscript_icims_content_iframe loads.
+    That makes this the one JdSource that rewrites instead of passing through.
+
+    Two link shapes appear in the ledger and one rule covers both: /jobs/{id}/{slug}/job
+    (984 URLs) needs the rewrite, while the slug-less /jobs/{id}/job?mobile=true (343)
+    already serves the ld+json and answers byte-identically with the param appended.
+    The path is pinned to a trailing "job" so the sibling /login apply page, which
+    carries no ad, costs no request.
+
+    A delisted requisition answers 410 Gone rather than the 403/404 seen elsewhere, but
+    it reaches `description`'s except the same way.
+    """
+
+    # Barring "#" is what lets detail_url append the param by concatenation instead of
+    # splitting the URL apart.
+    _JD_URL_RE = re.compile(
+        r"^https://[\w.-]+\.icims\.com/jobs/\d+/(?:[^/?#]+/)?job/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
 
     def detail_url(self, jd_url: str) -> str:
         jd_url = (jd_url or "").strip()
-        return jd_url if self._JD_URL_RE.match(jd_url) else ""
-
-    def _payload(self, api: str) -> str:
-        return self._http.get_text(api)
-
-    def _body(self, payload: str) -> str:
-        for block in self._LD_JSON_RE.findall(payload):
-            try:
-                data = json.loads(block)
-            except ValueError:
-                # All four boards emit exactly ONE block, a bare JobPosting dict (probed
-                # 2026-09-03 — no array, no @graph wrapper). The loop and this skip only
-                # guard a tenant that later adds a second, malformed block ahead of it.
-                continue
-            if isinstance(data, dict) and data.get("@type") == "JobPosting":
-                return data.get("description") or ""
-        return ""
+        if not self._JD_URL_RE.match(jd_url):
+            return ""
+        return f"{jd_url}{'&' if '?' in jd_url else '?'}in_iframe=1"
 
 
 class JdUrlEnricher:

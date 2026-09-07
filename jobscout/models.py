@@ -107,11 +107,24 @@ class SeenLedger:
             object.__setattr__(self, field, MappingProxyType(dict(getattr(self, field))))
 
     def watermark(self, uid_prefix: str) -> str:
-        """Newest first_seen date under `uid_prefix`, "" when this company has no rows yet
-        (a seed run) or its dates are unparseable. Callers MUST read "" as "no cutoff
-        known" and fall back to a weaker stop rule, never as "everything is old".
+        """Newest first_seen date under `uid_prefix`, "" when nothing from this company
+        reached the index (`has_rows` lists the ways that happens). Callers MUST read ""
+        as "no cutoff known" and fall back to a weaker stop rule, never as "everything is
+        old".
         """
         return self.watermarks.get(uid_prefix, "")
+
+    def has_rows(self, uid_prefix: str) -> bool:
+        """Has this source ever put a dated row in the ledger? Separates a source that
+        BROKE from one that is merely new, which is what makes an empty pull worth a
+        warning (ParallelFetcher) instead of being the normal first-run case.
+
+        Reads the same index as `watermark`, so a source reads as new here whenever none
+        of its rows made it into that index — every first_seen unparseable, or every uid
+        predating the "{ats}:{company}:" format (store._uid_namespace). That direction is
+        deliberate: it costs a missed warning, never a false one.
+        """
+        return uid_prefix in self.watermarks
 
     def seen_snapshot(self, uid: str, date_posted: str) -> bool:
         """Is this exact snapshot already recorded — uid known AND the posting date it
