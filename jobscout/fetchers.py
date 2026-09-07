@@ -3033,8 +3033,9 @@ class LdJsonJdSource(JdSource):
     a schema.org JobPosting ld+json block. Without that block these boards would need a
     browser, since the rendered ad is absent from the markup.
 
-    The JD URL IS the detail endpoint on all of them, so this class supplies the markup
-    fetch and the extraction and subclasses add only `detail_url`.
+    The JD URL is usually the detail endpoint itself — IcimsJdSource is the exception,
+    rewriting it first. Either way this class supplies the markup fetch and the
+    extraction, and subclasses add only `detail_url`.
     """
 
     _LD_JSON_RE = re.compile(
@@ -3103,6 +3104,40 @@ class AshbyJdSource(LdJsonJdSource):
 
     def detail_url(self, jd_url: str) -> str:
         return self._passthrough(jd_url, self._JD_URL_RE)
+
+
+class IcimsJdSource(LdJsonJdSource):
+    """iCIMS hosted-board per-posting detail ({tenant}.icims.com).
+
+    Only aggregator rows reach it. JibeFetcher also links icims.com job pages
+    (meta_data.canonical_url), but its listing already carries the body, so
+    JdUrlEnricher's usable-description gate skips those.
+
+    The public JD URL is a JS shell carrying no ld+json at all; the ad lives at the SAME
+    URL plus in_iframe=1, the address the page's own noscript_icims_content_iframe loads.
+    That makes this the one JdSource that rewrites instead of passing through.
+
+    Two link shapes appear in the ledger and one rule covers both: /jobs/{id}/{slug}/job
+    (984 URLs) needs the rewrite, while the slug-less /jobs/{id}/job?mobile=true (343)
+    already serves the ld+json and answers byte-identically with the param appended.
+    The path is pinned to a trailing "job" so the sibling /login apply page, which
+    carries no ad, costs no request.
+
+    A delisted requisition answers 410 Gone rather than the 403/404 seen elsewhere, but
+    it reaches `description`'s except the same way.
+    """
+
+    # Barring "#" is what lets detail_url append the param by concatenation instead of
+    # splitting the URL apart.
+    _JD_URL_RE = re.compile(
+        r"^https://[\w.-]+\.icims\.com/jobs/\d+/(?:[^/?#]+/)?job/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        jd_url = (jd_url or "").strip()
+        if not self._JD_URL_RE.match(jd_url):
+            return ""
+        return f"{jd_url}{'&' if '?' in jd_url else '?'}in_iframe=1"
 
 
 class JdUrlEnricher:

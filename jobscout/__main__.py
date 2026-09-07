@@ -13,9 +13,9 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
 from .config import CATCHUP_LOG_FILENAME, Settings
 from .coverage import attach_catchup_annotations, attach_catchup_log
 from .fetchers import (AshbyJdSource, AtsFetcher, BambooHrJdSource, ChainedEnricher,
-                       DispatchingEnricher, FetcherFactory, HttpClient, JdUrlEnricher,
-                       ParallelFetcher, RadancyJdSource, SuccessFactorsJdSource,
-                       WorkdayJdSource)
+                       DispatchingEnricher, FetcherFactory, HttpClient, IcimsJdSource,
+                       JdUrlEnricher, ParallelFetcher, RadancyJdSource,
+                       SuccessFactorsJdSource, WorkdayJdSource)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -100,7 +100,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
             # sequential loop, so a second session adds no isolation.
             JdUrlEnricher([WorkdayJdSource(jd_http), BambooHrJdSource(jd_http),
                            SuccessFactorsJdSource(jd_http), RadancyJdSource(jd_http),
-                           AshbyJdSource(jd_http)],
+                           AshbyJdSource(jd_http), IcimsJdSource(jd_http)],
                           settings.description_policy),
         ]),
         annotator=DescriptionFlagger(
