@@ -176,3 +176,24 @@ class Score:
     # mark it as the weaker signal: a role noun says the title is technical, not that the
     # candidate fits. Disjoint from match_counts (KeywordScorer guarantees it).
     title_match_counts: tuple[tuple[str, int], ...] | None = None
+    # The LLM read a hard work-authorization bar in the description (sponsorship refused,
+    # US citizenship, security clearance). A BACKSTOP for phrasings PreFilter's
+    # exclude_description_terms miss, so it only annotates the digest and deliberately
+    # does NOT move experience_score — folding it in would make "strong fit but
+    # ineligible" indistinguishable from "bad fit". Unlike the fields above it therefore
+    # explains nothing about how experience_score was reached; it rides along on the same
+    # LLM call as an eligibility caveat. Always False from KeywordScorer, which matches
+    # keywords and cannot read a requirement out of prose. Not persisted (CsvStore's
+    # _SCORE_FIELDS copy only the four scoring columns), same as `Job.note`.
+    work_auth_barrier: bool = False
+
+    @property
+    def work_auth_caveat(self) -> str:
+        """Display text for `work_auth_barrier`, "" when unset. Owned here rather than
+        written at the call site so this flag matches `Job.note`, which already arrives
+        as finished wording — otherwise the email would be the third place restating what
+        the flag means, after the field above and the scorer's prompt."""
+        if not self.work_auth_barrier:
+            return ""
+        return ("LLM read a work-authorization bar in this ad "
+                "(sponsorship / citizenship / clearance)")

@@ -77,8 +77,12 @@ class EmailNotifier:
                         lines.append(f"  keyword matches: {score.matches}{detail}")
                     else:
                         lines.append(f"  experience: {score.experience_score}")
-                    if job.note:
-                        lines.append(f"  ⚠ {job.note}")
+                    # One line each, never merged: the note is DescriptionFlagger's quote
+                    # of a matched term, the caveat is the LLM's reading of the same text,
+                    # and both can fire on one role.
+                    for caveat in (job.note, score.work_auth_caveat):
+                        if caveat:
+                            lines.append(f"  ⚠ {caveat}")
                     lines.append(f"  why: {score.reason}")
                     lines.append(f"  {job.url}")
                     lines.append("")
