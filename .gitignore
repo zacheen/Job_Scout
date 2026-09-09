@@ -19,3 +19,5 @@ notes/
 local_run.lock
 # Orphaned-pack sweep log (see gitledger.sweep_pack_garbage) — local only.
 pack_garbage.txt
+
+ignore_*
