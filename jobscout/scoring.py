@@ -19,21 +19,18 @@ from .protocols import JobScorer
 
 log = logging.getLogger(__name__)
 
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "experience_score": {"type": "integer"},
-        "reason": {"type": "string"},
-    },
-    "required": ["experience_score", "reason"],
-    "additionalProperties": False,
-}
-
 _SYSTEM = (
     "You rate a single job posting against the candidate resume below and return JSON.\n"
     "experience_score (0-100, integer): how well the candidate fits THIS specific role "
     "on skills, domain, and seniority. A role the candidate could not credibly apply to "
-    "(non-engineering, wrong field, far too senior) scores near 0.\n\n"
+    "(non-engineering, wrong field, far too senior) scores near 0.\n"
+    "work_auth_barrier (boolean): true only when the DESCRIPTION itself states a "
+    "requirement that bars a candidate who needs visa sponsorship — sponsorship refused "
+    "or unavailable, US citizenship or permanent residence required, or a security "
+    "clearance required. False when the description is empty or silent on it; do not "
+    "infer a bar from the employer's industry. This must NOT move experience_score: "
+    "rate fit as if the barrier were absent, so a strong-fit role the candidate cannot "
+    "legally take still scores high and is merely flagged.\n\n"
     "CANDIDATE RESUME:\n{resume}"
 )
 
@@ -59,6 +56,15 @@ def _hit_counts(patterns: dict[str, re.Pattern], text: str) -> dict[str, int]:
     return {kw: n for kw, pat in patterns.items() if (n := len(pat.findall(text)))}
 
 
+def _as_bool(value) -> bool:
+    """Tolerant read of a JSON boolean: models answer `true`, `"true"` and `1` for the
+    same thing. A missing key arrives as None and reads False, which is what keeps
+    work_auth_barrier fail-open — see `_parse_score`."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "1"}
+    return bool(value)
+
+
 def _parse_score(raw: str, scale: ScoreScale) -> Score:
     match = _JSON_RE.search(raw)
     if not match:
@@ -66,10 +72,26 @@ def _parse_score(raw: str, scale: ScoreScale) -> Score:
     data = json.loads(match.group(0))
     if "experience_score" not in data:
         raise ValueError(f"scorer output missing experience_score; raw: {raw[:200]!r}")
+    if data.get("work_auth_barrier") is None:
+        # Tests the VALUE, not key membership, so an explicit `"work_auth_barrier": null`
+        # (a CLI model's way of saying it could not tell) logs like an omitted key rather
+        # than passing for a real answer.
+        # Logged for its ABSENCE, not its value: the fail-open default below makes a
+        # scorer that stopped asking for the field look identical to a run where nothing
+        # was flagged, which is how OpenAiScorer's schema once omitted it silently.
+        # INFO, not DEBUG, because both entry points pin basicConfig to INFO with no
+        # verbose switch — at DEBUG this line could never print, which is the same
+        # silence it exists to break. Rare enough to not be noise: OpenAiScorer's schema
+        # lists the key as required, so only a misbehaving CLI model reaches here.
+        log.info("scorer response omitted work_auth_barrier; keys: %s", sorted(data))
     return Score(
         experience_score=_clamp(data["experience_score"]),
         reason=str(data.get("reason", "")).strip(),
         scale=scale,
+        # Absent key defaults to False rather than raising, unlike experience_score: this
+        # is a backstop behind PreFilter's term list, so a model that ignores the field
+        # must cost one missing annotation, never the whole run's scoring.
+        work_auth_barrier=_as_bool(data.get("work_auth_barrier")),
     )
 
 
@@ -84,7 +106,13 @@ class _LlmScorer(ABC):
 
     def score(self, job: Job) -> Score:
         system = _SYSTEM.format(resume=self._resume)
-        return _parse_score(self._invoke(system, self._job_blob(job)), self.scale)
+        scored = _parse_score(self._invoke(system, self._job_blob(job)), self.scale)
+        if scored.work_auth_barrier:
+            # Logged because reaching this means PreFilter's term list missed the wording:
+            # the job is a candidate for a new exclude_description_terms row.
+            log.info("work-auth barrier flagged by LLM, PreFilter did not: %s (%s)",
+                     job.title, job.url)
+        return scored
 
     def _job_blob(self, job: Job) -> str:
         return (
@@ -109,6 +137,28 @@ class OpenAiScorer(_LlmScorer):
     so a seed-only first run never requires OPENAI_API_KEY or RESUME_TEXT."""
 
     method_label = "API"
+
+    # Private to this subclass, NOT a shared description of `_SYSTEM`'s contract: under
+    # `strict: True` the model is grammar-constrained to this schema, so a key `_SYSTEM`
+    # asks for but this omits is structurally impossible to return — and `_parse_score`
+    # would read the silence as a legitimate answer. Every field added to `_SYSTEM` must
+    # be added here too, in BOTH properties and required (strict mode rejects a schema
+    # whose required list is not exhaustive).
+    _SCHEMA = {
+        "type": "object",
+        "properties": {
+            "experience_score": {"type": "integer"},
+            "work_auth_barrier": {"type": "boolean"},
+            "reason": {"type": "string"},
+        },
+        "required": ["experience_score", "work_auth_barrier", "reason"],
+        "additionalProperties": False,
+    }
+    # Import-time guard for the half of the rule above that is mechanically checkable.
+    # Adding a property and forgetting `required` otherwise surfaces as an OpenAI 400 on
+    # the first scored job of a run, after the whole fetch stage has already been paid for.
+    assert set(_SCHEMA["required"]) == set(_SCHEMA["properties"]), \
+        "strict mode requires every property to be listed in required"
 
     def __init__(self, api_key: str, model: str, resume_text: str,
                  max_description_chars: int, reasoning_effort: str = "", max_retries: int = 3):
@@ -142,7 +192,8 @@ class OpenAiScorer(_LlmScorer):
             ],
             "response_format": {
                 "type": "json_schema",
-                "json_schema": {"name": "job_scores", "strict": True, "schema": _SCHEMA},
+                "json_schema": {"name": "job_scores", "strict": True,
+                                "schema": self._SCHEMA},
             },
         }
         # reasoning_effort is only valid for reasoning models; omitting it for standard models.
@@ -172,10 +223,14 @@ class CliScorer(_LlmScorer):
         self._timeout = timeout
 
     def _invoke(self, system_prompt: str, user_prompt: str) -> str:
+        # This key list is the CLI's substitute for OpenAiScorer's enforced schema, so it
+        # has to name every field `system_prompt` asks for — a shorter list here reads as
+        # "ignore the rest" and silently loses them.
         prompt = (
             f"{system_prompt}\n\n{user_prompt}\n\n"
             'Return ONLY a JSON object: {"experience_score": <int 0-100>, '
-            '"reason": "<one sentence>"}. No other text.'
+            '"work_auth_barrier": <true|false>, "reason": "<one sentence>"}. '
+            "No other text."
         )
         result = subprocess.run(
             [*self._command, prompt],
