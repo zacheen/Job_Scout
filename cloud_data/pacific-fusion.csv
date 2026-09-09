@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Pacific Fusion:4398373009,Pacific Fusion,Software Engineer Intern,"Fremont, CA; Los Lunas, NM; San Leandro, CA",Software,https://job-boards.greenhouse.io/pacificfusion/jobs/4398373009,2026-09-09,2026-09-09,2026-09-09T23:41:09+00:00,2026-09-09 16:41 Wed,Software Engineering,true,Keyword,51,title-only listing; auto-passed (no description to score),true,simplify:Simplify Internships:4398373009
