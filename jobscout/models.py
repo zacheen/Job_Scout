@@ -87,7 +87,10 @@ class SeenLedger:
     different keys — see `seen_snapshot` for why they are not the same test:
 
     `uids` — which source uids exist at all. IS this opening one we have a row for?
-    `posted` — uid -> the ISO posting date recorded for it. Is that row still CURRENT?
+    `posted` — uid -> the ISO posting date THAT SOURCE recorded for it. Is that row still
+    CURRENT? Per uid rather than per ledger row, because one row can carry uids from
+    several sources that each report their own posting date (or none) — see
+    `seen_snapshot` and store's source_dates column.
     `watermarks` — uid prefix (AtsFetcher.uid_prefix) -> newest first_seen date
     (YYYY-MM-DD) under it. Keyed by uid prefix rather than company name because ledger rows
     carry a display name that aliasing can rewrite, while uids keep the fetcher's own
@@ -128,7 +131,7 @@ class SeenLedger:
 
     def seen_snapshot(self, uid: str, date_posted: str) -> bool:
         """Is this exact snapshot already recorded — uid known AND the posting date it
-        arrives with matching the one stored for that uid?
+        arrives with matching the one recorded for that uid?
 
         Deliberately more than uid membership. A board that re-stamps an old role pushes it
         back to the top of the sort with a fresh posting date; treating that as "seen" lets
@@ -137,9 +140,16 @@ class SeenLedger:
         is fresh board activity, so it is not evidence of depth — and it is also the signal
         that the stored row needs rewriting.
 
-        A source carrying no posting date compares "" to "" and so degrades to plain uid
-        membership: weaker, but the only test available there."""
-        return uid in self.uids and self.posted.get(uid, "") == posted_iso(date_posted)
+        A source carrying no posting date degrades to plain uid membership: weaker, but the
+        only test available there. That covers a source with no date field at all AND one
+        that merely omits it on this run, and the second case is why the test is on the
+        ARRIVING date rather than on both sides matching as "". An omission tells us
+        nothing about board activity, so calling it a re-stamp would rewrite the row and
+        wipe its recorded date on every run, forever."""
+        if uid not in self.uids:
+            return False
+        arriving = posted_iso(date_posted)
+        return not arriving or self.posted.get(uid, "") == arriving
 
 
 # Shared no-ledger default: a fetch with no dedupe context (seed run, ad-hoc probe).

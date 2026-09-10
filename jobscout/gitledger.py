@@ -151,7 +151,13 @@ def sync_with_remote(root: Path, ledger_dirs: Sequence[Path], merge: MergeLedger
     reset --hard, not a fast-forward merge: scan.yml's amend+force-push means
     origin/data is often not a descendant of the previous tip. Local-only
     commits on the branch are discarded by the reset; their shard rows survive
-    only via the snapshot/merge done here."""
+    only via the snapshot/merge done here.
+
+    Between the rmtree and a returned `merge` the snapshot is the ONLY copy of
+    anything not already on origin/<branch>, and both steps in that window fail
+    for real reasons — a locked shard makes git exit non-zero, and absorb() can
+    raise on an unreadable one. So the snapshot outlives the window: it is put
+    back on any failure, and kept on disk if putting it back did not work."""
     git(root, "fetch", "origin", branch)
     tmp = Path(tempfile.mkdtemp(prefix="jobscout_ledger_"))
     try:
@@ -166,8 +172,44 @@ def sync_with_remote(root: Path, ledger_dirs: Sequence[Path], merge: MergeLedger
                 snapshots.append([])
         git(root, "reset", "--hard", f"origin/{branch}")
         merge(snapshots)
-    finally:
+    except BaseException:
+        # BaseException, not Exception: git() reports every failed git command as
+        # SystemExit, which is the likeliest way to reach here.
+        if _restore_snapshots(tmp, ledger_dirs):
+            shutil.rmtree(tmp, ignore_errors=True)
+        else:
+            log.error("snapshot kept at %s — the only copy of the rows that could not be "
+                      "restored; copy them back before re-running", tmp)
+        raise
+    else:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _restore_snapshots(tmp: Path, ledger_dirs: Sequence[Path]) -> bool:
+    """Put the shard snapshots back where they came from; True only if every one made it.
+    A False tells the caller to KEEP `tmp` rather than delete it.
+
+    Copies OVER whatever the aborted reset left behind instead of replacing it, which
+    keeps the two kinds of row on different footings deliberately: rows the reset did
+    bring in are on origin/<branch> and the next sync re-fetches them, while rows only
+    this checkout had exist nowhere else. Rows landing in two shards at once is harmless —
+    every shard is absorbed into one table on load, and the next save re-files them.
+
+    Never raises. It runs from an except block, so a failure here would replace the real
+    error with this one."""
+    restored = True
+    for i, d in enumerate(ledger_dirs):
+        snap_dir = tmp / f"dir_{i}"
+        if not snap_dir.is_dir():
+            continue
+        try:
+            shutil.copytree(snap_dir, d, dirs_exist_ok=True)
+        except OSError as err:
+            log.error("could not restore %s from its pre-reset snapshot: %s", d, err)
+            restored = False
+        else:
+            log.warning("restored %s from its pre-reset snapshot", d)
+    return restored
 
 
 def commit_and_push(root: Path, ledger_dirs: Sequence[Path], message: str,

@@ -138,6 +138,12 @@ class OpenAiScorer(_LlmScorer):
 
     method_label = "API"
 
+    # HTTP statuses no amount of waiting fixes: malformed request, revoked or rotated key,
+    # permission denied, unknown model. Retrying one burns 1+2+4s of sleep and three round
+    # trips PER JOB on a run that cannot produce a digest either way. Class-level because
+    # it describes THIS transport — CliScorer's subprocess failures carry no status_code.
+    _FATAL_STATUS = frozenset({400, 401, 403, 404})
+
     # Private to this subclass, NOT a shared description of `_SYSTEM`'s contract: under
     # `strict: True` the model is grammar-constrained to this schema, so a key `_SYSTEM`
     # asks for but this omits is structurally impossible to return — and `_parse_score`
@@ -200,15 +206,22 @@ class OpenAiScorer(_LlmScorer):
         if self._reasoning_effort:
             request["reasoning_effort"] = self._reasoning_effort
         last_error: Exception | None = None
+        attempts = 0
         for attempt in range(self._max_retries):
+            attempts = attempt + 1
             try:
                 resp = self._client_instance().chat.completions.create(**request)
                 return resp.choices[0].message.content
             except Exception as exc:
                 last_error = exc
-                log.warning("OpenAI scoring attempt %d failed: %s", attempt + 1, exc)
+                log.warning("OpenAI scoring attempt %d failed: %s", attempts, exc)
+                # status_code is read duck-typed so this file needs no openai import.
+                if getattr(exc, "status_code", None) in self._FATAL_STATUS:
+                    break
+                if attempts == self._max_retries:
+                    break  # nothing left to wait for; the sleep would only delay the raise
                 time.sleep(2 ** attempt)
-        raise RuntimeError(f"OpenAI scoring failed after {self._max_retries} attempts") from last_error
+        raise RuntimeError(f"OpenAI scoring failed after {attempts} attempt(s)") from last_error
 
 
 class CliScorer(_LlmScorer):
@@ -379,7 +392,20 @@ def build_scorer(settings) -> tuple[JobScorer, JobScorer | None]:
     log.info("scorer: keyword-only fallback (no API key or GPT CLI found)")
     # +1 over the highest keyword_threshold (this scorer's own gate), not one track's:
     # which track the job will route to isn't known here, so it must clear every track.
-    pass_score = max((t.keyword_threshold for t in settings.tracks), default=50) + 1
+    # Read through threshold_for, not the raw field: that method is the one authority on
+    # which column gates which ScoreScale, and pipeline's email gate reads it too.
+    highest_threshold = max((t.threshold_for(ScoreScale.KEYWORD) for t in settings.tracks),
+                            default=50)
+    pass_score = highest_threshold + 1
+    # TitleOnlyAutoPass runs pass_score through _clamp and the email gate is a strict `>`,
+    # so a keyword_threshold of 100 would auto-pass at exactly 100, fail `100 > 100`, and
+    # silently drop every title-only referral and intern role — the two groups the
+    # auto-pass exists for. Loud here beats an unexplained empty digest.
+    if _clamp(pass_score) <= highest_threshold:
+        raise ValueError(
+            f"keyword_threshold {highest_threshold} leaves the title-only auto-pass no "
+            f"score above it (clamped to {_clamp(pass_score)}); lower the track thresholds "
+            "in config.yaml")
     policy = settings.description_policy
     keyword_scorer = KeywordScorer(settings.skill_keywords,
                                    title_keywords=settings.scored_title_terms,
