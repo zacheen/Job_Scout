@@ -310,7 +310,11 @@ class LevelClassifier:
         return self._senior_group
 
     def group(self, job: Job) -> str:
-        if job.company.lower() in self._referral:
+        # strip() to match how the referral set itself was normalized. An aggregator's
+        # per-row employer name is free text and canonical_company passes an unmapped one
+        # through verbatim, so padding does reach here — and CsvStore strips before writing
+        # the row, so the ledger would look correct while the grouping silently missed.
+        if job.company.strip().lower() in self._referral:
             return self._referral_group
         if _matches_any(self._intern_re, job.title):
             return self._intern_group

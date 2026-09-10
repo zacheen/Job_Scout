@@ -3,9 +3,11 @@
 Polls 350+ top-tech companies' official ATS feeds every 30 minutes, keeps only
 US roles, scores each new posting with an LLM on how well it fits your résumé,
 and emails a sorted digest of the strong matches.
-De-dupes via a CSV ledger. The cloud keeps that ledger on a separate `data`
-branch (auto-created), so `main` stays code-only; local runs keep their own
-gitignored copy.
+De-dupes via a CSV ledger. That ledger lives on a separate `data` branch
+(auto-created) so `main` stays code-only, and cloud and local runs each get
+their own directory of per-company shards there. Both directories are tracked
+and committed on that branch, never gitignored, so a crashed run is recoverable
+with `git checkout`.
 
 ## How it works
 

@@ -40,13 +40,18 @@ _SHARD_TMP_SUFFIX = ".csv.tmp"
 _FIELDS = [
     "job_key", "company", "title", "location", "department", "urls", "date_posted",
     "date_posted_iso", "first_seen", "first_seen_pt", "track", "scored", "score_method",
-    "experience_score", "reason", "emailed", "source_uids",
+    "experience_score", "reason", "emailed", "source_uids", "source_dates",
 ]
 
-# Fields describing the posting itself; on merge the newer snapshot wins. "company" is
-# deliberately NOT one of them: merge_rows decides it by source authority, not recency
-# (see _merge_company).
-_CONTENT_FIELDS = ("title", "location", "department", "date_posted", "date_posted_iso")
+# Fields describing the posting itself; on merge the newer snapshot wins. Two kinds of
+# field are deliberately NOT here: "company", which merge_rows decides by source authority
+# rather than recency (see _merge_company), and the two date_posted columns, where recency
+# alone lets a dateless source erase a real date (see _merge_posted).
+_CONTENT_FIELDS = ("title", "location", "department")
+# The board's posting date and its parse. Merged as a block so the raw string and the ISO
+# it parsed to can never come from different sides, and won by whichever side HAS a date
+# rather than by recency (see _merge_posted).
+_DATE_FIELDS = ("date_posted", "date_posted_iso")
 # Fields written together by one scoring pass; on merge they move as a block.
 _SCORE_FIELDS = ("scored", "score_method", "experience_score", "reason")
 
@@ -128,6 +133,61 @@ def _split_multi(value: str) -> list[str]:
 
 def _join_multi(values: list[str]) -> str:
     return _MULTI_SEP.join(values)
+
+
+def _uid_dates(row: dict) -> dict[str, str]:
+    """uid -> the ISO posting date THAT source reported for it, in source_uids order.
+
+    Tolerates a source_dates shorter than source_uids, which is not corruption but two
+    ordinary cases: a row written before the column existed (see _normalize), and a lone
+    uid with no date, where _join_multi([""]) collapses to "" and splits back to []."""
+    uids = _split_multi(row["source_uids"])
+    dates = _split_multi(row["source_dates"])
+    dates += [""] * (len(uids) - len(dates))
+    return dict(zip(uids, dates))
+
+
+def _merge_posted(existing: dict, newer: dict, older: dict) -> None:
+    """Settle the row's own posting date, both columns as one block.
+
+    Recency is wrong for this field: a source that exposes no posting date reports "" for
+    EVERY role, so the newer snapshot winning lets it erase whatever date the other source
+    supplied, and next run that source reads its own date back as re-stamped and restores
+    it, forever (measured 2026-09-09: ~1.7k rows flipping every run). Moved as a block so
+    the raw string and the ISO it parsed to can never come from different sides."""
+    dated = newer if newer["date_posted_iso"] else older
+    for field in _DATE_FIELDS:
+        existing[field] = dated[field]
+
+
+def _merge_sources(existing: dict, incoming: dict, newer: dict, older: dict) -> list[str]:
+    """Settle BOTH source_* columns: union the source uids, and settle each uid's OWN
+    reported posting date. Named for the pair because they are one parallel array — keeping
+    them index-aligned is this function's whole reason to exist, and splitting it would put
+    that invariant back in two places. Returns the merged uid list, which merge_rows needs
+    again for _merge_company.
+
+    Union ORDER is existing's uids then incoming's new ones, deliberately not newer/older:
+    the cell stores them in list order, so ordering by chronology would reshuffle it on
+    every merge and produce a diff with no content change.
+
+    The per-uid DATES are decided by newer/older, asking the newer side first and falling
+    back on a side that has no date for that uid (same rule as _merge_posted). Keying them
+    on incoming instead would be wrong: absorb() folds in whole ledgers whose rows can be
+    OLDER than the ones already loaded (union_merge, and gitledger's snapshot re-absorb),
+    so a stale copy would overwrite a fresh date and hand the next run a re-stamp to undo —
+    the very flip source_dates exists to stop.
+    """
+    # Read both sides' dates BEFORE rewriting source_uids: one of newer/older IS `existing`,
+    # and _uid_dates pairs that column with source_dates BY POSITION, so reading it after
+    # the union would pair existing's dates against a longer uid list.
+    newer_dates, older_dates = _uid_dates(newer), _uid_dates(older)
+    uids = _split_multi(existing["source_uids"])
+    uids += [u for u in _split_multi(incoming["source_uids"]) if u not in uids]
+    existing["source_uids"] = _join_multi(uids)
+    existing["source_dates"] = _join_multi(
+        [newer_dates.get(uid) or older_dates.get(uid, "") for uid in uids])
+    return uids
 
 
 def _score_rank(row: dict) -> int:
@@ -233,9 +293,10 @@ class CsvStore:
     def seen_ledger(self) -> SeenLedger:
         """known_uids(), each uid's recorded posting date (SeenLedger.seen_snapshot), and
         each company's newest first_seen date — the cutoff a date-ordered fetcher pages down
-        to. The watermark is built from first_seen, not date_posted: merge_rows lets a newer
-        snapshot overwrite date_posted (_CONTENT_FIELDS) but only ever pulls first_seen
-        earlier (min-merge), so it's the one timestamp guaranteed not to drift forward on us.
+        to. The watermark is built from first_seen, not date_posted: merge_rows lets
+        date_posted be rewritten by whichever side HAS a date (_DATE_FIELDS) but only ever
+        pulls first_seen earlier (min-merge), so it's the one timestamp guaranteed not to
+        drift forward on us.
         Built per company namespace, so one stale company catches up without making every
         other company page deeper."""
         watermarks: dict[str, str] = {}
@@ -249,7 +310,14 @@ class CsvStore:
                 continue
             if day > watermarks.get(namespace, ""):
                 watermarks[namespace] = day
-        posted = {uid: row["date_posted_iso"] for uid, row in self._by_uid.items()}
+        # Keyed per uid, NOT per row: a row merged from several sources has one
+        # date_posted column but each source reports its own posting date (or none), so a
+        # shared value can satisfy seen_snapshot for only one of them and the losers read
+        # as re-stamped on every run forever (measured 2026-09-09: ~1.7k rows rewritten
+        # per run, flipping between a real date and "" as each side took its turn).
+        posted: dict[str, str] = {}
+        for row in self._rows:
+            posted.update(_uid_dates(row))
         return SeenLedger(frozenset(self._by_uid), watermarks, posted)
 
     def known_urls(self) -> set[str]:
@@ -281,8 +349,15 @@ class CsvStore:
         row["reason"] = score.reason
 
     def mark_emailed(self, job_uids: list[str]) -> None:
+        """Flag the rows just emailed. Must not raise on an unknown uid — see
+        JobStore.mark_emailed (protocols.py) for why."""
         for uid in job_uids:
-            self._by_uid[uid]["emailed"] = "true"
+            row = self._by_uid.get(uid)
+            if row is None:
+                log.error("mark_emailed for unknown uid %r; add_seen never recorded it, so "
+                          "the role was emailed but is not flagged and can re-email", uid)
+                continue
+            row["emailed"] = "true"
 
     def absorb(self, path: Path) -> None:
         """Merge every row of another ledger CSV (legacy or current schema) into this
@@ -303,6 +378,7 @@ class CsvStore:
             newer, older = existing, incoming
         for field in _CONTENT_FIELDS:
             existing[field] = newer[field]
+        _merge_posted(existing, newer, older)
 
         seen_dates = [d for d in (existing["first_seen"], incoming["first_seen"]) if d]
         existing["first_seen"] = min(seen_dates) if seen_dates else ""
@@ -311,10 +387,7 @@ class CsvStore:
         new_urls = [u for u in _split_multi(incoming["urls"]) if u not in old_urls]
         existing["urls"] = _join_multi(new_urls + old_urls)  # newest first
 
-        uids = _split_multi(existing["source_uids"])
-        uids += [u for u in _split_multi(incoming["source_uids"]) if u not in uids]
-        existing["source_uids"] = _join_multi(uids)
-
+        uids = _merge_sources(existing, incoming, newer, older)
         # Must follow the uid union: the decision needs the uids of BOTH rows.
         existing["company"] = _merge_company(newer["company"], older["company"], uids)
 
@@ -362,6 +435,17 @@ class CsvStore:
                 # like an OSError would.
                 log.error("shard %s not written, skipping it: %s", slug, exc)
                 unwritten.append(slug)
+        if unwritten:
+            # No orphan sweep on a run that failed to write a shard. The two mechanisms
+            # are blind to each other: a row re-attributed OUT of shard A and INTO an
+            # unwritten shard B is on disk in neither, so deleting A (nothing references
+            # it any more) loses the row outright and the role reads as new and re-emails.
+            # One run of resurrected stale rows is the cheaper failure — the next load
+            # absorbs them, re-files them, and sweeps then.
+            log.error("%d shard(s) unsaved: %s; those companies re-surface and re-email "
+                      "next run, and the orphan sweep is skipped so no migrated row can "
+                      "be dropped", len(unwritten), ", ".join(sorted(unwritten)))
+            return
         # A merge can re-attribute rows to another company (_merge_company: source
         # authority, falling back to recency), emptying a shard. Delete it, or the next
         # load resurrects the stale rows.
@@ -372,9 +456,6 @@ class CsvStore:
                     stale.unlink()
                 except OSError as exc:
                     log.error("could not delete orphan shard %s: %s", stale, exc)
-        if unwritten:
-            log.error("%d shard(s) unsaved: %s; those companies re-surface and re-email "
-                      "next run", len(unwritten), ", ".join(sorted(unwritten)))
 
     def _write_shard(self, slug: str, rows: list[dict]) -> None:
         """Write one shard, retrying a transient OSError; the final attempt is unguarded.
@@ -468,6 +549,7 @@ class CsvStore:
     @staticmethod
     def _row_from_job(job: Job) -> dict:
         company = job.company.strip()
+        reported = posted_iso(job.date_posted)
         return {
             "job_key": _job_key(company, _uid_suffix(job.job_uid)),
             "company": company,
@@ -476,7 +558,7 @@ class CsvStore:
             "department": job.department,
             "urls": job.url,
             "date_posted": job.date_posted,
-            "date_posted_iso": posted_iso(job.date_posted),
+            "date_posted_iso": reported,
             "first_seen": _now(),
             "track": "",
             "scored": "false",
@@ -485,6 +567,9 @@ class CsvStore:
             "reason": "",
             "emailed": "false",
             "source_uids": job.job_uid,
+            # One uid, so its own date IS the row's; the two only diverge once merge_rows
+            # folds another source in.
+            "source_dates": reported,
         }
 
     @staticmethod
@@ -515,6 +600,14 @@ class CsvStore:
         current rows converge, so back-filling date_posted_iso here covers both."""
         row = {field: (raw.get(field) or "") for field in _FIELDS}
         row["date_posted_iso"] = row["date_posted_iso"] or _derive_posted_iso(row)
+        if not row["source_dates"]:
+            # Row written before source_dates existed: seed every uid with the row's own
+            # date, which is exactly the value seen_snapshot compared against back then,
+            # so the first run after this change behaves as before and each source then
+            # corrects its own entry. Also re-derives the lone-uid-no-date row whose
+            # source_dates round-trips to "" (see _uid_dates) — same answer either way.
+            uids = _split_multi(row["source_uids"])
+            row["source_dates"] = _join_multi([row["date_posted_iso"]] * len(uids))
         return row
 
 
