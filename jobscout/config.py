@@ -12,7 +12,11 @@ from .models import DescriptionPolicy, ScoreScale
 
 # tz shared by every digest timestamp (email subject line, local_run.py's
 # footer) so footer times stay directly comparable to subject times across runs.
-DIGEST_TZ = ZoneInfo("America/New_York")
+# Matches store._DISPLAY_TZ, so a subject time and a row's first_seen_pt read on
+# the same clock. Changing only one of the two would break the footer's
+# "delete every digest older than this subject" shortcut, which relies on the
+# subject timestamp BEING the window end.
+DIGEST_TZ = ZoneInfo("America/Los_Angeles")
 
 # Untracked, gitignored stamp at the repo root: the last moment local_data caught
 # up with cloud-emailed roles. Advanced by local_run.py (scan start, on success)
