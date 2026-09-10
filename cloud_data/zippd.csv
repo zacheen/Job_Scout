@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-Zippd:af08978f-c6c6-4298-b5aa-63ea65daa298,Zippd,Graduate Data Analyst,"Manchester, UK",AI/ML/Data,https://apply.workable.com/zippd/j/644B7A023D/apply,2026-09-07,2026-09-07,2026-09-07T17:16:36+00:00,2026-09-07 10:16 Mon,,false,,,,false,simplify:Simplify New Grad:af08978f-c6c6-4298-b5aa-63ea65daa298
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Zippd:af08978f-c6c6-4298-b5aa-63ea65daa298,Zippd,Graduate Data Analyst,"Manchester, UK",AI/ML/Data,https://apply.workable.com/zippd/j/644B7A023D/apply,2026-09-07,2026-09-07,2026-09-07T17:16:36+00:00,2026-09-07 10:16 Mon,,false,,,,false,simplify:Simplify New Grad:af08978f-c6c6-4298-b5aa-63ea65daa298,2026-09-07
