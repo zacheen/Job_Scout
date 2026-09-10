@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Planview:3e0882ef-3682-46f4-b5a5-bf8dadcf4a08,Planview,Software Engineer Intern,"Austin, TX",Software,https://careers.planview.com/jobs/5128?icims=1,2026-09-10,2026-09-10,2026-09-10T15:17:15+00:00,2026-09-10 08:17 Thu,Software Engineering,true,Keyword,51,title-only listing; auto-passed (no description to score),true,simplify:Simplify Internships:3e0882ef-3682-46f4-b5a5-bf8dadcf4a08,2026-09-10

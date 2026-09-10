@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Eikon Therapeutics:5234127007,Eikon Therapeutics,Software Engineer 1,"Millbrae, CA",AI/ML/Data,https://job-boards.greenhouse.io/eikontherapeutics/jobs/5234127007,2026-09-10,2026-09-10,2026-09-10T23:17:19+00:00,2026-09-10 16:17 Thu,Software Engineering,true,Keyword,56,keyword-only heuristic (title only),true,simplify:Simplify New Grad:5234127007,2026-09-10
