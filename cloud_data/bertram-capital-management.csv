@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
+Bertram Capital Management:8789855002,Bertram Capital Management,Forward Deployed AI Engineer,"Foster City, CA",Software,https://job-boards.greenhouse.io/bertramcapitalmanagement/jobs/8789855002,2026-09-09,2026-09-09,2026-09-09T23:17:07+00:00,2026-09-09 16:17 Wed,AI / ML,true,Keyword,56,keyword-only heuristic (title only),true,simplify:Simplify New Grad:8789855002
