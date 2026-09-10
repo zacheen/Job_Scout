@@ -1,2 +1,2 @@
-job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids
-BJC HealthCare:0d841cc8-6e91-43dd-8425-aeaf1e9aeb1f,BJC HealthCare,RPA Automation Intern,"St. Louis, MO",Software,https://jobs.bjc.org/jobs/116509?icims=1,2026-09-08,2026-09-08,2026-09-08T17:22:55+00:00,2026-09-08 10:22 Tue,,false,,,,false,simplify:Simplify Internships:0d841cc8-6e91-43dd-8425-aeaf1e9aeb1f
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+BJC HealthCare:0d841cc8-6e91-43dd-8425-aeaf1e9aeb1f,BJC HealthCare,RPA Automation Intern,"St. Louis, MO",Software,https://jobs.bjc.org/jobs/116509?icims=1,2026-09-08,2026-09-08,2026-09-08T17:22:55+00:00,2026-09-08 10:22 Tue,,false,,,,false,simplify:Simplify Internships:0d841cc8-6e91-43dd-8425-aeaf1e9aeb1f,2026-09-08
