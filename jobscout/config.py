@@ -79,6 +79,29 @@ class Track:
 
 
 @dataclass(frozen=True)
+class CliTool:
+    """One local scoring CLI from `llm_clis`, in the order build_scorer tries them.
+
+    `args` carries the fixed flags only — scoring.CliScorer appends the prompt as the last
+    argv element. So a CLI whose prompt flag takes a value (`agy ... -p <prompt>`) must end
+    its args with that flag, while one taking the prompt positionally (`codex exec
+    <prompt>`) must not.
+    """
+
+    cmd: str  # executable name or full path; build_scorer resolves it through PATH
+    args: tuple[str, ...]
+
+    @property
+    def name(self) -> str:
+        """Short label for the digest subject (see CliScorer.method_label).
+
+        Read off `cmd` rather than the path shutil.which returns, so the subject says the
+        same thing whether this machine found the CLI on PATH or through `path_env` — the
+        stem drops both a directory and the ".EXE" which() answers with on Windows."""
+        return Path(self.cmd).stem
+
+
+@dataclass(frozen=True)
 class Settings:
     companies: list[Company]
     tracks: list[Track]
@@ -100,8 +123,7 @@ class Settings:
     exclude_location_terms: list[str]
     model: str
     reasoning_effort: str
-    gpt_cli: str
-    gpt_cli_args: list[str]
+    llm_clis: list[CliTool]
     max_description_chars: int
     min_description_chars: int
     description_truncation_marks: tuple[str, ...]
@@ -165,8 +187,7 @@ class Settings:
             exclude_location_terms=cfg.get("exclude_location_terms", []),
             model=cfg.get("model", "gpt-5.5"),
             reasoning_effort=cfg.get("reasoning_effort", ""),
-            gpt_cli=os.getenv("GPT_CLI") or cfg.get("gpt_cli", "codex"),
-            gpt_cli_args=cfg.get("gpt_cli_args", ["exec"]),
+            llm_clis=cls._to_cli_tools(cfg),
             max_description_chars=int(cfg.get("max_description_chars", 8000)),
             min_description_chars=int(cfg.get("min_description_chars", 400)),
             description_truncation_marks=tuple(
@@ -194,6 +215,43 @@ class Settings:
         seed_only = _as_bool(entry.pop("seed_only", False))
         return Company(name=name, ats=ats, seed_only=seed_only,
                        params={k: str(v) for k, v in entry.items()})
+
+    @staticmethod
+    def _to_cli_tools(cfg: dict) -> list[CliTool]:
+        """`llm_clis` in config order, which is build_scorer's try-order for the CLI tier."""
+        if "gpt_cli" in cfg or "gpt_cli_args" in cfg:
+            # Fail fast, for the same reason _to_track rejects the removed 'threshold' key:
+            # a config still carrying these keys (e.g. one merged in from `main`) would
+            # leave llm_clis empty and quietly score the entire run keyword-only.
+            raise ValueError(
+                "config.yaml uses the removed 'gpt_cli'/'gpt_cli_args' keys; "
+                "replace them with an ordered 'llm_clis' list")
+        tools = []
+        for entry in cfg.get("llm_clis", []):
+            cmd = entry.get("cmd")
+            if not cmd or not isinstance(cmd, str):
+                # An empty `cmd:` parses as None, which survives this frozen dataclass and
+                # only surfaces as a TypeError from inside shutil.which, naming neither the
+                # entry nor the file it came from.
+                raise ValueError(
+                    f"llm_clis entry {entry!r} has no usable 'cmd' ({cmd!r}); each entry "
+                    "needs a non-empty command name or path")
+            # path_env names an env var holding a full path, for a machine where the CLI is
+            # not on PATH — both of them install into per-user directories.
+            path_env = entry.get("path_env", "")
+            override = os.getenv(path_env, "").strip() if path_env else ""
+            raw_args = entry.get("args", [])
+            if not isinstance(raw_args, list):
+                # A scalar (`args: exec`, one missing pair of brackets) is iterable, so
+                # without this it silently becomes ("e", "x", "e", "c") and every job in the
+                # run dies inside CliScorer — where pipeline logs it per job as an unscored
+                # role, never as a config error.
+                raise ValueError(
+                    f"llm_clis entry {cmd!r} has non-list args "
+                    f"({type(raw_args).__name__}); wrap even a single flag in [...]")
+            tools.append(CliTool(cmd=override or cmd,
+                                 args=tuple(str(a) for a in raw_args)))
+        return tools
 
     @staticmethod
     def _to_track(entry: dict) -> Track:

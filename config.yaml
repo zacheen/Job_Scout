@@ -12,18 +12,29 @@ model: "gpt-5.6"
 # "mid" = medium. Leave blank ("") for non-reasoning models (e.g. gpt-4o-mini).
 reasoning_effort: "medium"
 
-# Fallback when no OPENAI_API_KEY: a local GPT CLI to drive (authed via a ChatGPT
-# login). gpt_cli is the executable (override per-machine with the GPT_CLI env var,
-# e.g. a full path with spaces); gpt_cli_args are the args before the prompt, which
-# is appended last. If gpt_cli isn't found, scoring drops to keyword-only.
-# `-c model=gpt-5.6-luna` pins codex's fast/cheap tier for this rating task, overriding
-# whatever model codex's own config.toml defaults to; `-c model_reasoning_effort=low`
-# likewise overrides its reasoning default (e.g. xhigh) — a simple rating doesn't need
-# more, and low is far faster/cheaper.
+# Fallback when no OPENAI_API_KEY: local agent CLIs to drive, each authed by its own
+# provider login. Tried in the order written here — the FIRST one installed scores the
+# whole run, and scoring drops to keyword-only when none is. `args` are the flags before
+# the prompt, which is appended as the last argv element (so a prompt flag taking a value,
+# like agy's -p, goes last; codex takes it positionally after `exec`). `path_env` names an
+# env var holding a full path, for a machine where that CLI isn't on PATH.
+# agy is the Antigravity CLI: `--model gemini-3.8-flash-low` pins its cheap tier (the
+# reasoning effort is part of the model id there, so --effort would be redundant) and
+# `--disable-slash-commands` keeps a JD body whose line starts with "/" from being
+# expanded as a slash command. `agy models` lists the ids.
+# codex stays second: `-c model=gpt-5.6-luna` pins its fast/cheap tier for this rating
+# task, overriding whatever model codex's own config.toml defaults to, and
+# `-c model_reasoning_effort=low` likewise overrides its reasoning default (e.g. xhigh) —
+# a simple rating doesn't need more, and low is far faster/cheaper.
 # Senior-group roles (see senior_terms) are dropped before scoring (unless a referral
 # company claims them first), so they never reach this scorer — wired in __main__.
-gpt_cli: "codex"
-gpt_cli_args: ["exec", "-c", "model=gpt-5.6-luna", "-c", "model_reasoning_effort=low"]
+llm_clis:
+  - cmd: "agy"
+    args: ["--model", "gemini-3.8-flash-low", "--disable-slash-commands", "-p"]
+    path_env: "AGY_CLI"
+  - cmd: "codex"
+    args: ["exec", "-c", "model=gpt-5.6-luna", "-c", "model_reasoning_effort=low"]
+    path_env: "GPT_CLI"
 
 # Truncate each job description to this many characters before sending to the LLM.
 max_description_chars: 8000
@@ -48,8 +59,9 @@ description_truncation_marks:
   - "…"
 
 # How many jobs to score concurrently (1 = sequential). Higher clears a backlog faster,
-# but the CLI path (codex exec) spawns one heavy subprocess per worker, and all workers
-# share your ChatGPT rate limit — raise cautiously.
+# but the CLI path spawns one heavy subprocess per worker and they all share that
+# provider's rate limit — raise cautiously. Measured on agy: 5 concurrent jobs finish in
+# the time one takes alone (~5.5s).
 score_workers: 5
 
 # HTTP behaviour for the ATS fetchers.

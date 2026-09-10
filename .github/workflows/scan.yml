@@ -46,7 +46,7 @@ jobs:
             exit 1
           fi
           if [ -z "$OPENAI_API_KEY" ]; then
-            echo "::notice::OPENAI_API_KEY not set; scoring will use the keyword-only fallback (codex CLI is unavailable on the runner)."
+            echo "::notice::OPENAI_API_KEY not set; scoring will use the keyword-only fallback (no llm_clis CLI is installed on the runner)."
           fi
           echo "Secret check passed."
 
