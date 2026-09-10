@@ -23,7 +23,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .dates import posted_iso
-from .models import Job, Score, SeenLedger
+from .models import Job, Score, ScoreMethod, SeenLedger
 from .urls import canon_url
 
 log = logging.getLogger(__name__)
@@ -55,10 +55,12 @@ _DATE_FIELDS = ("date_posted", "date_posted_iso")
 # Fields written together by one scoring pass; on merge they move as a block.
 _SCORE_FIELDS = ("scored", "score_method", "experience_score", "reason")
 
-# Merge fidelity order (matches build_scorer's preference). "" = a legacy row scored
-# before score_method existed: real LLM output of unknown origin, so it only loses
-# to rows whose method IS known.
-_METHOD_RANK = {"API": 0, "CLI": 1, "Keyword": 2, "": 3}
+# Merge fidelity order (matches build_scorer's preference), keyed by TIER — a CLI row also
+# stores which tool ran, which ScoreMethod.tier_of strips. "" = a legacy row scored before
+# score_method existed: real LLM output of unknown origin, so it only loses to rows whose
+# method IS known. Members, not literals, so a renamed tier cannot leave this table with a
+# key nothing looks up (see ScoreMethod).
+_METHOD_RANK = {ScoreMethod.API: 0, ScoreMethod.CLI: 1, ScoreMethod.KEYWORD: 2, "": 3}
 _UNSCORED_RANK = 99
 
 
@@ -193,7 +195,10 @@ def _merge_sources(existing: dict, incoming: dict, newer: dict, older: dict) -> 
 def _score_rank(row: dict) -> int:
     if row.get("scored") != "true":
         return _UNSCORED_RANK
-    return _METHOD_RANK.get(row.get("score_method", ""), _METHOD_RANK[""])
+    # Rank on the tier alone: without dropping the tool detail (CliScorer.method_label)
+    # every agy/codex row would fall to the "" rank and LOSE a merge against a Keyword row.
+    return _METHOD_RANK.get(ScoreMethod.tier_of(row.get("score_method", "")),
+                            _METHOD_RANK[""])
 
 
 def _reported_companies(uids: list[str]) -> set[str]:

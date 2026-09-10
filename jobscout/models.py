@@ -167,6 +167,41 @@ class ScoreScale(StrEnum):
     KEYWORD = "keyword"
 
 
+# Separator between a tier and the tool detail in a score_method. Private on purpose:
+# `with_detail` and `tier_of` are the only two places allowed to know the format, which
+# is what keeps scoring.py and store.py from each hard-coding their own half of it.
+_METHOD_DETAIL_SEP = ":"
+
+
+class ScoreMethod(StrEnum):
+    """Which tier produced a score. A scorer reports it as `method_label` (the email
+    subject) and CsvStore persists it as the `score_method` column, where
+    store._score_rank reads it back as the merge-priority key.
+
+    Those two readers are why this is one shared type and not a string in each module: a
+    method the rank table has no key for silently falls to the lowest known rank, which
+    would let a real LLM score LOSE a merge to a keyword one. StrEnum so a member needs no
+    conversion to be written, formatted into a subject, or looked up by a raw string read
+    back from CSV."""
+
+    API = "API"
+    CLI = "CLI"
+    KEYWORD = "Keyword"
+
+    def with_detail(self, detail: str) -> str:
+        """`"CLI:agy"` — this tier plus which tool produced it. Returns a plain str,
+        deliberately: the result is NOT a member, so only `tier_of` can read it back."""
+        return f"{self}{_METHOD_DETAIL_SEP}{detail}"
+
+    @staticmethod
+    def tier_of(method: str) -> str:
+        """The tier of a stored score_method, dropping any `with_detail` suffix. A str
+        rather than a member because it also has to pass through the values no member
+        covers — "" for a row written before the column existed, or a method some later
+        version wrote."""
+        return method.split(_METHOD_DETAIL_SEP, 1)[0]
+
+
 @dataclass(frozen=True)
 class Score:
     experience_score: int   # meaning depends on `scale`; see ScoreScale

@@ -77,7 +77,10 @@ class Leveler(Protocol):
 
 
 class JobScorer(Protocol):
-    method_label: ClassVar[str]  # scoring method shown in the email subject, e.g. "API" / "CLI" / "Keyword"
+    # Scoring method, shown in the email subject and persisted as the ledger's
+    # score_method: "API" / "Keyword" / "CLI:<tool>". NOT a ClassVar — CliScorer and
+    # TitleOnlyAutoPass both compute it per instance.
+    method_label: str
     scale: ClassVar[ScoreScale]  # picks which Track threshold gates this scorer output
 
     def score(self, job: Job) -> Score: ...

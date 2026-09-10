@@ -1,7 +1,7 @@
 """Resume-vs-role job scoring: three strategies tried in fidelity order.
 
-OpenAI API -> local GPT CLI (e.g. Codex via ChatGPT login) -> keyword heuristic.
-`build_scorer` selects the best available at startup.
+OpenAI API -> a local agent CLI (every entry of `llm_clis`, in config order) -> keyword
+heuristic. `build_scorer` selects the best available at startup.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import replace
 
-from .models import DescriptionPolicy, Job, Score, ScoreScale
+from .models import DescriptionPolicy, Job, Score, ScoreMethod, ScoreScale
 from .protocols import JobScorer
 
 log = logging.getLogger(__name__)
@@ -30,9 +30,17 @@ _SYSTEM = (
     "clearance required. False when the description is empty or silent on it; do not "
     "infer a bar from the employer's industry. This must NOT move experience_score: "
     "rate fit as if the barrier were absent, so a strong-fit role the candidate cannot "
-    "legally take still scores high and is merely flagged.\n\n"
+    "legally take still scores high and is merely flagged.\n"
+    "reason (string): ONE sentence in Traditional Chinese (zh-TW) explaining how "
+    "experience_score was reached. Leave technology names, job titles and acronyms in "
+    "their original form instead of translating them.\n\n"
     "CANDIDATE RESUME:\n{resume}"
 )
+# The reason is asked for in Chinese while the request itself stays ASCII, deliberately:
+# CliScorer hands this whole prompt to a CLI as a single argv element, and keeping the
+# outbound side ASCII removes any question about how that argument gets encoded on a
+# cp950 machine. Only the CLI's OUTPUT pipe is pinned to UTF-8 (see CliScorer._invoke).
+# `reason` had no spec here at all before, so the model was writing it unguided.
 
 # Greedy: captures outermost {...} so surrounding CLI chatter is ignored.
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -125,7 +133,8 @@ class _LlmScorer(ABC):
     @property
     @abstractmethod
     def method_label(self) -> str:
-        """A plain class attribute (e.g. `method_label = "API"`) satisfies this abstract property."""
+        """A plain class attribute (e.g. `method_label = ScoreMethod.API`) satisfies this abstract
+        property; CliScorer overrides it with a real one because its label names the tool."""
 
     @abstractmethod
     def _invoke(self, system_prompt: str, user_prompt: str) -> str:
@@ -136,7 +145,7 @@ class OpenAiScorer(_LlmScorer):
     """Client creation and secret validation are deferred to first `score()` call,
     so a seed-only first run never requires OPENAI_API_KEY or RESUME_TEXT."""
 
-    method_label = "API"
+    method_label = ScoreMethod.API
 
     # HTTP statuses no amount of waiting fixes: malformed request, revoked or rotated key,
     # permission denied, unknown model. Retrying one burns 1+2+4s of sleep and three round
@@ -225,15 +234,25 @@ class OpenAiScorer(_LlmScorer):
 
 
 class CliScorer(_LlmScorer):
-    """Drives a local GPT CLI for users without an API key.
+    """Drives a local agent CLI for users without an API key.
     Best-effort: output format is not guaranteed; JSON is extracted leniently."""
 
-    method_label = "CLI"
-
-    def __init__(self, command: list[str], resume_text: str, max_description_chars: int, timeout: int = 180):
+    def __init__(self, command: list[str], resume_text: str, max_description_chars: int,
+                 *, name: str, timeout: int = 180):
         super().__init__(resume_text, max_description_chars)
-        self._command = command  # full invocation including subcommand, e.g. ["codex", "exec"]
+        self._name = name
+        # Everything but the prompt, argv[0] already PATH-resolved by build_scorer:
+        # ["...\\agy.EXE", "--model", ..., "-p"] or ["...\\codex.exe", "exec", ...].
+        self._command = command
         self._timeout = timeout
+
+    @property
+    def method_label(self) -> str:
+        """The one tier whose label names the tool that ran: which llm_clis entry won is a
+        property of the machine, so without it a fall-through to the second entry is
+        invisible in both the subject and the ledger. `with_detail` owns the format, which
+        is what store._score_rank strips back off — see ScoreMethod."""
+        return ScoreMethod.CLI.with_detail(self._name)
 
     def _invoke(self, system_prompt: str, user_prompt: str) -> str:
         # This key list is the CLI's substitute for OpenAiScorer's enforced schema, so it
@@ -242,10 +261,14 @@ class CliScorer(_LlmScorer):
         prompt = (
             f"{system_prompt}\n\n{user_prompt}\n\n"
             'Return ONLY a JSON object: {"experience_score": <int 0-100>, '
-            '"work_auth_barrier": <true|false>, "reason": "<one sentence>"}. '
+            '"work_auth_barrier": <true|false>, '
+            '"reason": "<one sentence in Traditional Chinese>"}. '
             "No other text."
         )
         result = subprocess.run(
+            # Prompt rides in argv (~13k chars with a full resume+JD) — never point llm_clis
+            # at a .cmd/.bat shim; those run via cmd.exe, whose command line caps at 8191
+            # chars. Both configured CLIs are real .exe files, so the actual cap here is 32767.
             [*self._command, prompt],
             capture_output=True, text=True, timeout=self._timeout,
             # codex reads stdin regardless of the argv prompt; DEVNULL sends EOF immediately.
@@ -265,9 +288,15 @@ class CliScorer(_LlmScorer):
         return result.stdout
 
 
+# Chinese to match what _SYSTEM asks the LLM tiers for, so the digest's "why" line reads
+# the same whichever scorer ran. One constant because the same wording is returned from
+# two branches and a divergence between them would be invisible in review.
+_KEYWORD_REASON = "僅以關鍵字比對評分"
+
+
 class KeywordScorer:
     """No-LLM fallback: low fidelity by design. Used only when neither API key
-    nor GPT CLI is available.
+    nor any llm_clis CLI is available.
 
     Counts occurrences of the configured `skill_keywords`, not every 5+ char word in
     the resume prose — the latter floods matches with filler ("strong", "experience",
@@ -291,7 +320,7 @@ class KeywordScorer:
     a teaser body would otherwise claim the strict weight while carrying no requirements.
     """
 
-    method_label = "Keyword"
+    method_label = ScoreMethod.KEYWORD
     scale = ScoreScale.KEYWORD
 
     _BASE = 40
@@ -329,9 +358,9 @@ class KeywordScorer:
         if matches is None:
             # No keywords configured at all: constant score puts every role on the same side
             # of the threshold, so matches stays None — no meaningful count to report.
-            return Score(50, "keyword-only heuristic", scale=self.scale)
+            return Score(50, _KEYWORD_REASON, scale=self.scale)
         weight = self._TITLE_ONLY_WEIGHT if title_only else self._WEIGHT
-        reason = "keyword-only heuristic (title only)" if title_only else "keyword-only heuristic"
+        reason = f"{_KEYWORD_REASON}（只比對職稱）" if title_only else _KEYWORD_REASON
         return Score(_clamp(self._BASE + weight * matches), reason, scale=self.scale,
                      matches=matches, match_counts=match_counts,
                      title_match_counts=title_match_counts)
@@ -370,7 +399,24 @@ class TitleOnlyAutoPass:
         if self._policy.is_usable(job.description):
             return scored
         return replace(scored, experience_score=_clamp(self._pass_score),
-                       reason="title-only listing; auto-passed (no description to score)")
+                       reason="此職缺只有職稱、沒有內文可評分，自動放行")
+
+
+def _cli_scorer(settings) -> CliScorer | None:
+    """The first `llm_clis` entry installed on THIS machine, None when none is."""
+    for tool in settings.llm_clis:
+        # which() answers "installed?" and hands back the full path used as argv[0]. That
+        # path matters: CreateProcess appends only ".exe" to a bare name, so a CLI stored
+        # under any other extension is launchable solely by the resolved path.
+        executable = shutil.which(tool.cmd)
+        if not executable:
+            log.info("scoring CLI %r not installed; trying the next llm_clis entry", tool.cmd)
+            continue
+        command = [executable, *tool.args]
+        log.info("scorer: CLI '%s' (no API key found)", " ".join(command))
+        return CliScorer(command, settings.resume_text, settings.max_description_chars,
+                         name=tool.name)
+    return None
 
 
 def build_scorer(settings) -> tuple[JobScorer, JobScorer | None]:
@@ -385,11 +431,9 @@ def build_scorer(settings) -> tuple[JobScorer, JobScorer | None]:
             settings.openai_api_key, settings.model, settings.resume_text,
             settings.max_description_chars, settings.reasoning_effort,
         ), None
-    if settings.gpt_cli and shutil.which(settings.gpt_cli):
-        command = [settings.gpt_cli, *settings.gpt_cli_args]
-        log.info("scorer: GPT CLI '%s' (no API key found)", " ".join(command))
-        return CliScorer(command, settings.resume_text, settings.max_description_chars), None
-    log.info("scorer: keyword-only fallback (no API key or GPT CLI found)")
+    if cli := _cli_scorer(settings):
+        return cli, None
+    log.info("scorer: keyword-only fallback (no API key or scoring CLI found)")
     # +1 over the highest keyword_threshold (this scorer's own gate), not one track's:
     # which track the job will route to isn't known here, so it must clear every track.
     # Read through threshold_for, not the raw field: that method is the one authority on
