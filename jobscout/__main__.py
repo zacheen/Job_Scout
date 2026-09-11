@@ -47,13 +47,20 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
 
     # One HttpClient (own session + pacing) per fetcher, so parallel host groups never
     # share a session; same-host fetchers still run sequentially inside ParallelFetcher.
-    def make_http() -> HttpClient:
+    def make_http(timeout: int = 0) -> HttpClient:
+        # 0, not None, as "not overridden": a 0-second HTTP timeout has no useful meaning,
+        # so it cannot collide with a real value a company might configure.
         return HttpClient(
-            settings.request_timeout, settings.user_agent,
+            timeout or settings.request_timeout, settings.user_agent,
             settings.request_delay_min, settings.request_delay_max,
         )
 
-    fetchers = [FetcherFactory.create(c, make_http()) for c in settings.companies]
+    # Per-company `timeout` override, because request_timeout is one number shared by every
+    # source and a board slow enough to need 150s would make every DEAD host hold a fetch
+    # worker that long too. Only boards measured to need it carry the param (TSMC: ~116s for
+    # its 757 rows, so the 20s default read-timed-out on 2026-09-10).
+    fetchers = [FetcherFactory.create(c, make_http(c.param_int("timeout")))
+                for c in settings.companies]
     # Separate from the per-fetcher clients: the enrich stage fetches JD pages on hosts
     # a fetcher may not own at all (an aggregator link can point anywhere).
     jd_http = make_http()

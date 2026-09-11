@@ -2292,6 +2292,49 @@ class WhatnotFetcher(AtsFetcher):
         return jobs
 
 
+class AuroraFetcher(AtsFetcher):
+    """Aurora's first-party board index (aurora.tech/api/jobs-index), the whole board with
+    dates in one request. Single-shot.
+
+    Ashby sits underneath — every `applyLink` carries `?ashby_jid=<id>`, and that id IS the
+    record's `id` — but Ashby's posting-api 404s for this tenant, so AshbyFetcher cannot be
+    pointed at it and this index is the only anonymous route. Their Greenhouse board
+    (`aurorainnovation`) went 404 when they migrated; probed 2026-09-11.
+
+    `searchText` is the real job-ad body, not a teaser, so these rows never need a JD
+    backfill — which also means PreFilter judges them on full text from the first run."""
+
+    ats_name = "aurora"
+
+    @property
+    def host(self) -> str:
+        return "aurora.tech"
+
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
+        data = self._http.get_json("https://aurora.tech/api/jobs-index")
+        jobs = []
+        for item in data.get("jobs") or []:
+            if not item.get("id"):
+                continue
+            locations = item.get("locations") or []
+            jobs.append(
+                Job(
+                    job_uid=self._uid(item["id"]),
+                    company=self._company.name,
+                    title=item.get("title", ""),
+                    location="; ".join(p for p in locations if p),
+                    url=item.get("applyLink", ""),
+                    # Measured plain text today (0 of 84 rows carried a tag or an entity), but
+                    # strip_html leaves plain text byte-identical, newlines included, so
+                    # stripping it unconditionally costs nothing.
+                    description=strip_html(item.get("searchText", "")),
+                    department=item.get("category", ""),
+                    date_posted=item.get("publishedDate", ""),
+                )
+            )
+        return jobs
+
+
 class DeShawFetcher(AtsFetcher):
     """D.E. Shaw embeds its board in the careers page as Next.js __NEXT_DATA__ JSON
     (method D). `pageProps` carries `regularJobs` + `internships` (both external); the
@@ -2782,6 +2825,7 @@ class FetcherFactory:
         GoldmanFetcher.ats_name: GoldmanFetcher,
         JobviteFetcher.ats_name: JobviteFetcher,
         WhatnotFetcher.ats_name: WhatnotFetcher,
+        AuroraFetcher.ats_name: AuroraFetcher,
         DeShawFetcher.ats_name: DeShawFetcher,
         VisaFetcher.ats_name: VisaFetcher,
         BioRadFetcher.ats_name: BioRadFetcher,

@@ -52,6 +52,19 @@ class Company:
         value = self.params.get(key)
         return _as_bool(value) if value is not None else default
 
+    def param_int(self, key: str, default: int = 0) -> int:
+        """Integer ATS param. Unparseable values raise rather than fall back to `default`:
+        a mistyped cap or timeout would otherwise run the whole scan on a silently wrong
+        number, and a company's params are read once at startup where a raise is cheap."""
+        value = self.params.get(key)
+        if value is None or not str(value).strip():
+            return default
+        try:
+            return int(str(value).strip())
+        except ValueError as exc:
+            raise ValueError(
+                f"{self.name}: ats param {key!r} must be an integer, got {value!r}") from exc
+
 
 @dataclass(frozen=True)
 class Track:
