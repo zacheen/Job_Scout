@@ -201,7 +201,7 @@ class DescriptionFlagger:
     """
 
     def __init__(self, *, warn_description_terms: list[str], warn_description_patterns: list[str],
-                 note: str = "possibly NO visa sponsorship — description says {term!r}"):
+                 note: str = "possibly NO employer sponsorship — description says {term!r}"):
         self._terms = [_normalize_prose(t) for t in warn_description_terms if t.strip()]
         self._warn_description_re = _raw_re(warn_description_patterns)
         self._note = note
