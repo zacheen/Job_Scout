@@ -33,6 +33,7 @@
 #   goldman:    (no params) api-higher.gs.com GraphQL (prof + early-career + campus)
 #   jobvite:    company (the static c= id from the careers page)
 #   whatnot:    (no params) jobs.whatnot.com/api/jobs
+#   aurora:     (no params) aurora.tech/api/jobs-index (first-party; body included)
 #   deshaw:     (no params) deshaw.com/careers __NEXT_DATA__
 #   visa:       (no params) search.visa.com single POST
 #   janestreet: (no params) janestreet.com/jobs/main.json
@@ -55,6 +56,10 @@
 #
 # `seed_only: true`: FIRST run records the backlog silently (no email); only newly-posted
 # roles email afterward. Used for the big GitHub aggregators to avoid one huge first digest.
+#
+# `timeout: <seconds>`: per-company HTTP timeout, overriding config.yaml's request_timeout for
+# this source only. Add it ONLY for a board measured to need it, never pre-emptively: the
+# number is also how long a DEAD host keeps a fetch worker waiting.
 #
 # Slugs need verifying against each company's live careers page. A wrong slug is
 # harmless: the fetcher logs a warning and that company is skipped for the run.
@@ -112,9 +117,15 @@
 - {name: Flexport,    ats: greenhouse, board: flexport, seed_only: true}      # ~144 global
 - {name: Affirm,      ats: greenhouse, board: affirm, seed_only: true}        # ~175 Remote-US
 - {name: Zscaler,     ats: greenhouse, board: zscaler, seed_only: true}       # ~340
-# Nutanix (Jobvite XML) + Whatnot (first-party API; underlying Ashby posting-api is disabled).
+# Nutanix (Jobvite XML).
 - {name: Nutanix, ats: jobvite, company: qKr9VfwZ, seed_only: true}           # ~275 (Jobvite c= id)
-- {name: Whatnot, ats: whatnot, seed_only: true}                              # ~133 (SF/NY/LA)
+# Whatnot disabled 2026-09-11: jobs.whatnot.com was folded into whatnot.com/careers, so the
+# first-party /api/jobs endpoint WhatnotFetcher reads now 301s to the careers page and the
+# JSON parse fails on HTML. The replacement board is a Next.js app whose listings come from
+# whatnot.com/services/graphql behind Kasada (x-kpsdk tokens, 429 without them), i.e. the
+# class-1 browser-only dead end notes/fail.md describes. The fetcher is kept for when they
+# expose a plain endpoint again.
+# - {name: Whatnot, ats: whatnot, seed_only: true}                            # ~133 (SF/NY/LA)
 # Intern-sheet batch: quant shops. Bare "optiver" is a live-but-EMPTY decoy — use optiverus.
 - {name: Hudson River Trading, ats: greenhouse, board: wehrtyou}              # ~73
 - {name: Jump Trading, ats: greenhouse, board: jumptrading}                   # ~78 (Chicago/NY)
@@ -129,7 +140,7 @@
 # CV batch 2026-07-10 (robotics / drones / AV theme; all boards live-verified). seed_only
 # where the backlog is ~100+. Several slugs differ from the company name (noted inline).
 - {name: Nuro,             ats: greenhouse, board: nuro}                              # AV delivery; ~93
-- {name: Aurora,           ats: greenhouse, board: aurorainnovation, seed_only: true} # AV trucking; ~146
+- {name: Aurora,           ats: aurora, seed_only: true}                              # AV trucking; ~84 (see AuroraFetcher: left Greenhouse for Ashby, but only its own index is public)
 - {name: Kodiak Robotics,  ats: greenhouse, board: kodiak}                            # AV trucking; ~70
 - {name: Torc Robotics,    ats: greenhouse, board: torcrobotics}                      # Daimler AV trucking; ~50
 - {name: May Mobility,     ats: greenhouse, board: maymobility}     # AV shuttles; board "maymobilityjobs" is a live-but-EMPTY decoy
@@ -171,7 +182,9 @@
 - {name: Voxel51,         ats: greenhouse, board: voxel51}               # CV data tooling; 0 openings at add time. Ashby/Lever "voxel" = DIFFERENT co
 - {name: PathAI,          ats: greenhouse, board: pathai}                # pathology CV; ~8
 - {name: Planet Labs,     ats: greenhouse, board: planetlabs}            # satellite imagery; ~81 (Berlin/London mixed in)
-- {name: World Labs,      ats: greenhouse, board: worldlabs}             # spatial intelligence (Fei-Fei Li); ~12, all SF
+# World Labs moved Greenhouse -> Ashby (same slug). The Greenhouse board still answers 200
+# with an EMPTY list rather than 404, so this looked like "no openings" for a while.
+- {name: World Labs,      ats: ashby, org: worldlabs}                    # spatial intelligence (Fei-Fei Li); ~8, all SF
 # CV batch spare pool promoted 2026-07-10 (verified same day as the batch above).
 - {name: Gatik,            ats: greenhouse, board: gatikaiinc}                        # AV middle-mile trucking; ~61
 - {name: Stack AV,         ats: greenhouse, board: stackav}                           # AV trucking; ~23
@@ -181,7 +194,11 @@
 - {name: Locus Robotics,   ats: greenhouse, board: locusrobotics}                     # warehouse robots; ~18
 - {name: Samsara,          ats: greenhouse, board: samsara, seed_only: true}          # fleet cameras/IoT; ~318
 - {name: Axon,             ats: greenhouse, board: axon, seed_only: true}             # body cams / video CV / drones; ~513
-- {name: Magic Leap,       ats: greenhouse, board: magicleap}                         # AR; ~11 (mostly fab roles currently)
+# Magic Leap disabled 2026-09-11: the greenhouse board 404s AND their own careers site is
+# down — magicleap.com/careers 301s to resources.magicleap.cloud/careers, which returns a
+# Next.js "Application error: a server-side exception has occurred" in a real browser. So
+# there is no board to point at yet, not merely a moved slug. Re-check when that page loads.
+# - {name: Magic Leap,       ats: greenhouse, board: magicleap}                       # AR; ~11 (mostly fab roles currently)
 
 # Interest expansion 2026-07-16: AI infrastructure plus internationally known software.
 # Every board returned nonzero jobs and was identity-checked from live title samples.
@@ -229,10 +246,13 @@
 - {name: Mashgin,        ats: lever, org: mashgin}         # checkout CV (Palo Alto); ~15 (some Brazil)
 - {name: Hive,           ats: lever, org: hive}            # content-moderation / media CV (SF); ~75
 - {name: DroneDeploy,    ats: lever, org: dronedeploy}     # drone mapping CV; ~10 US + AU/NZ
-# Landing AI shares AI Fund's Lever org; the ?department= filter scopes it to Landing AI only
-# (bare AIFund would mislabel the whole Andrew Ng portfolio). Works because the fetcher appends
-# &mode=json via params.
-- {name: Landing AI,     ats: lever, org: "AIFund?department=LandingAI"}  # manufacturing CV; ~5 (Mountain View)
+# Landing AI disabled 2026-09-11: it shared AI Fund's Lever org and the ?department= filter
+# scoped it to Landing AI only (bare AIFund would mislabel the whole Andrew Ng portfolio).
+# That department no longer exists — the board's 43 live rows carry only "AI Fund",
+# "Deeplearning AI" and "LearnVector" — so the filter returns 0 rows SILENTLY rather than
+# 404ing. Re-enable if a LandingAI department reappears; tracking the other two departments
+# would be a new entry, not a fix to this one.
+# - {name: Landing AI,     ats: lever, org: "AIFund?department=LandingAI"}  # manufacturing CV; ~5 (Mountain View)
 # Interest expansion 2026-07-16.
 - {name: ANYbotics,      ats: lever, org: anybotics}                    # industrial inspection robots; ~17
 - {name: Lumafield,      ats: lever, org: lumafield}                    # industrial CT / 3D vision; ~14
@@ -281,7 +301,7 @@
 - {name: Sierra,     ats: ashby, org: sierra, seed_only: true}      # enterprise AI agents; ~159
 - {name: Modal,      ats: ashby, org: modal}                         # serverless AI compute; ~33
 - {name: Baseten,    ats: ashby, org: baseten}                       # model inference; ~71
-- {name: Fireworks AI, ats: ashby, org: fireworksai}                 # inference/research; ~37
+- {name: Fireworks AI, ats: ashby, org: fireworks}                   # inference/research; ~72 (org was "fireworksai" until it 404'd 2026-09-10)
 - {name: Pika,       ats: ashby, org: pika}                          # generative video; ~10
 - {name: Etched,     ats: ashby, org: etched}                        # transformer inference chips; ~96
 - {name: Tractable,  ats: ashby, org: tractable}                     # insurance computer vision; ~4
@@ -407,7 +427,9 @@
 - {name: Verizon, ats: workday, host: verizon.wd12.myworkdayjobs.com, tenant: verizon, site: verizon-careers, seed_only: true}  # ~1086
 - {name: Roche, ats: workday, host: roche.wd3.myworkdayjobs.com, tenant: roche, site: roche-ext, seed_only: true}  # ~1261 global
 - {name: Costco, ats: jibe, host: careers.costco.com, seed_only: true}  # ~26k warehouse-flood
-- {name: Comcast, ats: workday, host: comcast.wd5.myworkdayjobs.com, tenant: comcast, site: Comcast_Careers, seed_only: true}  # ~833
+# Comcast moved data centres, wd5 -> wd115 (wd5 now answers 410 Gone, not 404); tenant and
+# site unchanged. jobs.comcast.com is the page that leaks the new host. Verified ~690 rows.
+- {name: Comcast, ats: workday, host: comcast.wd115.myworkdayjobs.com, tenant: comcast, site: Comcast_Careers, seed_only: true}  # ~690
 - {name: Copart, ats: workday, host: copart.wd12.myworkdayjobs.com, tenant: copart, site: Copart, seed_only: true}  # ~295 (Dallas HQ tech)
 - {name: Bayer, ats: eightfold, host: talent.bayer.com, domain: bayer.com, api: legacy, seed_only: true}  # ~679; PCSX gated, legacy open
 
@@ -615,7 +637,11 @@
 
 # --- Avature (plain-HTTP portals only — Siemens' is JS-gated. Ordering NOT newest-first ->
 #     bounded full-board fetch each run; heavier than other sources) ---
-- {name: TSMC,   ats: avature, host: careers.tsmc.com, seed_only: true}  # ~679 (Arizona/Washington US fabs; TW-heavy)
+# TSMC needs the per-company `timeout`: its full-board pull measured ~116s for 757 rows, so
+# the 20s request_timeout read-timed-out mid-pagination. Raising the GLOBAL timeout instead
+# would make every dead host hold a fetch worker for 150s. It also 403s intermittently, which
+# no timeout fixes — a warning-only miss, same as before.
+- {name: TSMC,   ats: avature, host: careers.tsmc.com, timeout: 150, seed_only: true}  # ~757 (Arizona/Washington US fabs; TW-heavy)
 # Lenovo verified newest-first -> early-stop pagination (board >1200 rows, past its own "999"
 # display cap; full-board mode would need >120 pages per run).
 - {name: Lenovo, ats: avature, host: jobs.lenovo.com, newest_first: true, seed_only: true}
