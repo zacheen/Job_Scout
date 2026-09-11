@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Adyen:8068230,Adyen,Full-Stack Developer - Junior - Docs Experience Engineering Team,"Chicago, IL",,https://job-boards.greenhouse.io/adyen/jobs/8068230,,,2026-09-12T15:40:56+00:00,2026-09-12 08:40 Sat,Software Engineering,true,Keyword,56,僅以關鍵字比對評分（只比對職稱）,true,speedyapply:SpeedyApply SWE:8068230,

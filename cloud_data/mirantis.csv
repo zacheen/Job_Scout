@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Mirantis:3cf2989b-3ddf-42e1-9cab-51ba4f0c682a,Mirantis,Software Engineer,"Raleigh, NC",Software,https://jobs.smartrecruiters.com/Mirantis/744000149065869,2026-09-11,2026-09-11,2026-09-11T22:41:16+00:00,2026-09-11 15:41 Fri,Software Engineering,true,Keyword,56,僅以關鍵字比對評分（只比對職稱）,true,simplify:Simplify New Grad:3cf2989b-3ddf-42e1-9cab-51ba4f0c682a,2026-09-11

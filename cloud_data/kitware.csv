@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Kitware:dbaac56b-26b2-43b9-8ae3-354b6662ea89,Kitware,Software Developer,"Clifton Park, NY",Software,https://jobs.lever.co/kitware/dbaac56b-26b2-43b9-8ae3-354b6662ea89/apply,2026-09-13,2026-09-13,2026-09-13T02:41:07+00:00,2026-09-12 19:41 Sat,Software Engineering,true,Keyword,56,僅以關鍵字比對評分（只比對職稱）,true,simplify:Simplify New Grad:dbaac56b-26b2-43b9-8ae3-354b6662ea89,2026-09-13
