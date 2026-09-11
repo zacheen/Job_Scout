@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Nerdio:5f62b02a-d87f-4a82-9762-6fdf7588a8f1,Nerdio,Solutions Engineer - Early Career,Remote in USA,Software,https://ats.rippling.com/nerdio-careers/jobs/0b82e6f3-fd54-40d7-996a-ca02b4c67f67,2026-08-28,2026-08-28,2026-09-12T15:16:50+00:00,2026-09-12 08:16 Sat,Other Technical,true,Keyword,56,僅以關鍵字比對評分（只比對職稱）,true,simplify:Simplify New Grad:5f62b02a-d87f-4a82-9762-6fdf7588a8f1,2026-08-28
