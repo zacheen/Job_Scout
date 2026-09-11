@@ -25,7 +25,7 @@ class Job:
     description: str
     department: str = ""
     date_posted: str = ""
-    # Pipeline-derived caveat shown in the email (e.g. "possibly no visa sponsorship");
+    # Pipeline-derived caveat shown in the email (e.g. "possibly no employer sponsorship");
     # never persisted (CsvStore's fixed _FIELDS ignore it).
     note: str = ""
     # Readable stand-in for `location`, populated only by WorkdayFetcher's multi-site
