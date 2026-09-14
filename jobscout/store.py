@@ -43,14 +43,11 @@ _FIELDS = [
     "experience_score", "reason", "emailed", "source_uids", "source_dates",
 ]
 
-# Fields describing the posting itself; on merge the newer snapshot wins. Two kinds of
-# field are deliberately NOT here: "company", which merge_rows decides by source authority
-# rather than recency (see _merge_company), and the two date_posted columns, where recency
-# alone lets a dateless source erase a real date (see _merge_posted).
+# Free-text fields describing the posting itself; on merge the FULLER value wins (_fuller).
+# "company" is deliberately NOT here: it picks by source authority first (_merge_company).
 _CONTENT_FIELDS = ("title", "location", "department")
-# The board's posting date and its parse. Merged as a block so the raw string and the ISO
-# it parsed to can never come from different sides, and won by whichever side HAS a date
-# rather than by recency (see _merge_posted).
+# The raw posting-date string and its ISO parse, merged as one block (never split across
+# sides) and won by the EARLIEST date, not recency (see _merge_posted).
 _DATE_FIELDS = ("date_posted", "date_posted_iso")
 # Fields written together by one scoring pass; on merge they move as a block.
 _SCORE_FIELDS = ("scored", "score_method", "experience_score", "reason")
@@ -149,17 +146,59 @@ def _uid_dates(row: dict) -> dict[str, str]:
     return dict(zip(uids, dates))
 
 
-def _merge_posted(existing: dict, newer: dict, older: dict) -> None:
-    """Settle the row's own posting date, both columns as one block.
+def _merge_posted(existing: dict, incoming: dict) -> None:
+    """Settle the row's own posting date, both columns as one block: EARLIEST dated side
+    wins, a dateless side never does. Takes no newer/older split because the rule is
+    order-independent, which is half its point.
 
-    Recency is wrong for this field: a source that exposes no posting date reports "" for
-    EVERY role, so the newer snapshot winning lets it erase whatever date the other source
-    supplied, and next run that source reads its own date back as re-stamped and restores
-    it, forever (measured 2026-09-09: ~1.7k rows flipping every run). Moved as a block so
-    the raw string and the ISO it parsed to can never come from different sides."""
-    dated = newer if newer["date_posted_iso"] else older
+    Recency is wrong here twice over. A dateless source reports "" for every role, so
+    letting the newer snapshot win erases the other source's real date — which then
+    reads back as re-stamped and gets restored forever (measured 2026-09-09: ~1.7k rows
+    flipping every run). And between two DATED sides, the later one is less accurate:
+    relative wording ("Posted 30+ Days Ago" -> today-30, dates.posted_iso) and
+    Greenhouse's updated_at both drift forward on every re-observation, so ledgers run at
+    different cadences disagree by exactly that drift.
+
+    Earliest also makes the rule COMMUTATIVE, unlike recency: `first_seen` is min-merged,
+    so ~89% of shared rows across the two shard dirs already share a first_seen, and
+    merge_rows' newer/older tie then falls back to absorb order — local_run.py folds
+    local->cloud, merge_seen_jobs.py folds cloud->local, so the same row picked a
+    different date depending on which direction ran (measured 2026-09-12: 8388 rows).
+    min over a monotone value is direction-independent and idempotent, so both dirs
+    converge.
+
+    Ranked instead of min()'d directly on the ISO, because "" sorts lexicographically
+    below every real date — a plain min(iso) would let the dateless side win."""
+    def rank(row: dict) -> tuple:
+        iso, raw = row["date_posted_iso"], row["date_posted"]
+        # `not iso` ranks any dated side above a dateless one; between two dateless
+        # sides, an unparsed raw string still beats "" as the only sign the board
+        # displayed anything (dates._warn_unparsed already logs it).
+        return (not iso, iso, not raw, raw)
+
+    chosen = min(existing, incoming, key=rank)
     for field in _DATE_FIELDS:
-        existing[field] = dated[field]
+        existing[field] = chosen[field]
+
+
+def _fuller(left: str, right: str) -> str:
+    """The more informative of two free-text values for the same posting (_CONTENT_FIELDS,
+    and _merge_company's fallback). Needed for the same reason _merge_posted moved off
+    recency: absorb-order ties differ by fold direction, so these fields were flipping
+    between the two shard dirs with no content change (measured 2026-09-12: 1502 + 966 +
+    786 rows), and an aggregator that omits a field entirely erased it outright (26 rows).
+
+    Longer wins because the shorter value is almost always an aggregator's truncation of
+    the native board's ("Backend and Infra Software Engineer Graduate (Dev Infra US) -
+    2027 Start" vs Simplify's shortened form; "San Jose, California, United States of
+    America" vs "San Jose, CA"). This also lets UI noise through ("Raleigh-Durham, NC
+    +1") — the accepted cost of a rule that needs no source attribution, since by the
+    time two merged rows meet both carry the union of source_uids and neither value can
+    be traced back to the fetcher that reported it.
+
+    The value itself is the last rank key only to make equal-length ties deterministic;
+    without it, those would fall back to argument order."""
+    return max(left, right, key=lambda v: (bool(v.strip()), len(v.strip()), v))
 
 
 def _merge_sources(existing: dict, incoming: dict, newer: dict, older: dict) -> list[str]:
@@ -217,9 +256,9 @@ def _reported_companies(uids: list[str]) -> set[str]:
     return names
 
 
-def _merge_company(newer_company: str, older_company: str, uids: list[str]) -> str:
-    """Employer name for a merged row: the one a NATIVE fetcher reported, else
-    `newer_company` (what _CONTENT_FIELDS-style recency would have picked).
+def _merge_company(left_company: str, right_company: str, uids: list[str]) -> str:
+    """Employer name for a merged row: the one a NATIVE fetcher reported, else the fuller
+    spelling (_fuller).
 
     Recency alone is wrong here because save() files a row under its CURRENT company, so
     a role that both a campus board and an aggregator list would migrate between the two
@@ -227,11 +266,14 @@ def _merge_company(newer_company: str, older_company: str, uids: list[str]) -> s
     (2026-08-20: 7 rows, e.g. Tenstorrent vs Tenstorrent University). companies.yaml's
     spelling is authoritative; an aggregator's per-row employer name is free text.
 
-    Two natively-reported names both stay eligible, so recency still breaks that tie —
-    Amazon and Amazon Interns are separate boards that really do both list one req."""
+    This field decides the SHARD FILENAME, so an order-dependent pick moves rows between
+    files every fold and leaves orphan shards behind (2026-09-12: 35 rows, e.g. Old Mission
+    vs Old Mission Capital). _fuller settles the no-native and two-native cases alike —
+    Amazon vs Amazon Interns are still genuinely separate boards for one req — without
+    needing order."""
     reported = _reported_companies(uids)
-    native = [name for name in (newer_company, older_company) if name.strip() in reported]
-    return native[0] if len(native) == 1 else newer_company
+    native = [name for name in (left_company, right_company) if name.strip() in reported]
+    return native[0] if len(native) == 1 else _fuller(left_company, right_company)
 
 
 def row_sort_key(row: dict) -> tuple[str, str, str, str]:
@@ -298,10 +340,9 @@ class CsvStore:
     def seen_ledger(self) -> SeenLedger:
         """known_uids(), each uid's recorded posting date (SeenLedger.seen_snapshot), and
         each company's newest first_seen date — the cutoff a date-ordered fetcher pages down
-        to. The watermark is built from first_seen, not date_posted: merge_rows lets
-        date_posted be rewritten by whichever side HAS a date (_DATE_FIELDS) but only ever
-        pulls first_seen earlier (min-merge), so it's the one timestamp guaranteed not to
-        drift forward on us.
+        to. The watermark uses first_seen, not date_posted: both are min-merged now, but
+        date_posted is blank on every dateless source (_merge_posted), so those companies
+        would get no watermark and re-page their whole board every run.
         Built per company namespace, so one stale company catches up without making every
         other company page deeper."""
         watermarks: dict[str, str] = {}
@@ -376,14 +417,27 @@ class CsvStore:
     def merge_rows(self, existing: dict, incoming: dict) -> dict:
         """Fold `incoming` into `existing` (same opening seen again) and return it.
         existing's job_key stays: identity never changes after creation. Re-indexes
-        itself, so merged-in urls/uids are immediately findable."""
+        itself, so merged-in urls/uids are immediately findable.
+
+        Every rule below is order-independent except _merge_sources, the last reader of
+        newer/older, because source_dates is the one column that MUST track the latest
+        observation (seen_snapshot compares against it). Even that split is weak evidence —
+        first_seen's min-merge already ties ~89% of shared rows, so >= just picks whichever
+        side was absorbed second (see _merge_posted)."""
+        # newer/older ALIAS existing/incoming, not a snapshot, so this must run before any
+        # field below is rewritten — first_seen's min-merge especially would make >= always
+        # true and void the split.
         if incoming["first_seen"] >= existing["first_seen"]:
             newer, older = incoming, existing
         else:
             newer, older = existing, incoming
+        uids = _merge_sources(existing, incoming, newer, older)
+
         for field in _CONTENT_FIELDS:
-            existing[field] = newer[field]
-        _merge_posted(existing, newer, older)
+            existing[field] = _fuller(existing[field], incoming[field])
+        _merge_posted(existing, incoming)
+        # Needs the uid union above: the decision reads the uids of BOTH rows.
+        existing["company"] = _merge_company(existing["company"], incoming["company"], uids)
 
         seen_dates = [d for d in (existing["first_seen"], incoming["first_seen"]) if d]
         existing["first_seen"] = min(seen_dates) if seen_dates else ""
@@ -391,10 +445,6 @@ class CsvStore:
         old_urls = _split_multi(existing["urls"])
         new_urls = [u for u in _split_multi(incoming["urls"]) if u not in old_urls]
         existing["urls"] = _join_multi(new_urls + old_urls)  # newest first
-
-        uids = _merge_sources(existing, incoming, newer, older)
-        # Must follow the uid union: the decision needs the uids of BOTH rows.
-        existing["company"] = _merge_company(newer["company"], older["company"], uids)
 
         if _score_rank(incoming) < _score_rank(existing):
             for field in _SCORE_FIELDS:
