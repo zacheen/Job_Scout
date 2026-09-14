@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Observe.AI:5383979008,Observe.AI,Software Engineer I - AI Agents,"Redwood City, CA",,https://www.observe.ai/position?gh_jid=5383979008,,,2026-09-16T16:41:16+00:00,2026-09-16 09:41 Wed,AI / ML,true,Keyword,64,僅以關鍵字比對評分（只比對職稱）,true,speedyapply:SpeedyApply SWE:5383979008,
