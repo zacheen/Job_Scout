@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+VTG:7ddc7aa1-3dff-410d-99d2-fc276ae93037,VTG,Web Developer,"Chantilly, VA",Software,https://careers.vtgdefense.com/jobs/9554?icims=1,2026-09-14,2026-09-14,2026-09-14T20:17:08+00:00,2026-09-14 13:17 Mon,Other Technical,true,Keyword,48,僅以關鍵字比對評分（只比對職稱）,false,simplify:Simplify New Grad:7ddc7aa1-3dff-410d-99d2-fc276ae93037,2026-09-14
