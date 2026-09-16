@@ -296,7 +296,12 @@ class Pipeline:
         scorer = self._scorer_overrides.get(self._leveler.group(job), self._scorer)
         try:
             return _ScoreAttempt(job, track, scorer.score(job), scorer.method_label)
-        except Exception as exc:  # unscored rows remain unseeded; retry next run
+        except Exception as exc:
+            # WARNING, not INFO: this loses the role for good. run() already recorded every
+            # fetched uid via add_seen above, so next run reads it as seen, it never returns
+            # to new_candidates, and nothing anywhere re-scores a scored="false" row (that
+            # column is read only by store._score_rank, to settle merges). _LlmScorer
+            # retries an unparseable answer itself precisely because reaching here is final.
             log.warning("could not score %s: %s", job.job_uid, exc)
             return _ScoreAttempt(job, track, None, scorer.method_label)
 
