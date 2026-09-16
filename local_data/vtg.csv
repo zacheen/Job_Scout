@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+VTG:7ddc7aa1-3dff-410d-99d2-fc276ae93037,VTG,Web Developer,"Chantilly, VA",Software,https://careers.vtgdefense.com/jobs/9554?icims=1,2026-09-14,2026-09-14,2026-09-16T17:21:59+00:00,2026-09-16 10:21 Wed,Other Technical,true,CLI:claude,3,此職缺為Web Developer職位，與候選人專精的Computer Vision及ML演算法背景完全不符，且職缺描述為空缺乏更多資訊，故適配度極低。,false,simplify:Simplify New Grad:7ddc7aa1-3dff-410d-99d2-fc276ae93037,2026-09-14

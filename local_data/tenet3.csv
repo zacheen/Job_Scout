@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Tenet3:8810809002,Tenet3,Junior Frontend Software Engineer- Hybrid,"Dayton, OH",,https://job-boards.greenhouse.io/tenet3/jobs/8810809002,,,2026-09-16T17:21:59+00:00,2026-09-16 10:21 Wed,Software Engineering,true,CLI:claude,5,候選人為具5年經驗的Computer Vision/ML工程師，與此Junior Frontend Software Engineer職缺的技能領域完全不符，故評分極低。,false,speedyapply:SpeedyApply SWE:8810809002,

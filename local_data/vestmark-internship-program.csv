@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Vestmark Internship Program:8204511,Vestmark Internship Program,Software Engineer Co-op,"Boston, MA",,https://job-boards.greenhouse.io/internrecruiting/jobs/8204511,,,2026-09-16T17:21:59+00:00,2026-09-16 10:21 Wed,Software Engineering,true,CLI:claude,35,職缺描述為空且僅為一般性 Software Engineer Co-op 職位，與候選人專精的 Computer Vision 與 ML 背景關聯度低，僅能依其整體軟體工程基礎給予中等偏低的適配分數。,false,speedyapply:SpeedyApply SWE:8204511,
