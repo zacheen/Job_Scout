@@ -12,7 +12,10 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 # Query params that never change WHICH posting a link opens (attribution junk
 # aggregators append, e.g. "?utm_source=Simplify&ref=Simplify"). utm_* is matched
 # as a prefix separately.
-_TRACKING_PARAMS = frozenset({"ref", "gh_src", "lever-source", "source", "src"})
+# "embed" is the odd one out: a render flag, not attribution. Ashby serves one posting
+# at both /{uuid} and /{uuid}/application?embed=true; _FORM_SUFFIXES folds the path
+# suffix, but the leftover embed= param alone still split the two into separate keys.
+_TRACKING_PARAMS = frozenset({"ref", "gh_src", "lever-source", "source", "src", "embed"})
 
 # ByteDance "atsx" portal family: the SAME posting id is served on several JD
 # domains (corporate + TikTok, see ByteDanceFetcher) — collapsed to one key so
@@ -40,8 +43,9 @@ def canon_url(url: str) -> str:
     proven duplicate groups merged, none split; 2026-07-12 gh_jid-into-path folding below:
     ~44k URLs checked, none split, all prior merges preserved; 2026-08-04 lever/ashby
     form-suffix folding: 298 ledger URLs folded, every merged group shares one posting
-    UUID). Boards like Agility's, where gh_jid is the only distinguisher, stay distinct
-    as {id}-suffixed paths."""
+    UUID; 2026-09-16 embed= dropping: 300624 ledger URLs checked, 514 keys changed, 60
+    groups merged, none spanning two posting UUIDs). Boards like Agility's, where gh_jid
+    is the only distinguisher, stay distinct as {id}-suffixed paths."""
     parts = urlsplit(url.strip())
     host = parts.netloc.lower()
     path = parts.path.rstrip("/")
