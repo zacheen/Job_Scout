@@ -229,9 +229,10 @@ class Settings:
         return Company(name=name, ats=ats, seed_only=seed_only,
                        params={k: str(v) for k, v in entry.items()})
 
-    @staticmethod
-    def _to_cli_tools(cfg: dict) -> list[CliTool]:
-        """`llm_clis` in config order, which is build_scorer's try-order for the CLI tier."""
+    @classmethod
+    def _to_cli_tools(cls, cfg: dict) -> list[CliTool]:
+        """`llm_clis` in config order, which is build_scorer's try-order for the CLI tier
+        unless LLM_CLIS overrides it (see `_reorder_cli_tools`)."""
         if "gpt_cli" in cfg or "gpt_cli_args" in cfg:
             # Fail fast, for the same reason _to_track rejects the removed 'threshold' key:
             # a config still carrying these keys (e.g. one merged in from `main`) would
@@ -264,7 +265,34 @@ class Settings:
                     f"({type(raw_args).__name__}); wrap even a single flag in [...]")
             tools.append(CliTool(cmd=override or cmd,
                                  args=tuple(str(a) for a in raw_args)))
-        return tools
+        return cls._reorder_cli_tools(tools)
+
+    @staticmethod
+    def _reorder_cli_tools(tools: list[CliTool]) -> list[CliTool]:
+        """LLM_CLIS overrides both the try-order AND the membership of `llm_clis`.
+
+        Comma-separated CliTool names, best first: "claude,agy" tries claude and falls
+        back to agy, while "claude" alone leaves Claude as the only CLI tier (a name left
+        out is dropped, not appended). Unset or blank keeps config order.
+
+        It lives in the environment so switching scorer is a .env edit rather than a
+        commit to config.yaml, and because .env is per-machine the cloud runner — which
+        installs none of these CLIs and scores through OPENAI_API_KEY — cannot see it.
+        """
+        wanted = [name for raw in os.getenv("LLM_CLIS", "").split(",")
+                  if (name := raw.strip().lower())]
+        if not wanted:
+            return tools
+        by_name = {t.name.lower(): t for t in tools}
+        if unknown := [n for n in wanted if n not in by_name]:
+            # Raise rather than skip the name: dropping it would shrink the list toward
+            # empty and silently score the whole run keyword-only, the same failure the
+            # gpt_cli guard above exists to prevent — except a typo in .env cannot be
+            # caught by reading config.yaml.
+            raise ValueError(
+                f"LLM_CLIS names no llm_clis entry: {', '.join(unknown)}; "
+                f"config.yaml defines {', '.join(sorted(by_name))}")
+        return [by_name[n] for n in wanted]
 
     @staticmethod
     def _to_track(entry: dict) -> Track:

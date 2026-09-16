@@ -18,17 +18,32 @@ reasoning_effort: "medium"
 # the prompt, which is appended as the last argv element (so a prompt flag taking a value,
 # like agy's -p, goes last; codex takes it positionally after `exec`). `path_env` names an
 # env var holding a full path, for a machine where that CLI isn't on PATH.
+# The env var LLM_CLIS reorders and filters this list per machine without editing the file
+# — `LLM_CLIS=claude,agy` tries those two in that order, `LLM_CLIS=claude` makes Claude the
+# only tier. An unset LLM_CLIS uses the order below. See Settings._reorder_cli_tools.
+# claude is first because it is the only tier here billed through a subscription rather
+# than per-token. Its flags are not interchangeable with the obvious alternatives:
+# `--safe-mode` (skips CLAUDE.md discovery, MCP servers, hooks and skills) cut a measured
+# 15.0s per job to 7.9s, and it must NOT be swapped for `--bare`, which looks stricter but
+# forces auth through ANTHROPIC_API_KEY and so breaks a subscription OAuth login outright.
+# `--no-session-persistence` stops one transcript file being written per scored job, and
+# `--disable-slash-commands` covers a JD body line starting with "/" — safe-mode disables
+# custom skills but not claude's built-in commands, so that risk survives it.
 # agy is the Antigravity CLI: `--model gemini-3.8-flash-low` pins its cheap tier (the
 # reasoning effort is part of the model id there, so --effort would be redundant) and
 # `--disable-slash-commands` keeps a JD body whose line starts with "/" from being
 # expanded as a slash command. `agy models` lists the ids.
-# codex stays second: `-c model=gpt-5.6-luna` pins its fast/cheap tier for this rating
+# codex stays last: `-c model=gpt-5.6-luna` pins its fast/cheap tier for this rating
 # task, overriding whatever model codex's own config.toml defaults to, and
 # `-c model_reasoning_effort=low` likewise overrides its reasoning default (e.g. xhigh) —
 # a simple rating doesn't need more, and low is far faster/cheaper.
 # Senior-group roles (see senior_terms) are dropped before scoring (unless a referral
 # company claims them first), so they never reach this scorer — wired in __main__.
 llm_clis:
+  - cmd: "claude"
+    args: ["--model", "sonnet", "--safe-mode", "--no-session-persistence",
+           "--disable-slash-commands", "-p"]
+    path_env: "CLAUDE_CLI"
   - cmd: "agy"
     args: ["--model", "gemini-3.8-flash-low", "--disable-slash-commands", "-p"]
     path_env: "AGY_CLI"
