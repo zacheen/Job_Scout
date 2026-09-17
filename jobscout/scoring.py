@@ -107,19 +107,58 @@ class _LlmScorer(ABC):
 
     scale = ScoreScale.LLM
 
+    # Total parse-attempts. Failing them all costs the role permanently: add_seen
+    # records every fetched uid BEFORE scoring, so a job that never parses is
+    # already "seen" next run and never becomes a candidate again.
+    _PARSE_ATTEMPTS = 2
+
     def __init__(self, resume_text: str, max_description_chars: int):
         self._resume = resume_text
         self._max_description_chars = max_description_chars
 
     def score(self, job: Job) -> Score:
-        system = _SYSTEM.format(resume=self._resume)
-        scored = _parse_score(self._invoke(system, self._job_blob(job)), self.scale)
+        scored = self._parsed_with_retry(job)
         if scored.work_auth_barrier:
             # Logged because reaching this means PreFilter's term list missed the wording:
             # the job is a candidate for a new exclude_description_terms row.
             log.info("work-auth barrier flagged by LLM, PreFilter did not: %s (%s)",
                      job.title, job.url)
         return scored
+
+    def _parsed_with_retry(self, job: Job) -> Score:
+        """Re-ask when the answer will not parse, which is a DIFFERENT failure from the
+        transport errors `_invoke` already owns — only ValueError is caught here.
+
+        A truncated answer (CLI exits 0, JSON cut off mid-string) is non-deterministic:
+        measured once in 1351 roles on 2026-09-16 and not reproducible in 8 re-runs of that
+        same job, so a second call lands. Retrying `_invoke`'s own failures instead would
+        be wasted work — OpenAiScorer already backs off internally, and CliScorer's
+        non-zero exit is deterministic. It is also what an exhausted
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS looks like, so a real output-limit hit raises
+        RuntimeError from the exit-code check and never reaches this retry.
+
+        That inner backoff MULTIPLIES with this loop rather than replacing it: raising
+        either constant raises the worst case to `_PARSE_ATTEMPTS * _max_retries` real API
+        calls per job, today 2*3 = 6 for OpenAiScorer and 2 for CliScorer, which has no
+        inner loop.
+        """
+        system = _SYSTEM.format(resume=self._resume)
+        blob = self._job_blob(job)
+        for attempt in range(1, self._PARSE_ATTEMPTS + 1):
+            try:
+                return _parse_score(self._invoke(system, blob), self.scale)
+            except ValueError as exc:
+                if attempt == self._PARSE_ATTEMPTS:
+                    raise
+                # INFO, not DEBUG: both entry points pin basicConfig to INFO, so DEBUG would
+                # stay silent — hiding a rising failure rate, which would mean the prompt or
+                # model changed, not that one response got unlucky.
+                log.info("unparseable scorer output for %s (attempt %d/%d), retrying: %s",
+                         job.job_uid, attempt, self._PARSE_ATTEMPTS, exc)
+        # Only reachable when the range above is empty, so it names that cause rather than
+        # claiming to be unreachable. A plain `assert` would vanish under -O, taking the
+        # guard against falling off the end and returning None with it.
+        raise AssertionError(f"_PARSE_ATTEMPTS must be >= 1, got {self._PARSE_ATTEMPTS}")
 
     def _job_blob(self, job: Job) -> str:
         return (
