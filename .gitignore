@@ -23,3 +23,6 @@ local_run.lock
 pack_garbage.txt
 
 ignore_*
+# Register of accepted issues a test run should not re-flag — local only,
+# and deliberately not on the public repo (same reason as Todo.md above).
+Known_issue.md
