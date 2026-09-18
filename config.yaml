@@ -79,6 +79,19 @@ description_truncation_marks:
 # the time one takes alone (~5.5s).
 score_workers: 5
 
+# How many JD detail pages to fetch concurrently in the enrich stage (1 = sequential, the
+# behaviour before 2026-09-18). Does NOT loosen politeness: HttpClient paces per HOST
+# (fetchers._HostPacer), admitting one request per board at a time and re-arming
+# request_delay_min..max on COMPLETION, so the rate any single board sees is identical at
+# 1 worker or at 8. What raising it buys is that one board's wait no longer blocks a
+# request to a different board — that cross-host blocking was the stage's whole cost:
+# 3916 candidates took 81 minutes at 1 worker.
+# Set to 8 to match ParallelFetcher's default: the ceiling worth having is the number of
+# distinct hosts in flight, and per-host pacing binds past that anyway. This is NOT the
+# lever for one slow board; only a lower request_delay_* raises the rate a board actually
+# sees (the fetch stage already draws 429s from Qualcomm and Microsoft at this pacing).
+enrich_workers: 8
+
 # HTTP behaviour for the ATS fetchers.
 request_timeout: 20
 user_agent: "job-scout/1.0 (+https://github.com/)"

@@ -72,7 +72,16 @@ class Router(Protocol):
 
 
 class Leveler(Protocol):
-    def group(self, job: Job) -> str: ...
+    def group(self, job: Job) -> str:
+        """The job's top-level email group.
+
+        Implementations may read only fields that exist BEFORE enrichment — company and
+        title, never description. Pipeline.run() groups jobs twice against one call each:
+        once before the enrich stage, to drop suppressed groups without paying for their
+        detail fetches, and again when building the digest. A group() that read the
+        description would answer differently across those two points, silently splitting
+        a role's suppression decision from its rendered section."""
+
     def ordered_groups(self) -> list[str]: ...  # listed top-to-bottom in the email
 
 

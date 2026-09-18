@@ -39,13 +39,14 @@ class Pipeline:
         scorer: JobScorer,
         notifier: Notifier,
         score_workers: int = 1,
+        enrich_workers: int = 1,
         seed_only_prefixes: Collection[str] = (),
         scorer_overrides: Mapping[str, JobScorer] | None = None,
         suppressed_groups: Collection[str] = (),
         subject_time: datetime | None = None,
     ):
-        if score_workers < 1:
-            raise ValueError(f"score_workers must be >= 1, got {score_workers}")
+        self._score_workers = self._require_positive("score_workers", score_workers)
+        self._enrich_workers = self._require_positive("enrich_workers", enrich_workers)
         self._store = store
         self._fetcher = fetcher
         self._prefilter = prefilter
@@ -56,7 +57,6 @@ class Pipeline:
         self._leveler = leveler
         self._scorer = scorer
         self._notifier = notifier
-        self._score_workers = score_workers
         # uid prefixes of sources that seed silently on their first appearance (see run()).
         self._seed_only_prefixes = tuple(seed_only_prefixes)
         # Per-group scorer overrides: a job whose leveler group is listed here is scored
@@ -69,6 +69,15 @@ class Pipeline:
         # passes its scan-start time so the subject matches the footer's
         # deletable-window end exactly (one cutoff for the user).
         self._subject_time = subject_time
+
+    @staticmethod
+    def _require_positive(name: str, value: int) -> int:
+        """Shared by both pool sizes, so a third one couldn't skip this check silently —
+        ThreadPoolExecutor itself only rejects 0, and only at submit time, deep inside a
+        stage."""
+        if value < 1:
+            raise ValueError(f"{name} must be >= 1, got {value}")
+        return value
 
     def run(self) -> bool:
         """Returns True once this run's findings are durably saved to the ledger.
@@ -113,19 +122,25 @@ class Pipeline:
             log.info("no new roles this run")
             return True
 
-        # Enrich + annotate only the genuinely new candidates (steady-state runs mostly
-        # refetch already-known jobs), and only after the seeding early-returns above —
-        # enrichment costs one network call per job. Enriched/annotated copies flow only
-        # to the email path; add_seen above recorded the originals from all_jobs.
-        new_candidates = [self._annotate(j) for j in self._enrich_and_refilter(new_candidates)]
-        if not new_candidates:
-            self._store.save()
-            log.info("all new roles dropped on their detail-fetched text")
-            return True
-
+        # URL dedup and group suppression run BEFORE enrichment (the only stage costing a
+        # network call per job), because both decide on fields enrichment cannot touch:
+        # `url`/`job_uid` via `_same_identity`, company/title via `Leveler.group`. That
+        # ordering stops the enrich stage paying for roles about to be thrown away — on
+        # 2026-09-16 it enriched all 3916 new candidates to reach only 1724 emailable ones.
+        #
+        # One behaviour narrows from this reordering: a duplicate-URL twin the detail
+        # re-filter would have dropped no longer leaves its sibling in its place, since the
+        # sibling is discarded here first — resting on `_emailable`'s source-independence
+        # assumption that one canon_url is one posting judged on shared detail-fetched text.
+        #
         # Email dedup is by URL (not uid): same job via another source/prior run is skipped.
         # Early-stop dedup stays per-source by uid, so this never affects pagination.
         emailable = self._emailable(new_candidates, known_urls)
+        if deduped := len(new_candidates) - len(emailable):
+            # Logged because nothing else reveals it and it sizes the enrich stage's real
+            # input: the count was previously invisible unless it happened to reach zero.
+            log.info("dropped %d new role(s) already in the ledger by URL (another source)",
+                     deduped)
         if not emailable:
             self._store.save()
             log.info("%d new roles, all already in the ledger by URL (another source)", len(new_candidates))
@@ -137,6 +152,15 @@ class Pipeline:
             self._store.save()
             log.info("%d emailable (of %d new), all in suppressed groups (e.g. senior at a non-referral company)",
                      before_suppress, len(new_candidates))
+            return True
+
+        # Enrich + annotate only what can still be emailed, and only after the seeding
+        # early-returns above. Enriched/annotated copies flow only to the email path;
+        # add_seen above recorded the originals from all_jobs.
+        emailable = [self._annotate(j) for j in self._enrich_and_refilter(emailable)]
+        if not emailable:
+            self._store.save()
+            log.info("all new roles dropped on their detail-fetched text")
             return True
 
         by_track = self._score_by_track(emailable)
@@ -201,24 +225,43 @@ class Pipeline:
         (a no-op for most sources), then re-run the prefilter on the touched jobs: exclude
         boilerplate (e.g. "no visa sponsorship") often lives only in the detail text that
         the listing API omitted. Enrichment fails open (Enricher contract), so a fetch
-        error just leaves a job on its listing-level text."""
-        if self._enricher is None:
+        error just leaves a job on its listing-level text.
+
+        Only the network call is fanned out. `pool.map` preserves input order, so the kept
+        list, the drop log and the digest built from them stay byte-identical however the
+        requests interleave — this stage must not become a source of run-to-run variation.
+        Raising the worker count does NOT raise the rate any single board sees, because
+        HttpClient paces per host (fetchers._HostPacer); what it removes is one host's
+        wait blocking an unrelated host's request.
+        """
+        if self._enricher is None or not jobs:
             return jobs
+        workers = min(self._enrich_workers, len(jobs))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            enriched = list(pool.map(self._enrich_one, jobs))
         kept = []
-        for job in jobs:
-            try:
-                enriched = self._enricher.enrich(job)
-            except Exception as exc:  # enricher broke its fail-open contract; honor it here
-                log.warning("enrich failed for %s, keeping listing-level text: %s",
-                            job.job_uid, exc)
-                enriched = job
-            # Outside the try: an identity violation is a programming error — fail loud.
-            enriched = self._same_identity(enriched, job, "enricher")
-            if enriched is not job and not self._prefilter.keep(enriched):
+        for job, result in zip(jobs, enriched):
+            # Re-filtering stays on this thread: PreFilter is shared and makes no
+            # concurrency promise, and judging in input order is what keeps the drop log
+            # ordered independently of completion order.
+            if result is not job and not self._prefilter.keep(result):
                 log.info("dropped on detail-fetched text: %s (%s)", job.job_uid, job.title)
                 continue
-            kept.append(enriched)
+            kept.append(result)
         return kept
+
+    def _enrich_one(self, job: Job) -> Job:
+        """One job's detail fetch, run on a pool thread. Returns the original job on
+        failure, honoring the Enricher fail-open contract."""
+        try:
+            enriched = self._enricher.enrich(job)
+        except Exception as exc:  # enricher broke its fail-open contract; honor it here
+            log.warning("enrich failed for %s, keeping listing-level text: %s",
+                        job.job_uid, exc)
+            return job
+        # Outside the try: an identity violation is a programming error — fail loud. It
+        # surfaces where `pool.map`'s result is iterated, not here, but still aborts the run.
+        return self._same_identity(enriched, job, "enricher")
 
     @staticmethod
     def _same_identity(derived: Job, original: Job, component: str) -> Job:
