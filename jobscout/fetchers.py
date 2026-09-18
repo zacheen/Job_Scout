@@ -1,12 +1,15 @@
 """One fetcher strategy per ATS, a shared HTTP client, and a factory."""
 from __future__ import annotations
 
+import contextlib
 import functools
 import html
+import inspect
 import json
 import logging
 import random
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
@@ -226,33 +229,149 @@ def _paginate_bounded_or_warn(
     return jobs
 
 
+class _HostSlot:
+    """One host's turnstile: a lock admitting a single request at a time, plus the
+    monotonic instant its next request may start. 0.0 means "never hit yet"; monotonic()
+    is well past 0 by the time any code runs, so the first request never waits.
+
+    Owns `reserve` rather than exposing the two fields for a coordinator to drive, because
+    they carry one invariant between them — `next_allowed` may only be read or written
+    under `lock` — and that rule is unguessable from the field names alone.
+    """
+
+    __slots__ = ("lock", "next_allowed")
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.next_allowed = 0.0
+
+    @contextlib.contextmanager
+    def reserve(self, delay_min: float, delay_max: float):
+        """Hold this host's turn for the duration of the wrapped request."""
+        # The lock spans the whole request, not just the wait — a structural guarantee,
+        # not an accident of caller grouping (ParallelFetcher's docstring already promises
+        # it). Not relaxable: releasing it mid-request would let a second thread read
+        # `next_allowed` from when the first STARTED waiting and fire early — the
+        # start-vs-completion bug all over again. Only threads wanting THIS host are parked.
+        with self.lock:
+            if (pause := self.next_allowed - time.monotonic()) > 0:
+                time.sleep(pause)
+            try:
+                yield
+            finally:
+                # In `finally`, so a failed request still re-arms: a host answering 429 or
+                # resetting the connection is the LAST one to hammer without a gap.
+                # jitter avoids a fixed, bot-like cadence.
+                self.next_allowed = time.monotonic() + random.uniform(delay_min, delay_max)
+
+
+class _HostPacer:
+    """Request spacing keyed on the target HOST, shared by every HttpClient in the process.
+
+    Politeness is a property of the host, not of the client object. The fetch stage drives
+    one host from one thread through its own client, while the enrich stage drives many
+    hosts from a thread pool through a single client — keying the wait on the host makes
+    both correct without either stage arranging it, and stops a request to one host
+    delaying an unrelated one. That coupling WAS the enrich stage's entire cost: one
+    shared client serialised every JD fetch behind the previous one regardless of host,
+    so 3916 candidates took 81 minutes at ~2.3s each.
+
+    The rate any single host sees is unchanged from the per-client sleep this replaces,
+    which is the whole basis for raising the worker count: `reserve` re-arms the delay
+    when a request COMPLETES, so the interval stays delay + response time. Re-arming at
+    the start instead would make it max(delay, response time) and silently speed up
+    exactly the slow boards already answering 429.
+
+    The first request to a host does go out immediately, where the old code slept first.
+    Deliberate: one request is not a cadence, and that sleep bought nothing on a host
+    never hit again.
+    """
+
+    def __init__(self):
+        self._registry_lock = threading.Lock()
+        self._hosts: dict[str, _HostSlot] = {}
+
+    def _slot(self, host: str) -> _HostSlot:
+        # Deliberately the shortest possible critical section — a dict lookup, never a
+        # sleep or a request. Every wait happens under the per-host lock instead.
+        with self._registry_lock:
+            slot = self._hosts.get(host)
+            if slot is None:
+                slot = self._hosts[host] = _HostSlot()
+            return slot
+
+    def reserve(self, host: str, delay_min: float, delay_max: float):
+        """This host's turn, as a context manager — see `_HostSlot.reserve`. Not itself a
+        @contextmanager: the registry lookup must finish and release `_registry_lock`
+        before the per-host wait starts, and returning the slot's own manager is what
+        keeps those two from ever being held at once."""
+        return self._slot(host).reserve(delay_min, delay_max)
+
+
+# Process-wide, so two clients aimed at one host still pace against each other (the fetch
+# stage builds one client per company, and several companies can share a host).
+# HttpClient takes an override only so a test can pace in isolation.
+_HOST_PACER = _HostPacer()
+
+
 def _throttled(method):
     """Wrap an HttpClient request method so every outbound connection is paced first.
     The one place to add per-connection behaviour later (logging, auth, metrics)."""
+    # Pacing keys off the first argument, so a method whose first arg isn't `url` would
+    # throttle on the wrong string. urlparse won't catch that: it returns netloc="" for
+    # ANY string instead of raising, so unrelated hosts could silently share one pacing
+    # bucket. Checked here at decoration (import) time, not left as a runtime surprise.
+    params = list(inspect.signature(method).parameters)
+    if len(params) < 2 or params[1] != "url":
+        raise TypeError(
+            f"{method.__qualname__} must take `url` as its first argument after self; "
+            f"_throttled derives the per-host pacing key from it (got {params!r})")
+
     @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        self._pace()  # pre-connection
-        result = method(self, *args, **kwargs)
-        # post-connection hook point
-        return result
+    def wrapper(self, url, *args, **kwargs):
+        # The reservation spans the call rather than preceding it, so the next request to
+        # this host is spaced from this one's COMPLETION — see _HostPacer.reserve.
+        with self._reserve(url):
+            return method(self, url, *args, **kwargs)
     return wrapper
 
 
 class HttpClient:
-    """requests.Session wrapper with shared timeout/User-Agent that paces every request."""
+    """requests.Session wrapper with shared timeout/User-Agent that paces every request.
 
-    def __init__(self, timeout: int, user_agent: str, delay_min: float = 1.25, delay_max: float = 2.0):
+    Safe to drive from several threads at once. The Session is thread-LOCAL, because
+    requests makes no thread-safety promise and its cookie jar is the part that bites;
+    the pacing is deliberately NOT local but keyed on the host, so concurrent workers
+    still reach any one host at the configured rate. See _HostPacer.
+    """
+
+    def __init__(self, timeout: int, user_agent: str, delay_min: float = 1.25, delay_max: float = 2.0,
+                 pacer: _HostPacer | None = None):
         if delay_min > delay_max:
             raise ValueError(f"delay_min ({delay_min}) must be <= delay_max ({delay_max})")
         self._timeout = timeout
+        self._user_agent = user_agent
         self._delay_min = delay_min
         self._delay_max = delay_max
-        self._session = requests.Session()
-        self._session.headers.update({"User-Agent": user_agent})
+        self._pacer = pacer or _HOST_PACER
+        self._local = threading.local()
 
-    def _pace(self) -> None:
-        """Sleep delay_min..delay_max seconds; jitter avoids a fixed (bot-like) cadence."""
-        time.sleep(random.uniform(self._delay_min, self._delay_max))
+    @property
+    def _session(self) -> requests.Session:
+        """One Session per thread, built on first use. Keep-alive survives, since a thread
+        reuses its own; the cost is one connection pool per thread rather than per client."""
+        session = getattr(self._local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.headers.update({"User-Agent": self._user_agent})
+            self._local.session = session
+        return session
+
+    def _reserve(self, url: str):
+        """This HOST's turn, held for the request's duration. netloc, not hostname, so a
+        non-default port counts as a separate host — it usually is a separate service."""
+        return self._pacer.reserve(urlparse(url).netloc.lower(),
+                                   self._delay_min, self._delay_max)
 
     @_throttled
     def get_json(self, url: str, params: dict | None = None):

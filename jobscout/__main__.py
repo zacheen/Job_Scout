@@ -45,8 +45,10 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
             logging.warning("referral company %r has no companies.yaml entry yet "
                             "(its roles won't be fetched or grouped)", rc)
 
-    # One HttpClient (own session + pacing) per fetcher, so parallel host groups never
-    # share a session; same-host fetchers still run sequentially inside ParallelFetcher.
+    # One HttpClient per fetcher so a slow board's `timeout` override stays its own. Not
+    # for isolation any more: HttpClient keeps a thread-local Session and paces per HOST
+    # through a process-wide pacer, so sharing a client across threads is already safe and
+    # two clients aimed at one host still pace against each other.
     def make_http(timeout: int = 0) -> HttpClient:
         # 0, not None, as "not overridden": a 0-second HTTP timeout has no useful meaning,
         # so it cannot collide with a real value a company might configure.
@@ -62,7 +64,8 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
     fetchers = [FetcherFactory.create(c, make_http(c.param_int("timeout")))
                 for c in settings.companies]
     # Separate from the per-fetcher clients: the enrich stage fetches JD pages on hosts
-    # a fetcher may not own at all (an aggregator link can point anywhere).
+    # a fetcher may not own at all (an aggregator link can point anywhere). One client is
+    # enough for the whole enrich pool — see the note above on thread-local sessions.
     jd_http = make_http()
     # seed_only sources (large GitHub aggregators) record their backlog without emailing on
     # first appearance — reuse AtsFetcher.uid_prefix so the uid format lives in one place.
@@ -103,8 +106,12 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         # that's the only handle aggregator rows offer, and why it matters).
         enricher=ChainedEnricher([
             DispatchingEnricher(fetchers),
-            # One shared client: unlike the parallel fetch stage, enrichment is a
-            # sequential loop, so a second session adds no isolation.
+            # One shared client across all six sources, and safe for the enrich pool to
+            # drive concurrently: HttpClient keeps its Session thread-local and paces per
+            # host (fetchers._HostPacer). Note what that does NOT cover — these sources
+            # and the enrichers wrapping them are safe only because they hold no mutable
+            # state of their own, so adding a cache or a counter to one of them needs its
+            # own locking.
             JdUrlEnricher([WorkdayJdSource(jd_http), BambooHrJdSource(jd_http),
                            SuccessFactorsJdSource(jd_http), RadancyJdSource(jd_http),
                            AshbyJdSource(jd_http), IcimsJdSource(jd_http)],
@@ -120,6 +127,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to,
                                footer=digest_footer),
         score_workers=settings.score_workers,
+        enrich_workers=settings.enrich_workers,
         seed_only_prefixes=seed_only_prefixes,
         scorer_overrides=scorer_overrides,
         # Senior roles are dropped (not emailed) unless a referral company claims them first:
