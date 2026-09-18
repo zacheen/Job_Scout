@@ -1087,8 +1087,9 @@ class EightfoldFetcher(EarlyStopPaginatedFetcher):
 
 class RadancyFetcher(EarlyStopPaginatedFetcher):
     """Radancy / TalentBrew portals (Disney, Arm) — method G. `GET {host}{path}` returns
-    JSON whose `results` field is server-rendered HTML job cards; the two `*ModuleName`
-    query params are MANDATORY (without them the endpoint 200s with an empty `results`).
+    JSON whose `results` field is server-rendered HTML job cards; `SearchResultsModuleName`
+    is MANDATORY (without it the endpoint 200s with an empty `results`), while its
+    `SearchFiltersModuleName` sibling is deliberately omitted — see `_fetch_page`.
     SortCriteria=5 is newest-first on most tenants, so early-stop applies. Tenants whose
     ordering is empirically unsafe can set `full_scan: true` for a bounded whole-board
     pull instead. `path` defaults to /search-jobs/results (Disney needs the /en/ prefix)."""
@@ -1135,10 +1136,15 @@ class RadancyFetcher(EarlyStopPaginatedFetcher):
         path = self._company.params.get("path", "/search-jobs/results")
         data = self._http.get_json(
             f"https://{host}{path}",
+            # SearchFiltersModuleName is deliberately NOT sent: only SearchResultsModuleName
+            # is required (dropping it empties `results`), while dropping the filters one
+            # leaves `results` byte-identical and discards only a `filters` blob that was
+            # the entire rest of the payload. Measured 2026-09-18 on all four tenants —
+            # Spectrum 1632254 -> 9419 bytes, Intuit 96% smaller, Disney 92%, Arm 74% — so a
+            # 100-page Spectrum full scan pulls ~0.9 MB where it used to pull ~163 MB.
             params={"ActiveFacetID": 0, "CurrentPage": index + 1,
                     "RecordsPerPage": self._PAGE, "SortCriteria": 5,
-                    "SearchResultsModuleName": "Search Results",
-                    "SearchFiltersModuleName": "Search Filters"},
+                    "SearchResultsModuleName": "Search Results"},
         )
         body = data.get("results") or ""
         jobs = []

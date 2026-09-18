@@ -44,6 +44,28 @@ _SYSTEM = (
 # Greedy: captures outermost {...} so surrounding CLI chatter is ignored.
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+# Salvage for an answer cut off before its closing brace (unmatchable by _JSON_RE). Added
+# after 2026-09-16, when a Simplify posting was dropped with "no JSON object found"
+# despite a perfectly good "experience_score": 3 sitting right there in the raw output.
+#
+# Two claims below, kept deliberately apart: conflating them overstates the weaker one.
+#
+# Why it OFTEN works: the prompt orders experience_score first, `reason` (the field long
+# enough to truncate) last. That is a structural guarantee only for OpenAiScorer's strict
+# json_schema; for CliScorer — the tier that actually hit the 2026-09-16 truncation — it
+# is just a prompt template the model tends to follow. Ignoring the order only means a
+# missed salvage (falls through to the raise below), never a wrong score.
+#
+# Why it is NEVER wrong, independent of that order: the trailing [,}] proves the number
+# finished. Without it, '..."experience_score": 8' (truncated from 85) would silently
+# salvage as 8 — worse than the drop this exists to prevent. A truncation landing inside
+# the digits themselves fails to match and falls through to the same raise. The score is
+# also the only field that decides anything (the track threshold gates on it); reason is
+# display text and work_auth_barrier already fails open.
+_SALVAGE_SCORE_RE = re.compile(r'"experience_score"\s*:\s*(-?\d+)\s*[,}]')
+_SALVAGE_BARRIER_RE = re.compile(r'"work_auth_barrier"\s*:\s*(true|false)\s*[,}]',
+                                 re.IGNORECASE)
+
 
 def _clamp(value) -> int:
     return max(0, min(100, int(value)))
@@ -72,11 +94,34 @@ def _as_bool(value) -> bool:
     return bool(value)
 
 
+def _salvage_truncated(raw: str) -> dict | None:
+    """Fields recoverable from an answer cut off before its closing brace, or None when
+    even the score is missing. See `_SALVAGE_SCORE_RE` for why this is worth doing."""
+    score = _SALVAGE_SCORE_RE.search(raw)
+    if not score:
+        return None
+    salvaged = {"experience_score": int(score.group(1))}
+    if barrier := _SALVAGE_BARRIER_RE.search(raw):
+        salvaged["work_auth_barrier"] = barrier.group(1).lower() == "true"
+    # `reason` is deliberately left absent rather than reconstructed from the partial
+    # string: a sentence cut mid-word reads as a bug in the digest, and `_parse_score`
+    # already defaults it to "".
+    return salvaged
+
+
 def _parse_score(raw: str, scale: ScoreScale) -> Score:
     match = _JSON_RE.search(raw)
-    if not match:
+    if match:
+        data = json.loads(match.group(0))
+    elif (data := _salvage_truncated(raw)) is not None:
+        # Logged at all because the role still survives the truncation: without this
+        # line, a scorer that started truncating every answer would look identical to
+        # one working normally, while quietly emitting no reasons at all.
+        log.info("scorer answer truncated before its closing brace; salvaged "
+                 "experience_score=%s, reason lost. raw tail: %r",
+                 data["experience_score"], raw[-80:])
+    else:
         raise ValueError(f"no JSON object found in scorer output; raw: {raw[:200]!r}")
-    data = json.loads(match.group(0))
     if "experience_score" not in data:
         raise ValueError(f"scorer output missing experience_score; raw: {raw[:200]!r}")
     if data.get("work_auth_barrier") is None:
