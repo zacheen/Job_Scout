@@ -27,7 +27,7 @@ from .config import Company
 from .coverage import catchup_log
 from .dates import posted_iso
 from .models import EMPTY_SEEN_LEDGER, DescriptionPolicy, Job, SeenLedger
-from .protocols import Enricher
+from .protocols import Enricher, RequestMeter
 
 log = logging.getLogger(__name__)
 
@@ -239,11 +239,14 @@ class _HostSlot:
     under `lock` — and that rule is unguessable from the field names alone.
     """
 
-    __slots__ = ("lock", "next_allowed")
+    __slots__ = ("lock", "next_allowed", "requests")
 
     def __init__(self):
         self.lock = threading.Lock()
         self.next_allowed = 0.0
+        # Requests against this host, counted here rather than at the caller since only
+        # this layer sees how many actually went out — see RequestMeter.request_counts.
+        self.requests = 0
 
     @contextlib.contextmanager
     def reserve(self, delay_min: float, delay_max: float):
@@ -256,6 +259,7 @@ class _HostSlot:
         with self.lock:
             if (pause := self.next_allowed - time.monotonic()) > 0:
                 time.sleep(pause)
+            self.requests += 1  # under `lock`, so no separate guard is needed
             try:
                 yield
             finally:
@@ -307,11 +311,32 @@ class _HostPacer:
         keeps those two from ever being held at once."""
         return self._slot(host).reserve(delay_min, delay_max)
 
+    def request_counts(self) -> dict[str, int]:
+        """Satisfies the RequestMeter protocol. Cumulative per host, never reset.
+
+        Each count is read without taking that host's own lock — an int read is atomic
+        under the GIL, and a caller differencing two snapshots around a stage can only
+        ever be off by requests still in flight at the instant it sampled. Taking every
+        per-host lock here would instead block on whichever hosts are mid-request, which
+        for a diagnostics call is a far worse trade.
+        """
+        with self._registry_lock:
+            return {host: slot.requests for host, slot in self._hosts.items()}
+
 
 # Process-wide, so two clients aimed at one host still pace against each other (the fetch
 # stage builds one client per company, and several companies can share a host).
 # HttpClient takes an override only so a test can pace in isolation.
 _HOST_PACER = _HostPacer()
+
+
+def host_pacer() -> RequestMeter:
+    """The process-wide pacer, for a caller that needs to READ its request counters.
+
+    Typed as the narrow RequestMeter rather than _HostPacer, which keeps a private name
+    out of a public signature and matches the one thing this accessor is for. A caller
+    wanting the pacer's other half builds its own `_HostPacer()` instead."""
+    return _HOST_PACER
 
 
 def _throttled(method):

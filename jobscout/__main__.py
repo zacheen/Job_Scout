@@ -15,7 +15,7 @@ from .coverage import attach_catchup_annotations, attach_catchup_log
 from .fetchers import (AshbyJdSource, AtsFetcher, BambooHrJdSource, ChainedEnricher,
                        DispatchingEnricher, FetcherFactory, HttpClient, IcimsJdSource,
                        JdUrlEnricher, ParallelFetcher, RadancyJdSource,
-                       SuccessFactorsJdSource, WorkdayJdSource)
+                       SuccessFactorsJdSource, WorkdayJdSource, host_pacer)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -128,6 +128,9 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
                                footer=digest_footer),
         score_workers=settings.score_workers,
         enrich_workers=settings.enrich_workers,
+        # The pacer doubles as the RequestMeter: it is the one choke point every request
+        # passes through, so it already knows the per-host counts the enrich report needs.
+        request_meter=host_pacer(),
         seed_only_prefixes=seed_only_prefixes,
         scorer_overrides=scorer_overrides,
         # Senior roles are dropped (not emailed) unless a referral company claims them first:
