@@ -358,6 +358,65 @@ def _throttled(method):
         # this host is spaced from this one's COMPLETION — see _HostPacer.reserve.
         with self._reserve(url):
             return method(self, url, *args, **kwargs)
+    wrapper._is_throttled = True  # checked by _retried, which must wrap the throttled form
+    return wrapper
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Would an identical second request plausibly answer differently?
+
+    Connection resets, timeouts and 5xx are the board or the network having a moment.
+    A body that is not the JSON it claimed to be belongs here too: Spectrum's Radancy
+    endpoint answered one page that way on 2026-09-18, while every page of a re-probe
+    minutes later parsed fine.
+
+    429 is deliberately NOT transient. It means the board wants FEWER requests, and
+    Known_issue records two eightfold boards answering it on most runs — retrying would
+    worsen exactly what it is complaining about. Other 4xx (403, 410 Gone, 422) are
+    deterministic, so a second identical request cannot change the answer; that is the
+    same reasoning as OpenAiScorer._FATAL_STATUS.
+    """
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return True
+    if isinstance(exc, json.JSONDecodeError):  # requests' own JSONDecodeError subclasses it
+        return True
+    # isinstance, not a duck-typed `status_code` read: raise_for_status is the only source
+    # of a status-bearing exception here, and `requests` is a top-level import in this
+    # module. (OpenAiScorer reads status_code duck-typed for a reason that does NOT apply
+    # here — it keeps `scoring.py` free of an `openai` import so a seed-only first run
+    # needs no API key.)
+    if isinstance(exc, requests.HTTPError):
+        return 500 <= exc.response.status_code < 600
+    return False
+
+
+def _retried(method):
+    """Give a transient failure one more attempt (see `_is_transient`).
+
+    Must sit ABOVE `_throttled`, so each attempt re-enters the pacer: that is also where
+    the backoff comes from, since the retry cannot start until that host's next turn comes
+    round, and no separate sleep is needed. Ordered the other way the retry would fire
+    instantly while still holding the host's turnstile, hammering the board that just
+    reset us — so the order is asserted rather than left to a comment.
+    """
+    if not getattr(method, "_is_throttled", False):
+        raise TypeError(
+            f"_retried must wrap an already-@_throttled method, not {method.__qualname__}; "
+            "otherwise the retry is neither paced nor spaced from the failed attempt")
+
+    @functools.wraps(method)
+    def wrapper(self, url, *args, **kwargs):
+        for attempt in range(1, self._MAX_ATTEMPTS + 1):
+            try:
+                return method(self, url, *args, **kwargs)
+            except Exception as exc:
+                if attempt == self._MAX_ATTEMPTS or not _is_transient(exc):
+                    raise
+                # INFO, not DEBUG: this repo's entry points pin basicConfig to INFO, so a
+                # DEBUG line here could never print — and a silent retry would hide a board
+                # degrading from one that is merely slow.
+                log.info("%s: transient %s, retrying once: %s",
+                         urlparse(url).netloc, type(exc).__name__, str(exc)[:160])
     return wrapper
 
 
@@ -369,6 +428,18 @@ class HttpClient:
     the pacing is deliberately NOT local but keyed on the host, so concurrent workers
     still reach any one host at the configured rate. See _HostPacer.
     """
+
+    # Total attempts per request, retries included (see `_retried`). 2, not more, because
+    # the retry's own backoff is a full pacing turn for that host.
+    # A board that is dead rather than flaky costs almost nothing: neither
+    # _paginate_bounded nor _paginate_new catches a per-page exception, so the failure
+    # escapes from page ONE and aborts that company's whole fetch — two requests total,
+    # not two per page. Measured against jobs.bytedance.com, which has reset every
+    # connection since 2026-09-18.
+    # BioRadFetcher stacks its own retry on top, keyed on response CONTENT rather than on
+    # an exception, so its worst case is 2x2 requests — bounded, but higher than either
+    # layer alone suggests.
+    _MAX_ATTEMPTS = 2
 
     def __init__(self, timeout: int, user_agent: str, delay_min: float = 1.25, delay_max: float = 2.0,
                  pacer: _HostPacer | None = None):
@@ -398,18 +469,21 @@ class HttpClient:
         return self._pacer.reserve(urlparse(url).netloc.lower(),
                                    self._delay_min, self._delay_max)
 
+    @_retried
     @_throttled
     def get_json(self, url: str, params: dict | None = None):
         resp = self._session.get(url, params=params, timeout=self._timeout)
         resp.raise_for_status()
         return resp.json()
 
+    @_retried
     @_throttled
     def get_text(self, url: str, params: dict | None = None) -> str:
         resp = self._session.get(url, params=params, timeout=self._timeout)
         resp.raise_for_status()
         return resp.text
 
+    @_retried
     @_throttled
     def get_response(
         self,
@@ -422,6 +496,7 @@ class HttpClient:
         resp.raise_for_status()
         return resp
 
+    @_retried
     @_throttled
     def post_json(self, url: str, payload: dict, headers: dict | None = None):
         # Per-call headers merge over the session's (User-Agent stays); some ATSes
