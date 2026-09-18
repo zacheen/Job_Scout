@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -12,7 +13,7 @@ from collections.abc import Collection, Mapping
 from .config import DIGEST_TZ, Track
 from .models import Job, Score
 from .protocols import (Annotator, Digest, Enricher, Fetcher, JobFilter, JobScorer, JobStore,
-                        Leveler, Notifier, Router)
+                        Leveler, Notifier, RequestMeter, Router)
 from .urls import canon_url
 
 log = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class Pipeline:
         notifier: Notifier,
         score_workers: int = 1,
         enrich_workers: int = 1,
+        request_meter: RequestMeter | None = None,
         seed_only_prefixes: Collection[str] = (),
         scorer_overrides: Mapping[str, JobScorer] | None = None,
         suppressed_groups: Collection[str] = (),
@@ -57,6 +59,10 @@ class Pipeline:
         self._leveler = leveler
         self._scorer = scorer
         self._notifier = notifier
+        # None = skip the enrich stage's per-host report. Optional because it answers a
+        # tuning question, not a correctness one, so a caller with no HTTP layer to meter
+        # (a test, a future non-network enricher) must not be forced to supply one.
+        self._request_meter = request_meter
         # uid prefixes of sources that seed silently on their first appearance (see run()).
         self._seed_only_prefixes = tuple(seed_only_prefixes)
         # Per-group scorer overrides: a job whose leveler group is listed here is scored
@@ -237,8 +243,14 @@ class Pipeline:
         if self._enricher is None or not jobs:
             return jobs
         workers = min(self._enrich_workers, len(jobs))
+        before = self._request_meter.request_counts() if self._request_meter else {}
+        started = time.monotonic()
         with ThreadPoolExecutor(max_workers=workers) as pool:
             enriched = list(pool.map(self._enrich_one, jobs))
+        # Keyword arguments: `jobs` and `workers` are both ints and adjacent, so a
+        # transposition would otherwise type-check and only show up as a wrong log line.
+        self._log_enrich_cost(jobs=len(jobs), workers=workers,
+                              elapsed=time.monotonic() - started, before=before)
         kept = []
         for job, result in zip(jobs, enriched):
             # Re-filtering stays on this thread: PreFilter is shared and makes no
@@ -249,6 +261,41 @@ class Pipeline:
                 continue
             kept.append(result)
         return kept
+
+    def _log_enrich_cost(self, jobs: int, workers: int, elapsed: float,
+                         before: Mapping[str, int]) -> None:
+        """Report what the enrich stage actually spent, per host.
+
+        Wall time and job count alone cannot explain this stage: most sources no-op, so
+        jobs is not requests, and the floor is set by the BUSIEST single host because
+        _HostPacer admits one request per host at a time. Without the busiest-host line
+        below, a slow stage reads identically whether per-host pacing was correctly
+        serialising one hot tenant or the worker pool was not engaging at all — the exact
+        question the 2026-09-18 run could not answer.
+        """
+        log.info("enrich stage: %d job(s) on %d worker(s) in %.1fs", jobs, workers, elapsed)
+        if self._request_meter is None:
+            return
+        after = self._request_meter.request_counts()
+        made = Counter({host: n - before.get(host, 0) for host, n in after.items()})
+        # Unary plus drops non-positive counts, which here means exactly the hosts this
+        # stage never touched. A count can never go DOWN between the two samples — slot
+        # counters only increment and `_hosts` only grows — so every surviving entry is a
+        # real request this stage made.
+        made = +made
+        if not made:
+            log.info("enrich stage: no HTTP requests (every source a no-op for these jobs)")
+            return
+        total = sum(made.values())
+        host, peak = made.most_common(1)[0]
+        # Reported raw, with no derived "so N seconds were unavoidable" figure: that would
+        # need request_delay_min, which lives in the HTTP layer's config, and a second copy
+        # of it here would silently drift from the one actually pacing the requests.
+        # peak x the configured delay is the floor, and it is one multiplication away.
+        log.info("enrich stage: %d request(s) across %d host(s), busiest %s with %d "
+                 "(%.0f%% of all requests)", total, len(made), host, peak, 100 * peak / total)
+        for host, n in made.most_common(5):
+            log.info("enrich stage:   %5d %s", n, host)
 
     def _enrich_one(self, job: Job) -> Job:
         """One job's detail fetch, run on a pool thread. Returns the original job on

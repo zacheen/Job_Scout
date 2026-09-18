@@ -1,6 +1,7 @@
 """Structural interfaces (DIP). Implementations satisfy these by shape — no inheritance needed."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import ClassVar, Protocol
 
 from .config import Track
@@ -93,6 +94,19 @@ class JobScorer(Protocol):
     scale: ClassVar[ScoreScale]  # picks which Track threshold gates this scorer output
 
     def score(self, job: Job) -> Score: ...
+
+
+class RequestMeter(Protocol):
+    def request_counts(self) -> Mapping[str, int]:
+        """host -> HTTP requests made to it so far this process, only ever increasing.
+
+        Diagnostics only: Pipeline takes DIFFERENCES across a stage, which is why this is
+        cumulative and never resets — a reset would race any other stage still in flight.
+        Exists because the enrich stage's cost is per-HOST, and neither its job count nor
+        its wall time alone can say whether one busy host serialised the whole stage or
+        the work simply spread thin. Only the HTTP layer knows: one enrich() call can
+        issue no request at all (most sources are a no-op) or several.
+        """
 
 
 class Notifier(Protocol):
