@@ -371,7 +371,7 @@ def _is_transient(exc: Exception) -> bool:
     minutes later parsed fine.
 
     429 is deliberately NOT transient. It means the board wants FEWER requests, and
-    Known_issue records two eightfold boards answering it on most runs — retrying would
+    Known_concern records two eightfold boards answering it on most runs — retrying would
     worsen exactly what it is complaining about. Other 4xx (403, 410 Gone, 422) are
     deterministic, so a second identical request cannot change the answer; that is the
     same reasoning as OpenAiScorer._FATAL_STATUS.
