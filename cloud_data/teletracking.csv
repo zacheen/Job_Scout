@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+TeleTracking:5425154008,TeleTracking,Software Engineer 1 - Logistics Engineering,"Pittsburgh, PA",Software,https://job-boards.greenhouse.io/teletrackingtechnologiesinc/jobs/5425154008,2026-09-21,2026-09-21,2026-09-21T15:44:38+00:00,2026-09-21 08:44 Mon,Software Engineering,true,Keyword,56,僅以關鍵字比對評分（只比對職稱）,true,simplify:Simplify New Grad:5425154008,2026-09-21
