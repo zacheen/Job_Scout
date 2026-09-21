@@ -15,11 +15,11 @@ __pycache__/
 .venv/
 # Claude research/probe notes — local only (condensed facts live in Claude memory).
 notes/
-# Personal backlog of deferred work — local only, and deliberately not on the public repo.
+# Register of known defects found by running it — local only, and deliberately not on the public repo.
 # The case has to match the real filename. This read `Todo.md` until 2026-09-18
 # and only matched because core.ignorecase is true on Windows, so a clone or a
-# CI runner on Linux would have pushed the backlog to the public repo.
-TODO.md
+# CI runner on Linux would have pushed the register to the public repo.
+Pending_fix.md
 # Single-instance lock held by local_run.py — local only, never commit.
 local_run.lock
 # Orphaned-pack sweep log (see gitledger.sweep_pack_garbage) — local only.
@@ -28,4 +28,4 @@ pack_garbage.txt
 ignore_*
 # Register of accepted issues a test run should not re-flag — local only,
 # and deliberately not on the public repo (same reason as Todo.md above).
-Known_issue.md
+Known_concern.md
