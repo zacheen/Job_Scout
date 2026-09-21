@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Wise:d1ffc984-76b9-475f-9274-cc90c1c97125,Wise,Graduate Software Engineer,"Austin, TX",Software,https://jobs.smartrecruiters.com/Wise/744000151030889,2026-09-22,2026-09-22,2026-09-22T14:40:57+00:00,2026-09-22 07:40 Tue,Software Engineering,true,Keyword,64,僅以關鍵字比對評分（只比對職稱）,true,simplify:Simplify New Grad:d1ffc984-76b9-475f-9274-cc90c1c97125,2026-09-22
