@@ -465,8 +465,8 @@ exclude_description_terms:
   - "security clearance"
   - "ts/sci"            # postings that write "TS/SCI clearance" without the word "security"
   - "secret clearance"  # the plain-Secret tier, written without "security" ("hold a position of SECRET clearance level")
-  - "be a us citizen"   # requirement phrasing ("candidate selected be a US Citizen"; "must be a US citizen")
-  - "be a u.s. citizen" # same, period spelling (normalizer keeps the dots)
+  # The "be a us citizen" / "be a u.s. citizen" spellings that used to sit here are now a
+  # single row in exclude_description_patterns below, which also admits an adjective.
   # "U.S. person" is the export-control term of art for citizen-or-permanent-resident, and
   # Motorola Solutions states the bar only that way ("must be a U.S. person (U.S. Citizen, or
   # U.S. Permanent Resident) due to clients under U.S. federal contracts") — the rows above
@@ -507,7 +507,33 @@ exclude_description_patterns:
   # inside "cannot" has no word boundary, the same reason exclude_description_terms keeps
   # "not sponsor" a substring. Safe because the regex needs a SPACE right after "not";
   # "notice"/"nothing" continue with a letter instead.
-  - 'not (?!only )(?:[^\s.,;:!?]+ ){0,2}(?:(?:offer|support)(?:s|ing)?|provid(?:es?|ing)) (?:[^\s.,;:!?]+ ){0,4}sponsorship'
+  # Both gaps are one wider than they first shipped, and each widening was forced by one
+  # sentence. Trailing 5, because Upbound writes "do not offer any type of employment-based
+  # immigration sponsorship". Leading 3, because Johnson & Johnson writes "we will not be
+  # able to provide any sponsorship", where "be able to" is the three words the comment
+  # above always claimed to admit and the gap did not. Neither widening is free in theory
+  # and both were measured: over 5907 live Greenhouse bodies they add no match at all.
+  - 'not (?!only )(?:[^\s.,;:!?]+ ){0,3}(?:(?:offer|support)(?:s|ing)?|provid(?:es?|ing)) (?:[^\s.,;:!?]+ ){0,5}sponsorship'
+  # The employer refusing to CONSIDER such an applicant, rather than refusing to sponsor one.
+  # Philips writes "the company will not consider candidates who require sponsorship" and RSM
+  # writes "does not intend to hire entry-level candidates who require sponsorship". Both read
+  # as candidate-side to the warn tier, which is why they sat there annotated instead of
+  # dropped, but the subject of the refusal is the employer and the bar is absolute.
+  # The hiring verb is what keeps this out of the reversal "not required to have sponsorship",
+  # which has no such verb, and the 60-char span forbids sentence ends so it cannot reach
+  # across into an unrelated clause.
+  - '\bnot (?:[^\s.,;:!?]+ ){0,3}(?:consider|hire|hiring|employ) [^.!?]{0,60}requir(?:e|es|ing) (?:[^\s.,;:!?]+ ){0,3}sponsorship'
+  # "must be a (legal|lawful) US citizen", replacing the two fixed "be a us citizen" rows,
+  # which only matched employers who wrote those four words adjacent — DXC writes "must be a
+  # legal US citizen on US soil". The gap forbids parentheses as well as sentence punctuation,
+  # which is load-bearing rather than tidiness: SpaceX writes "applicant must be a (i) U.S.
+  # citizen or national, (ii) U.S. lawful permanent resident, (iii) refugee ...", an
+  # enumeration that ADMITS permanent residents and asylees. A gap accepting "(i)" would drop
+  # that whole board on wording the warn tier already annotates via "export regulations".
+  - '\bbe an? (?:[^\s.,;:!?()]+ ){0,2}u\.?s\.? citizen'
+  # Workday form field rather than prose: Flex renders "Is Sponsorship Available? No" into
+  # the body. \b after "no" so a "no" that merely starts the next word cannot answer for it.
+  - 'is sponsorship available\? no\b'
   # "Visa sponsorship through <EMPLOYER> is not available for this position now or any time
   # in the future" (PayPal stamps this on every US req). Gap is 3 because that is what
   # PayPal's self-naming middle ("through paypal is") needs; swept over 832 live Workday
@@ -562,6 +588,14 @@ warn_description_terms:
   - "export control"                 # "export control laws/regulations"; also catches "export controls"/"export controlled" (space form)
   - "export-controlled"              # hyphen spelling the space term above misses
   - "export regulations"             # SpaceX phrasing: "U.S. Government export regulations"
+  # EAR, the civilian counterpart of ITAR, which the three rows above all miss: ASML writes
+  # "controlled technology, as defined in the United States Export Administration
+  # Regulations (15 C.F.R. § 730)", where the middle word defeats "export regulations".
+  - "export administration regulations"
+  # Analog Devices bars nobody outright, it warns that applicants other than citizens and
+  # permanent residents "may have to go through an export licensing review process". Warn,
+  # not exclude, precisely because the employer wrote "may" — a granted licence still hires.
+  - "export licensing"
 
 # Raw-regex counterpart of warn_description_terms: same haystack, same annotate-never-drop
 # outcome, for wildcard cases no fixed substring reaches. The caveat line quotes the TEXT that

@@ -38,7 +38,14 @@ def strip_html(text: str | None) -> str:
     """Reduce an HTML fragment to plain text (tags removed, entities decoded)."""
     if not text:
         return ""
-    return html.unescape(_TAG_RE.sub(" ", text)).strip()
+    # Unescape before stripping: Greenhouse serves its body with the tags
+    # themselves escaped (&lt;p&gt;), so stripping first finds no tags and hands
+    # the caller live markup. Measured over 25 SpaceX reqs, 12% of the output
+    # was literal tags against the scorer's 8000-char cap, which the average
+    # body already nears. The second unescape is the cost of a single pass:
+    # entities inside the prose (&amp;nbsp;) are only reachable once the tags
+    # around them are gone.
+    return html.unescape(_TAG_RE.sub(" ", html.unescape(text))).strip()
 
 
 def _first_match(pattern: re.Pattern, text: str) -> str:
@@ -434,8 +441,8 @@ class HttpClient:
     # A board that is dead rather than flaky costs almost nothing: neither
     # _paginate_bounded nor _paginate_new catches a per-page exception, so the failure
     # escapes from page ONE and aborts that company's whole fetch — two requests total,
-    # not two per page. Measured against jobs.bytedance.com, which has reset every
-    # connection since 2026-09-18.
+    # not two per page. Measured against jobs.bytedance.com, whose resets come and go
+    # (Known_concern entry 9) and so exercise both halves of this on different runs.
     # BioRadFetcher stacks its own retry on top, keyed on response CONTENT rather than on
     # an exception, so its worst case is 2x2 requests — bounded, but higher than either
     # layer alone suggests.
