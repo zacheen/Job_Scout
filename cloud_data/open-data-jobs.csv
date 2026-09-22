@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+OPEN Data Jobs:https://apply.workable.com/opendatajobs/j/33CF38BB73/,OPEN Data Jobs,Junior Database Developer,"Washington, DC",,https://apply.workable.com/opendatajobs/j/33CF38BB73/,,,2026-09-23T16:40:52+00:00,2026-09-23 09:40 Wed,Other Technical,true,Keyword,64,僅以關鍵字比對評分（只比對職稱）,true,speedyapply:SpeedyApply SWE:https://apply.workable.com/opendatajobs/j/33CF38BB73/,
