@@ -507,11 +507,22 @@ exclude_description_patterns:
   # inside "cannot" has no word boundary, the same reason exclude_description_terms keeps
   # "not sponsor" a substring. Safe because the regex needs a SPACE right after "not";
   # "notice"/"nothing" continue with a letter instead.
-  # Trailing gap is 5, not 4, because Upbound needs exactly 5 ("do not offer any type of
-  # employment-based immigration sponsorship"). It is the gap length, not the wording, that
-  # decides this rule: at 4 that sentence missed by one word while every other spelling the
-  # rule already caught kept matching.
-  - 'not (?!only )(?:[^\s.,;:!?]+ ){0,2}(?:(?:offer|support)(?:s|ing)?|provid(?:es?|ing)) (?:[^\s.,;:!?]+ ){0,5}sponsorship'
+  # Both gaps are one wider than they first shipped, and each widening was forced by one
+  # sentence. Trailing 5, because Upbound writes "do not offer any type of employment-based
+  # immigration sponsorship". Leading 3, because Johnson & Johnson writes "we will not be
+  # able to provide any sponsorship", where "be able to" is the three words the comment
+  # above always claimed to admit and the gap did not. Neither widening is free in theory
+  # and both were measured: over 5907 live Greenhouse bodies they add no match at all.
+  - 'not (?!only )(?:[^\s.,;:!?]+ ){0,3}(?:(?:offer|support)(?:s|ing)?|provid(?:es?|ing)) (?:[^\s.,;:!?]+ ){0,5}sponsorship'
+  # The employer refusing to CONSIDER such an applicant, rather than refusing to sponsor one.
+  # Philips writes "the company will not consider candidates who require sponsorship" and RSM
+  # writes "does not intend to hire entry-level candidates who require sponsorship". Both read
+  # as candidate-side to the warn tier, which is why they sat there annotated instead of
+  # dropped, but the subject of the refusal is the employer and the bar is absolute.
+  # The hiring verb is what keeps this out of the reversal "not required to have sponsorship",
+  # which has no such verb, and the 60-char span forbids sentence ends so it cannot reach
+  # across into an unrelated clause.
+  - '\bnot (?:[^\s.,;:!?]+ ){0,3}(?:consider|hire|hiring|employ) [^.!?]{0,60}requir(?:e|es|ing) (?:[^\s.,;:!?]+ ){0,3}sponsorship'
   # "must be a (legal|lawful) US citizen", replacing the two fixed "be a us citizen" rows,
   # which only matched employers who wrote those four words adjacent — DXC writes "must be a
   # legal US citizen on US soil". The gap forbids parentheses as well as sentence punctuation,
