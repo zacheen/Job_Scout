@@ -13,9 +13,10 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
 from .config import CATCHUP_LOG_FILENAME, Settings
 from .coverage import attach_catchup_annotations, attach_catchup_log
 from .fetchers import (AshbyJdSource, AtsFetcher, BambooHrJdSource, ChainedEnricher,
-                       DispatchingEnricher, FetcherFactory, HttpClient, IcimsJdSource,
-                       JdUrlEnricher, ParallelFetcher, RadancyJdSource,
-                       SuccessFactorsJdSource, WorkdayJdSource, host_pacer)
+                       DispatchingEnricher, FetcherFactory, GreenhouseJdSource,
+                       HttpClient, IcimsJdSource, JdUrlEnricher, JibeJdSource,
+                       ParallelFetcher, RadancyJdSource, SuccessFactorsJdSource,
+                       WorkdayJdSource, host_pacer)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
@@ -106,7 +107,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         # that's the only handle aggregator rows offer, and why it matters).
         enricher=ChainedEnricher([
             DispatchingEnricher(fetchers),
-            # One shared client across all six sources, and safe for the enrich pool to
+            # One shared client across all eight sources, and safe for the enrich pool to
             # drive concurrently: HttpClient keeps its Session thread-local and paces per
             # host (fetchers._HostPacer). Note what that does NOT cover — these sources
             # and the enrichers wrapping them are safe only because they hold no mutable
@@ -114,7 +115,8 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
             # own locking.
             JdUrlEnricher([WorkdayJdSource(jd_http), BambooHrJdSource(jd_http),
                            SuccessFactorsJdSource(jd_http), RadancyJdSource(jd_http),
-                           AshbyJdSource(jd_http), IcimsJdSource(jd_http)],
+                           AshbyJdSource(jd_http), IcimsJdSource(jd_http),
+                           JibeJdSource(jd_http), GreenhouseJdSource(jd_http)],
                           settings.description_policy),
         ]),
         annotator=DescriptionFlagger(
