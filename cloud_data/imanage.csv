@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+iManage:cc4a8dbb-c15d-4fd8-a1fe-4ac7bffa903e,iManage,Applied AI Engineer New Grad,"Chicago, IL",AI/ML/Data,https://imanagecom.applytojob.com/apply/r4huAJvEWl/Applied-AI-Engineer-New-Or-Recent-Grad,2026-09-23,2026-09-23,2026-09-23T23:16:43+00:00,2026-09-23 16:16 Wed,AI / ML,true,Keyword,64,僅以關鍵字比對評分（只比對職稱）,true,simplify:Simplify New Grad:cc4a8dbb-c15d-4fd8-a1fe-4ac7bffa903e,2026-09-23
