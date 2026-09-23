@@ -3416,6 +3416,98 @@ class IcimsJdSource(LdJsonJdSource):
         return f"{jd_url}{'&' if '?' in jd_url else '?'}in_iframe=1"
 
 
+class JibeJdSource(LdJsonJdSource):
+    """Jibe (iCIMS Talent Cloud) per-posting detail on employer vanity hosts
+    (jobs.keysight.com, careers.garmin.com, careers.jhuapl.edu, spa.jibeapply.com, …).
+
+    Only aggregator rows reach it. A configured JibeFetcher company already carries the
+    body from /api/jobs, so JdUrlEnricher's usable-description gate skips those.
+
+    The hosts share no suffix, so dispatch keys on the aggregator link shape
+    /jobs/{id}?icims=1, since /jobs/{id} alone is too generic a path to claim for one
+    ATS. Keysight 302s the link to /external/jobs/{id}, which requests follows, so the
+    optional segment only covers a link already pointing there. It cannot collide with
+    IcimsJdSource, whose path must end in "job".
+
+    A delisted requisition answers 404, reaching `description`'s except as elsewhere.
+    """
+
+    _JD_URL_RE = re.compile(
+        r"^https://[\w.-]+/(?:external/)?jobs/\d+/?\?(?:[^#]*&)?icims=1(?:&[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        return self._passthrough(jd_url, self._JD_URL_RE)
+
+
+class GreenhouseJdSource(JdSource):
+    """Greenhouse per-posting detail from boards-api, the same JSON GreenhouseFetcher reads.
+
+    Only aggregator rows reach it. A configured Greenhouse company already carries the body
+    from content=true, so JdUrlEnricher's usable-description gate skips those. Greenhouse
+    pages carry no ld+json, which is why this is not an LdJsonJdSource.
+
+    Three link shapes reach it. A hosted board, {job-,}boards{.eu,}.greenhouse.io/{board}/
+    jobs/{id}, names its board and maps straight to the API; the EU boards resolve on the
+    US API host too. The other two name only the job id, either as embed/job_app?token={id}
+    or as ?gh_jid={id} on the employer's own careers page, whose markup is a JS embed with
+    no body. For those, `detail_url` returns the embed resolver, since it may do no I/O,
+    and `_payload` spends a second request learning the board from where that resolver
+    redirects, job-boards.greenhouse.io/embed/job_app?for={board}&token={id}.
+
+    An unknown id redirects to an embed error page that 404s, reaching `description`'s
+    except as elsewhere.
+    """
+
+    _API_HOST = "boards-api.greenhouse.io"
+    _API = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{job_id}"
+    _RESOLVER = "https://boards.greenhouse.io/embed/job_app?token={job_id}"
+    _BOARD_URL_RE = re.compile(
+        r"^https://(?:job-)?boards(?:\.eu)?\.greenhouse\.io/(?P<board>[\w-]+)/jobs/"
+        r"(?P<job_id>\d+)/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        jd_url = (jd_url or "").strip()
+        match = self._BOARD_URL_RE.match(jd_url)
+        if match:
+            return self._API.format(**match.groupdict())
+        # http is accepted, unlike the passthrough sources, because only the job id is
+        # read off the link and the link itself is never fetched. Aggregators publish
+        # some gh_jid links as plain http (block.xyz, prizepicks.com).
+        parsed = urlparse(jd_url)
+        if parsed.scheme not in ("http", "https"):
+            return ""
+        query = dict(parse_qsl(parsed.query))
+        if ((parsed.hostname or "").endswith("greenhouse.io")
+                and parsed.path.rstrip("/").endswith("/embed/job_app")):
+            job_id, board = query.get("token", ""), query.get("for", "")
+        else:
+            job_id, board = query.get("gh_jid", ""), ""
+        if not job_id.isdigit():
+            return ""
+        if board:
+            return self._API.format(board=board, job_id=job_id)
+        return self._RESOLVER.format(job_id=job_id)
+
+    def _payload(self, api: str):
+        if urlparse(api).hostname != self._API_HOST:
+            api = self._resolve_board(api)
+            if not api:
+                return {}
+        return self._http.get_json(api)
+
+    def _resolve_board(self, resolver: str) -> str:
+        query = dict(parse_qsl(urlparse(self._http.get_response(resolver).url).query))
+        board, job_id = query.get("for", ""), query.get("token", "")
+        if not board or not job_id.isdigit():
+            return ""
+        return self._API.format(board=board, job_id=job_id)
+
+    def _body(self, payload) -> str:
+        return payload.get("content", "") if isinstance(payload, dict) else ""
+
+
 class JdUrlEnricher:
     """Fills a still-empty description by fetching the job's own JD URL, dispatching on
     that URL instead of on which fetcher produced the job. Satisfies the `Enricher`
