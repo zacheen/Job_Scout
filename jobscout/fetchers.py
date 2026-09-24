@@ -3288,7 +3288,11 @@ class SuccessFactorsJdSource(JdSource):
     # /hmma/); SAP's board has none. The trailing number is the requisition id.
     # RadancyJdSource's non-collision claim rests on this shape ending TWO segments before
     # its own — re-verify that before loosening this regex for a new tenant.
-    _JD_URL_RE = re.compile(r"^https://[\w.-]+(?:/[^/]+)?/job/[^/]+/\d+/?$", re.IGNORECASE)
+    # ?ats=successfactors links serve the same markup as the bare URL. A filled posting
+    # answers 200 with a "position has been filled" shell and no jobdescription span, so
+    # it fails open through `_body`, never `description`'s except.
+    _JD_URL_RE = re.compile(r"^https://[\w.-]+(?:/[^/]+)?/job/[^/]+/\d+/?(?:\?[^#]*)?$",
+                            re.IGNORECASE)
     # Lookahead on the class so the match still STARTS at "<span" -- _balanced_element needs
     # the element's own offset, and class is not guaranteed to be the first attribute.
     _BODY_RE = re.compile(r'<span(?=[^>]*class="jobdescription")[^>]*>', re.IGNORECASE)
