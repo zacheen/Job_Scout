@@ -1176,7 +1176,7 @@ class RadancyFetcher(EarlyStopPaginatedFetcher):
 
 
 class SuccessFactorsFetcher(EarlyStopPaginatedFetcher):
-    """SAP SuccessFactors Career Site Builder portals (jobs.sap.com, Hyundai's
+    """SAP SuccessFactors Career Site Builder portals (careers.sap.com, Hyundai's
     careers-americas). No anonymous JSON, but the /search/ page is server-rendered
     <tr class="data-row"> rows, and `sortColumn=referencedate&sortDirection=desc`
     gives newest-first — so the seen-based early-stop applies despite the rows
@@ -3270,7 +3270,7 @@ class BambooHrJdSource(JdSource):
 
 
 class SuccessFactorsJdSource(JdSource):
-    """SAP SuccessFactors Career Site Builder per-posting detail (jobs.sap.com, Hyundai's
+    """SAP SuccessFactors Career Site Builder per-posting detail (careers.sap.com, Hyundai's
     careers-americas, and CSB tenants reached through aggregator links).
 
     Unlike the JSON sources above, the JD URL IS the detail endpoint: CSB serves the job ad
