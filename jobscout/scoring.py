@@ -13,6 +13,7 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import replace
+from datetime import date
 
 from .models import DescriptionPolicy, Job, Score, ScoreMethod, ScoreScale
 from .protocols import JobScorer
@@ -23,7 +24,12 @@ _SYSTEM = (
     "You rate a single job posting against the candidate resume below and return JSON.\n"
     "experience_score (0-100, integer): how well the candidate fits THIS specific role "
     "on skills, domain, and seniority. A role the candidate could not credibly apply to "
-    "(non-engineering, wrong field, far too senior) scores near 0.\n"
+    "(non-engineering, wrong field, far too senior) scores near 0. "
+    "Today is {today}. If the resume shows the candidate is currently enrolled in a degree "
+    "program (an education entry whose end date is after today), "
+    "internships, co-ops, new-grad and entry-level roles are in scope: judge them on skills "
+    "and domain, and do not lower the score because the role is junior, targets current "
+    "students, or asks for less experience than the candidate's prior full-time work.\n"
     "work_auth_barrier (boolean): true only when the DESCRIPTION itself states a hard "
     "employment-eligibility requirement — employer sponsorship refused or unavailable, US "
     "citizenship or permanent residence required, or a security clearance required. False "
@@ -187,7 +193,9 @@ class _LlmScorer(ABC):
         calls per job, today 2*3 = 6 for OpenAiScorer and 2 for CliScorer, which has no
         inner loop.
         """
-        system = _SYSTEM.format(resume=self._resume)
+        # Without today's date the model can't tell an in-progress degree from a finished
+        # one and marks intern roles down as too junior.
+        system = _SYSTEM.format(resume=self._resume, today=date.today().isoformat())
         blob = self._job_blob(job)
         for attempt in range(1, self._PARSE_ATTEMPTS + 1):
             try:
