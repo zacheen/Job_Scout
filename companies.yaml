@@ -362,6 +362,7 @@
 # Software Engineering Intern (2531653). Same user rule as Snap Sourced above.
 - {name: KLA Ann Arbor, ats: workday, host: kla.wd1.myworkdayjobs.com, tenant: kla, site: AnnArbor, seed_only: true}  # ~52
 - {name: GSK, ats: workday, host: gsk.wd5.myworkdayjobs.com, tenant: gsk, site: GSKCareers, seed_only: true}  # pharma AI/ML; ~754 global
+- {name: AstraZeneca, ats: workday, host: astrazeneca.wd3.myworkdayjobs.com, tenant: astrazeneca, site: Careers, seed_only: true}  # pharma; ~1202 global; careers.astrazeneca.com is a Radancy/Eightfold front over this tenant
 - {name: Nextracker, ats: workday, host: nextracker.wd5.myworkdayjobs.com, tenant: nextracker, site: nextpower_careers, seed_only: true}  # solar robotics; ~202
 - {name: Arlo, ats: workday, host: arlo.wd12.myworkdayjobs.com, tenant: arlo, site: external_careers}  # camera AI; ~37
 # The "uni" site is a NEAR-subset of Ext: full-board diff 2026-07-12 found 10/11 reqs shared
@@ -632,7 +633,7 @@
 - {name: TikTok, ats: bytedance, host: api.lifeattiktok.com, website_path: tiktok, jd_base: "https://lifeattiktok.com/search", seed_only: true}  # ~3594
 
 # --- SuccessFactors CSB (server-rendered rows; referencedate desc -> early-stop works) ---
-- {name: SAP, ats: successfactors, host: jobs.sap.com, seed_only: true}                       # ~1224 global
+- {name: SAP, ats: successfactors, host: careers.sap.com, seed_only: true}                    # ~838 global; jobs.sap.com is now a separate SmartRecruiters front end
 - {name: Hyundai, ats: successfactors, host: careers-americas.hyundai.com, seed_only: true}   # ~300 (US plants/tech centers)
 
 # --- Avature (plain-HTTP portals only — Siemens' is JS-gated. Ordering NOT newest-first ->
