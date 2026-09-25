@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Tubi:8232190,Tubi,Data Scientist,"San Francisco, CA",,https://job-boards.greenhouse.io/tubitv/jobs/8232190,,,2026-09-25T17:08:41+00:00,2026-09-25 10:08 Fri,Computer Vision,true,Keyword,61,僅以關鍵字比對評分,true,speedyapply:SpeedyApply AI:8232190,

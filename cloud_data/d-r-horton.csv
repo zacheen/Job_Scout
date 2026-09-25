@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+D.R. Horton:64761fc3-fdb8-4fa2-b62b-7ff5f9ca07ab,D.R. Horton,Application Developer 1,"Arlington, TX",Software,https://drhorton.taleo.net/careersection/2/jobdetail.ftl?job=2604887,2026-09-25,2026-09-25,2026-09-25T23:16:45+00:00,2026-09-25 16:16 Fri,Other Technical,true,Keyword,48,僅以關鍵字比對評分（只比對職稱）,false,simplify:Simplify New Grad:64761fc3-fdb8-4fa2-b62b-7ff5f9ca07ab,2026-09-25
