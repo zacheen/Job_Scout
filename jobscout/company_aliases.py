@@ -58,6 +58,7 @@ COMPANY_ALIASES: dict[str, str] = {
     "KLA Corporation": "KLA",
     "Micron Technology": "Micron",
     "Motorola": "Motorola Solutions",
+    "Nextpower": "Nextracker",
     "Nissan Global": "Nissan",
     "NXP Semiconductors": "NXP",
     "Perplexity AI": "Perplexity",

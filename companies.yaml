@@ -314,7 +314,7 @@
 - {name: Notion,     ats: ashby, org: notion, seed_only: true}       # internationally known workspace AI; ~142
 
 # --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
-- {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}
+- {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}  # referral
 - {name: Intel, ats: workday, host: intel.wd1.myworkdayjobs.com, tenant: intel, site: External}            # referral
 - {name: Applied Materials, ats: workday, host: amat.wd1.myworkdayjobs.com, tenant: amat, site: External}  # referral
 - {name: ASML, ats: workday, host: asml.wd3.myworkdayjobs.com, tenant: asml, site: ASMLEXT1}                # fetched, not referral
@@ -363,7 +363,7 @@
 - {name: KLA Ann Arbor, ats: workday, host: kla.wd1.myworkdayjobs.com, tenant: kla, site: AnnArbor, seed_only: true}  # ~52
 - {name: GSK, ats: workday, host: gsk.wd5.myworkdayjobs.com, tenant: gsk, site: GSKCareers, seed_only: true}  # pharma AI/ML; ~754 global
 - {name: AstraZeneca, ats: workday, host: astrazeneca.wd3.myworkdayjobs.com, tenant: astrazeneca, site: Careers, seed_only: true}  # pharma; ~1202 global; careers.astrazeneca.com is a Radancy/Eightfold front over this tenant
-- {name: Nextracker, ats: workday, host: nextracker.wd5.myworkdayjobs.com, tenant: nextracker, site: nextpower_careers, seed_only: true}  # solar robotics; ~202
+- {name: Nextracker, ats: workday, host: nextracker.wd5.myworkdayjobs.com, tenant: nextracker, site: nextpower_careers, seed_only: true}  # solar robotics; ~202; referral (rebranded Nextpower, name kept so the uid namespace and ledger shard stay put)
 - {name: Arlo, ats: workday, host: arlo.wd12.myworkdayjobs.com, tenant: arlo, site: external_careers}  # camera AI; ~37
 # The "uni" site is a NEAR-subset of Ext: full-board diff 2026-07-12 found 10/11 reqs shared
 # (per-site posting instances, suffix -1/-2) but 1/11 uni-ONLY (26WD98040) — so dropping uni
@@ -427,6 +427,13 @@
 - {name: Starbucks, ats: eightfold, host: starbucks.eightfold.ai, domain: starbucks.com, seed_only: true}  # PCSX; ~21k store-flood
 - {name: Verizon, ats: workday, host: verizon.wd12.myworkdayjobs.com, tenant: verizon, site: verizon-careers, seed_only: true}  # ~1086
 - {name: Roche, ats: workday, host: roche.wd3.myworkdayjobs.com, tenant: roche, site: roche-ext, seed_only: true}  # ~1261 global
+# Genentech is its own site on the Roche tenant: of its 224 reqs only 4 are also listed on
+# roche-ext, so the Roche entry above does not cover it. Not seed_only, the referral backlog
+# is wanted in the first digest.
+- {name: Genentech, ats: workday, host: roche.wd3.myworkdayjobs.com, tenant: roche, site: ROG-A2O-GENE}  # referral; ~224, ~200 US
+# US-only by the location allowlist: this board writes Taiwan roles as a bare "Taipei" (71
+# of ~247), which misses the "taiwan" term. A "Taipei, Taiwan" label would start passing.
+- {name: Trend Micro, ats: workday, host: trendmicro.wd3.myworkdayjobs.com, tenant: trendmicro, site: External}  # referral; ~30 US (Irving TX, Austin, US Off-Site)
 - {name: Costco, ats: jibe, host: careers.costco.com, seed_only: true}  # ~26k warehouse-flood
 # Comcast moved data centres, wd5 -> wd115 (wd5 now answers 410 Gone, not 404); tenant and
 # site unchanged. jobs.comcast.com is the page that leaks the new host. Verified ~690 rows.
@@ -443,7 +450,7 @@
 # --- Jibe / iCIMS Talent Cloud (first-party careers-site JSON; newest-first; full descriptions.
 #     Apply links go to icims.com but the JD canonical_url is public) ---
 - {name: AMD,    ats: jibe, host: careers.amd.com, seed_only: true}     # ~1073 roles
-- {name: Rivian, ats: jibe, host: careers.rivian.com, seed_only: true}  # EV + autonomy/CV; ~591 roles
+- {name: Rivian, ats: jibe, host: careers.rivian.com, seed_only: true}  # EV + autonomy/CV; ~591 roles; referral
 # Atlassian's intern/grad reqs live ONLY here (Jibe talent community) — the main
 # atlassian.com listings endpoint has ZERO intern/grad titles, disjoint req-id space.
 # The board also carries a stale experienced backlog -> seed_only swallows it.
@@ -673,7 +680,7 @@
 
 # --- Amazon (keyword search; `query` narrows it, results capped). Broaden/add a
 #     second entry with a different query to widen coverage. ---
-- {name: Amazon, ats: amazon, query: "engineer"}
+- {name: Amazon, ats: amazon, query: "engineer"}  # referral (AWS roles list here too, business_category "aws")
 # Second query slice: Amazon abbreviates intern titles ("Software Eng Intern") which the
 # "engineer" query misses — and Twitch's interns hire through amazon.jobs too. Overlapping
 # roles share URLs, so email dedup collapses them; only the ledger holds both uids.

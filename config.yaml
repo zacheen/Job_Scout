@@ -820,6 +820,13 @@ referral_companies:
   - "Dell"
   - "Intel"
   - "Applied Materials"
+  - "Amazon"          # an Amazon referral covers every Amazon role, AWS included
+  - "Amazon Interns"  # same referral as Amazon, just the intern query slice
+  - "NVIDIA"
+  - "Rivian"
+  - "Nextracker"      # now Nextpower; the companies.yaml entry keeps the old name
+  - "Genentech"
+  - "Trend Micro"
 
 # Roles whose TITLE matches one of these (whole-word, case-insensitive) form the "Intern"
 # group (below Referral, above "Other roles"). Whole-word matching keeps "internal" /
@@ -1039,3 +1046,9 @@ include_location_terms:
   # 2026-08-05 ledger-mined batch: Odys Aviation's Ashby board writes "Long Beach CA"
   # (comma-less, so the ", ca" state-code token can't fire).
   - "long beach"
+  # Genentech's Workday board labels its US sites with a bare city name (~38 of ~200 US rows).
+  - "holly springs"
+  - "hillsboro"
+  - "oceanside"
+  - "louisville"
+  - "tucson"
