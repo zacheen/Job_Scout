@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+Tubi:8232190,Tubi,Data Scientist,"San Francisco, CA",,https://job-boards.greenhouse.io/tubitv/jobs/8232190,,,2026-09-27T05:29:20+00:00,2026-09-26 22:29 Sat,Computer Vision,true,CLI:claude,5,"此職缺為需要博士學歷、專注於產品分析與因果推論的Data Scientist職位,與候選人以電腦視覺和演算法工程為主的背景及技能完全不符。",false,speedyapply:SpeedyApply AI:8232190,
