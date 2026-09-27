@@ -302,7 +302,9 @@ exclude_terms:
   # won't substring-match "physical"; "gpu" has no common English-word collisions.
   - "physics"
   - "chemistry" # won't match "chemical" (different stem)
-  - "drug" # pharma / drug-discovery domain
+  # "drug" is DELIBERATELY ABSENT: it dropped ML roles titled "..., AI for Drug Discovery" at
+  # referral company Genentech, plus AI/data-science interns ("Drug Metabolism - AI"), while
+  # the pure pharma titles it also caught are rare and score low once the LLM reads them.
   - "environmental" # environmental science / sustainability field
   - "mechanical" # different engineering discipline (also matches "electromechanical")
   - "electrical"
