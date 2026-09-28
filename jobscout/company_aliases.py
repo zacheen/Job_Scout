@@ -67,6 +67,12 @@ COMPANY_ALIASES: dict[str, str] = {
     "Robert Bosch Venture Capital": "Bosch",
     "Saronic Technologies": "Saronic",
     "The Home Depot": "Home Depot",
+    # Added before any row used them: Trend Micro is rebranding as TrendAI (both TrendAI
+    # spellings on its careers page, LinkedIn slug trendai-security), and that careers page
+    # still links only the trendmicro.wd3 External site.
+    "TrendAI": "Trend Micro",
+    "TrendAI Security": "Trend Micro",
+    "TrendAI™": "Trend Micro",
     "WeRide.ai": "WeRide",
     "Xfinity": "Comcast",
     # Aggregator-only spelling variants.

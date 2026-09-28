@@ -40,6 +40,7 @@
 #   teamtailor: host             -> {host}/jobs.rss
 #   bamboohr:   account          -> {account}.bamboohr.com/careers/list
 #   ukg_ready:  host, company_id -> UKG Ready/SaaShr public recruitment list
+#   appone:     account          -> Paychex AppOne board for {account}.appone.com, by-state view
 #   scoped_html:url, scope_start, scope_end; link_pattern/id_pattern (optional);
 #               title_pattern (optional; group(1) of anchor HTML, non-matches skipped);
 #               location (optional constant — REQUIRED in practice when the page carries
@@ -512,6 +513,17 @@
 # nothing scrapable, so this hits the JSON its own embed script calls. The board is
 # mostly Noida — PreFilter keeps only the San Jose CV pair — so no seed_only is needed.
 - {name: Attentive.ai, ats: keka, host: attentiveos.keka.com, identifier: 693c4b09-f58f-405d-a2c6-dee3227d1ea4}  # 24 roles, 2 US, at add time
+
+# --- Requested AppOne and WordPress-only company pages (2026-09-28) ---
+# Chroma Systems Solutions (US arm of Chroma ATE, power and battery test equipment): the
+# "View Open Positions" button on chromausa.com/about/jobs is this AppOne board. Its LinkedIn
+# jobs tab needs a signed-in session, so the board is the only fetchable source.
+- {name: Chroma Systems Solutions, ats: appone, account: chromasystemssolutionsinc}  # 14 roles (CA/MA/MI) at add time
+# Agape-1 Technology (San Jose, AI robotics): a WordPress page with no ATS behind it, which
+# read "There are no open roles today" at add time. Watches the page body for any link other
+# than the LinkedIn company page and the page itself, so a role posted as plain text with no
+# link of its own would NOT be picked up.
+- {name: Agape-1, ats: scoped_html, url: "https://www.agape-1.ai/careers/", scope_start: '<div class="entry-content">', scope_end: '</article>', link_pattern: '^https?://(?!(?:www[.])?linkedin[.]com/company/|www[.]agape-1[.]ai/careers/?(?:[#?]|$))', location: "San Jose, CA"}  # referral; 0 roles at add time
 
 # --- Computer vision expansion: 50 additional companies (live-verified 2026-07-17) ---
 # Autonomous vehicles / automaker (6)
