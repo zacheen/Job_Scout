@@ -2238,6 +2238,71 @@ class UKGReadyFetcher(AtsFetcher):
         return jobs
 
 
+class AppOneFetcher(AtsFetcher):
+    """AppOne / myStaffingPro boards, the ATS behind Paychex Recruiting. The
+    {account}.appone.com search page is an ASP.NET postback form, but its "Browse All Jobs
+    by State" link is a plain GET that server-renders the whole board: a state header row
+    ("{tenant name} {ST} Jobs"), then one MainInfoReq.asp?R_ID={id} anchor per job whose
+    text reads "{category} - {title} - {site} - Job". No dates and no descriptions, so this
+    stays a single request and AppOneJdSource backfills the body at enrich time.
+
+    The by-state view is the one to read because a site is whatever the tenant calls an
+    office (Chroma's are street names like Pauling and Commercentre), so without the state
+    code PreFilter's allowlist cannot place a single row."""
+
+    ats_name = "appone"
+    _HOST = "recruiting.myapps.paychex.com"
+    # Answered with a 200 for an unknown account, so it must be raised on explicitly.
+    _NO_BOARD = "The Search Screen could not be found"
+    _TOKEN_RE = re.compile(
+        r"""colspan=["']3["'][^>]*>(?P<header>[^<]*?)\s+Jobs\s*</td>
+          | <a\s+href=["'][^"']*/MainInfoReq\.asp\?R_ID=(?P<id>\d+)[^"']*["'][^>]*>(?P<text>[^<]*)</a>""",
+        re.IGNORECASE | re.VERBOSE,
+    )
+    # Category ends at the FIRST " - " and site is the hyphen-free segment before " - Job",
+    # so a title that itself contains " - " ("Regional Sales Manager - (REMOTE)") survives.
+    _TEXT_RE = re.compile(r"^(?P<dept>.*?)\s+-\s+(?P<title>.+?)\s+-\s+(?P<site>[^-]+?)\s+-\s+Job$")
+
+    @property
+    def host(self) -> str:
+        return self._HOST
+
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
+        account = self._param("account")
+        body = self._http.get_text(
+            f"https://{self._HOST}/appone/Branding/ReqTemplate/BrowseAllJobsbyState.asp",
+            params={"servervar": f"{account}.appone.com"},
+        )
+        if self._NO_BOARD in body:
+            raise RuntimeError(f"{self._company.name}: no AppOne board for account {account!r}")
+        jobs = []
+        state = ""
+        for match in self._TOKEN_RE.finditer(body):
+            if match.group("header") is not None:
+                state = strip_html(match.group("header")).rsplit(" ", 1)[-1]
+                continue
+            text = strip_html(match.group("text"))
+            parts = self._TEXT_RE.match(text)
+            if not parts:
+                log.warning("%s: AppOne row not in category - title - site form: %r",
+                            self._company.name, text)
+                continue
+            job_id = match.group("id")
+            jobs.append(
+                Job(
+                    job_uid=self._uid(job_id),
+                    company=self._company.name,
+                    title=parts.group("title"),
+                    location=", ".join(p for p in (parts.group("site"), state) if p),
+                    url=f"https://{self._HOST}/appone/MainInfoReq.asp?R_ID={job_id}",
+                    description="",  # listing carries no job-ad body
+                    department=parts.group("dept"),
+                    date_posted="",  # listing carries no posting date
+                )
+            )
+        return jobs
+
+
 class ScopedHtmlFetcher(AtsFetcher):
     """Generic server-rendered careers page parser. Only anchors between the configured
     literal ``scope_start`` and ``scope_end`` markers are considered, which avoids stale
@@ -3043,6 +3108,7 @@ class FetcherFactory:
         TeamtailorFetcher.ats_name: TeamtailorFetcher,
         BambooHRFetcher.ats_name: BambooHRFetcher,
         UKGReadyFetcher.ats_name: UKGReadyFetcher,
+        AppOneFetcher.ats_name: AppOneFetcher,
         ScopedHtmlFetcher.ats_name: ScopedHtmlFetcher,
         DejobsFetcher.ats_name: DejobsFetcher,
         AmazonFetcher.ats_name: AmazonFetcher,
@@ -3306,6 +3372,34 @@ class SuccessFactorsJdSource(JdSource):
     def _body(self, payload: str) -> str:
         match = self._BODY_RE.search(payload)
         return _balanced_element(payload, match.start(), "span") if match else ""
+
+
+class AppOneJdSource(JdSource):
+    """AppOne per-posting detail for AppOneFetcher's rows, whose listing carries no body.
+
+    The JD URL is the detail endpoint: MainInfoReq.asp server-renders the ad into
+    <table id="JobDescription">, holding the title, the tenant's About blurb and the
+    description. Every AppOne tenant shares this one host, so dispatch keys on it.
+
+    An unknown or closed R_ID answers 200 with a one-line "job opening was not found"
+    page and no such table, so it fails open through `_body`, never `description`'s except.
+    """
+
+    _JD_URL_RE = re.compile(
+        r"^https://recruiting\.myapps\.paychex\.com/appone/MainInfoReq\.asp"
+        r"\?(?:[^#]*&)?R_ID=\d+(?:&[^#]*)?$",
+        re.IGNORECASE)
+    _BODY_RE = re.compile(r'<table(?=[^>]*id="JobDescription")[^>]*>', re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        return self._passthrough(jd_url, self._JD_URL_RE)
+
+    def _payload(self, api: str) -> str:
+        return self._http.get_text(api)
+
+    def _body(self, payload: str) -> str:
+        match = self._BODY_RE.search(payload)
+        return _balanced_element(payload, match.start(), "table") if match else ""
 
 
 class LdJsonJdSource(JdSource):

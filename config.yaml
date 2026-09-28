@@ -829,6 +829,7 @@ referral_companies:
   - "Nextracker"      # now Nextpower; the companies.yaml entry keeps the old name
   - "Genentech"
   - "Trend Micro"
+  - "Agape-1"
 
 # Roles whose TITLE matches one of these (whole-word, case-insensitive) form the "Intern"
 # group (below Referral, above "Other roles"). Whole-word matching keeps "internal" /
