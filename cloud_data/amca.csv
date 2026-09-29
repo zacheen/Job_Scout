@@ -1,0 +1,3 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+AMCA:4396690009,AMCA,Electrical Engineering Internship - Summer 2027,"El Segundo, CA",Hardware,https://job-boards.greenhouse.io/amca/jobs/4396690009,2026-09-29,2026-09-29,2026-09-29T22:40:59+00:00,2026-09-29 15:40 Tue,,false,,,,false,simplify:Simplify Internships:4396690009,2026-09-29
+AMCA:4425120009,AMCA,Software Engineer Intern,"El Segundo, CA",Software,https://job-boards.greenhouse.io/amca/jobs/4425120009,2026-09-30,2026-09-30,2026-09-30T06:40:53+00:00,2026-09-29 23:40 Tue,Software Engineering,true,Keyword,67,僅以關鍵字比對評分,true,simplify:Simplify Internships:4425120009,2026-09-30
