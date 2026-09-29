@@ -12,9 +12,9 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
 
 from .config import CATCHUP_LOG_FILENAME, Settings
 from .coverage import attach_catchup_annotations, attach_catchup_log
-from .fetchers import (AppOneJdSource, AshbyJdSource, AtsFetcher, BambooHrJdSource,
-                       ChainedEnricher, DispatchingEnricher, FetcherFactory, GreenhouseJdSource,
-                       HttpClient, IcimsJdSource, JdUrlEnricher, JibeJdSource,
+from .fetchers import (AppOneJdSource, AshbyJdSource, AtsFetcher, AvatureJdSource,
+                       BambooHrJdSource, ChainedEnricher, DispatchingEnricher, FetcherFactory,
+                       GreenhouseJdSource, HttpClient, IcimsJdSource, JdUrlEnricher, JibeJdSource,
                        ParallelFetcher, RadancyJdSource, SuccessFactorsJdSource,
                        WorkdayJdSource, host_pacer)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
@@ -117,7 +117,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
                            SuccessFactorsJdSource(jd_http), RadancyJdSource(jd_http),
                            AshbyJdSource(jd_http), IcimsJdSource(jd_http),
                            JibeJdSource(jd_http), GreenhouseJdSource(jd_http),
-                           AppOneJdSource(jd_http)],
+                           AppOneJdSource(jd_http), AvatureJdSource(jd_http)],
                           settings.description_policy),
         ]),
         annotator=DescriptionFlagger(
