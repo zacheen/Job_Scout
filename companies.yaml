@@ -13,6 +13,7 @@
 #   oracle:     host, site (the CX_N siteNumber from the Oracle candidate-experience URL)
 #   smartrecruiters: company (the companyId from jobs.smartrecruiters.com/{company})
 #   jibe:       host             -> https://{host}/api/jobs (Jibe/iCIMS careers sites; newest-first)
+#   icims:      host             -> https://{host}/jobs/search?in_iframe=1 (classic iCIMS portals)
 #   workable:   account          -> apply.workable.com/api/v1/widget/accounts/{account}
 #   jazzhr:     account          -> {account}.applytojob.com/apply (server-rendered HTML board)
 #   rippling:   board            -> api.rippling.com/platform/api/ats/v1/board/{board}/jobs
@@ -461,6 +462,11 @@
 # Re-probed 2026-07-16: the current McAfee first-party careers site exposes the same
 # anonymous /api/jobs Jibe endpoint as AMD/Rivian; no Phenom fetcher is needed.
 - {name: McAfee, ats: jibe, host: careers.mcafee.com}  # ~56
+
+# --- Classic iCIMS portals (server-rendered only with in_iframe=1; no dates, title order ->
+#     bounded full pull; bodies come from IcimsJdSource at enrich time) ---
+# Joby Aviation (eVTOL air taxi): jobyaviation.com/careers links straight to this portal.
+- {name: Joby Aviation, ats: icims, host: careers-jobyaviation.icims.com, seed_only: true}  # 165 roles, 164 US, 88 past PreFilter, at add time
 
 # --- Workable (anonymous v1 widget; one request, full descriptions) ---
 - {name: Pony.ai, ats: workable, account: pony-dot-ai}  # AV; US board (Fremont CA), ~7 roles

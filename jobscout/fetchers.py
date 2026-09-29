@@ -1014,6 +1014,64 @@ class JibeFetcher(EarlyStopPaginatedFetcher):
         return jobs, data.get("totalCount")
 
 
+class IcimsFetcher(BoundedPaginatedFetcher):
+    """Classic iCIMS portals, `host` = careers-{tenant}.icims.com. /jobs/search is a JS shell
+    until in_iframe=1 is added, which makes it server-render one iCIMS_JobCardItem per job
+    (`pr` = zero-based page) plus a "Page N of M" paginator. Cards carry no posting date and
+    list in title order, so this is a bounded full pull rather than an early-stop.
+
+    The card's description is left empty on purpose. It is a teaser of the ad's opening
+    paragraph that often clears DescriptionPolicy's length floor without a "..." mark, and
+    would then stop JdUrlEnricher from fetching the full ad, where any work-authorization
+    bar sits, through IcimsJdSource."""
+
+    ats_name = "icims"
+    # The request takes no page size and the paginator reports pages, not jobs, so both
+    # `total` and this unit count pages. _paginate_bounded then stops on the last page.
+    _PAGE = 1
+    _MAX_PAGES = 25  # hard bound: no dates, no early-stop
+    _CARD_RE = re.compile(r'<li class="iCIMS_JobCardItem">(.*?)</li>', re.DOTALL)
+    # The href carries ?in_iframe=1. Dropping the query leaves the /jobs/{id}/{slug}/job
+    # shape that IcimsJdSource dispatches on and that aggregator rows already link.
+    _LINK_RE = re.compile(
+        r'href="(?P<url>https://[^"?]+/jobs/(?P<id>\d+)/[^"?]*/job)(?:\?[^"]*)?"[^>]*>'
+        r'.*?<h3[^>]*>(?P<title>.*?)</h3>',
+        re.DOTALL)
+    _LOCATION_RE = re.compile(r'Job Locations</span>\s*<span[^>]*>(.*?)</span>', re.DOTALL)
+    _CATEGORY_RE = re.compile(r'>Category</dt>\s*<dd[^>]*>\s*<span[^>]*>(.*?)</span>',
+                              re.DOTALL)
+    _PAGES_RE = re.compile(r"Page \d+ of (\d+)")
+
+    @property
+    def host(self) -> str:
+        return self._param("host")
+
+    def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
+        body = self._http.get_text(
+            f"https://{self.host}/jobs/search",
+            params={"ss": 1, "in_iframe": 1, "pr": index},
+        )
+        jobs = []
+        for card in self._CARD_RE.findall(body):
+            link = self._LINK_RE.search(card)
+            if not link:
+                continue
+            jobs.append(
+                Job(
+                    job_uid=self._uid(link.group("id")),
+                    company=self._company.name,
+                    title=strip_html(link.group("title")),
+                    location=_first_match(self._LOCATION_RE, card),
+                    url=link.group("url"),
+                    description="",  # see class docstring
+                    department=_first_match(self._CATEGORY_RE, card),
+                    date_posted="",  # cards carry no posting date
+                )
+            )
+        pages = self._PAGES_RE.search(body)
+        return jobs, int(pages.group(1)) if pages else None
+
+
 class EightfoldFetcher(EarlyStopPaginatedFetcher):
     """Eightfold careers sites. Two anonymous API flavors, gated INDEPENDENTLY per tenant,
     both newest-first with sort_by=timestamp (early-stop applies):
@@ -3096,6 +3154,7 @@ class FetcherFactory:
         OracleFetcher.ats_name: OracleFetcher,
         SmartRecruitersFetcher.ats_name: SmartRecruitersFetcher,
         JibeFetcher.ats_name: JibeFetcher,
+        IcimsFetcher.ats_name: IcimsFetcher,
         EightfoldFetcher.ats_name: EightfoldFetcher,
         RadancyFetcher.ats_name: RadancyFetcher,
         ByteDanceFetcher.ats_name: ByteDanceFetcher,
@@ -3483,9 +3542,10 @@ class AshbyJdSource(LdJsonJdSource):
 class IcimsJdSource(LdJsonJdSource):
     """iCIMS hosted-board per-posting detail ({tenant}.icims.com).
 
-    Only aggregator rows reach it. JibeFetcher also links icims.com job pages
-    (meta_data.canonical_url), but its listing already carries the body, so
-    JdUrlEnricher's usable-description gate skips those.
+    Aggregator rows reach it, and so do IcimsFetcher's own rows, which are listed with no
+    body on purpose. JibeFetcher also links icims.com job pages (meta_data.canonical_url),
+    but its listing already carries the body, so JdUrlEnricher's usable-description gate
+    skips those.
 
     The public JD URL is a JS shell carrying no ld+json at all; the ad lives at the SAME
     URL plus in_iframe=1, the address the page's own noscript_icims_content_iframe loads.
