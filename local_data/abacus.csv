@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates
+ABACUS:8006961003,ABACUS,Data Engineer,Remote - USA,,https://abacustechnology.com/about/careers/current-vacancies/?gh_jid=8006961003,,,2026-09-29T22:16:28+00:00,2026-09-29 15:16 Tue,Computer Vision,true,CLI:claude,8,候選人專長為電腦視覺、深度學習演算法與C++/Python研究開發，與此職缺著重的Azure資料工程、T-SQL、ETL pipeline及資料庫整合技能幾乎沒有重疊，領域不符。,false,speedyapply:SpeedyApply AI:8006961003,
