@@ -57,7 +57,7 @@ max_description_chars: 8000
 # Below this many characters a listing's body is treated as ABSENT rather than short
 # (models.DescriptionPolicy, which also rejects any body ending mid-sentence in "..."
 # regardless of length). Three things follow from that verdict: JdUrlEnricher fetches the
-# real JD, the keyword fallback switches to its title-only weight, and referral/intern
+# real JD, the keyword fallback switches to its title-only weight, and referral
 # roles auto-pass. The floor exists because some search APIs answer with a marketing
 # teaser instead of the job ad — IBM's was ~250 chars of the same paragraph on every role
 # — and counting that as a description made those postings score LOWER than a bare title.
@@ -644,7 +644,7 @@ warn_description_patterns:
 # a JD may use either. Purely additive: editing this never affects routing or filtering.
 # Listings with no USABLE body (min_description_chars — no description at all, or a
 # teaser too short to hold requirements) weigh each distinct hit higher (2 distinct clear
-# a 50 threshold instead of 4); referral/intern ones skip the keyword gate entirely and
+# a 50 threshold instead of 4); referral ones skip the keyword gate entirely and
 # are always emailed (see __main__ wiring). So a term's value here is what it adds on
 # roles that DO have a real body — a term every body repeats buys nothing.
 skill_keywords:
@@ -809,7 +809,7 @@ skill_keywords:
   - "design pattern"
 
 # Companies you have a referral at -> their roles form the TOP email group "Referral"
-# (above Intern). Matched against the company NAME (case-insensitive), so each must match
+# (above Other roles). Matched against the company NAME (case-insensitive), so each must match
 # the `name:` used in companies.yaml.
 referral_companies:
   - "Google"
@@ -832,13 +832,10 @@ referral_companies:
   - "Agape-1"
 
 # Roles whose TITLE matches one of these (whole-word, case-insensitive) form the "Intern"
-# group (below Referral, above "Other roles"). Whole-word matching keeps "internal" /
-# "international" out.
-intern_terms:
-  - "intern"
-  - "internship"
-  - "co-op"
-  - "coop"
+# group (below Referral, above "Other roles"). Empty on purpose, so intern roles land in
+# "Other roles" and lose the keyword-fallback auto-pass. Must stay an explicit [], since
+# omitting the key brings back config.py's default intern list.
+intern_terms: []
 
 # Roles whose TITLE matches one of these (whole-word, so "sr" doesn't hit inside other
 # words) are DROPPED, not emailed: LevelClassifier puts them in a "Senior" group that
