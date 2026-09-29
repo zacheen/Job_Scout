@@ -3461,6 +3461,43 @@ class AppOneJdSource(JdSource):
         return _balanced_element(payload, match.start(), "table") if match else ""
 
 
+class AvatureJdSource(JdSource):
+    """Avature per-posting detail for AvatureFetcher's rows, whose search cards carry no
+    body, and for aggregator links to other Avature tenants (koch.avature.net, …).
+
+    The JD URL is the detail endpoint. The page server-renders the ad across several
+    <article class="article article--details"> blocks, none with a stable class of its
+    own, splitting the labeled metadata (location, worker type) from the description into
+    separate blocks in tenant-dependent order (Two Sigma vs EA), so `_body` joins all of them.
+
+    Dispatch keys on the /careers/JobDetail path, case-sensitive so Keka's lowercase
+    /careers/jobdetails/ never matches. careers.ibm.com shares the path but answers 202
+    with an empty body, failing open through `_body`; a delisted posting redirects to
+    /careers/Error, which 404s into `description`'s except.
+    """
+
+    # The locale segment is present on EA/Lenovo/TSMC and absent on Two Sigma. TSMC carries
+    # the id as ?jobId=, the others as the trailing path segment.
+    _JD_URL_RE = re.compile(
+        r"^https://[\w.-]+/(?:[a-z]{2}_[A-Z]{2}/)?careers/JobDetail(?:/[^?#]+)?/?(?:\?[^#]*)?$")
+    _BODY_RE = re.compile(r'<article(?=[^>]*class="[^"]*\barticle--details\b)[^>]*>',
+                          re.IGNORECASE)
+    _WHITESPACE_RE = re.compile(r"\s+")
+
+    def detail_url(self, jd_url: str) -> str:
+        return self._passthrough(jd_url, self._JD_URL_RE)
+
+    def _payload(self, api: str) -> str:
+        return self._http.get_text(api)
+
+    def _body(self, payload: str) -> str:
+        blocks = " ".join(_balanced_element(payload, match.start(), "article")
+                          for match in self._BODY_RE.finditer(payload))
+        # The template indents every field dozens of levels deep, so an EA page is 12k chars
+        # before this and 4k after, against the scorer's 8000-char cap.
+        return self._WHITESPACE_RE.sub(" ", blocks)
+
+
 class LdJsonJdSource(JdSource):
     """Base for boards that assemble the visible ad client-side but server-render it into
     a schema.org JobPosting ld+json block. Without that block these boards would need a
