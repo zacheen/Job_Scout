@@ -10,8 +10,8 @@ try:
 except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
-from .config import CATCHUP_LOG_FILENAME, Settings
-from .coverage import attach_catchup_annotations, attach_catchup_log
+from .config import CATCHUP_LOG_FILENAME, SOURCE_STREAKS_FILENAME, Settings
+from .coverage import SourceStreaks, attach_catchup_annotations, attach_catchup_log
 from .fetchers import (AppOneJdSource, AshbyJdSource, AtsFetcher, AvatureJdSource,
                        BambooHrJdSource, ChainedEnricher, DispatchingEnricher, FetcherFactory,
                        GreenhouseJdSource, HttpClient, IcimsJdSource, JdUrlEnricher, JibeJdSource,
@@ -89,7 +89,8 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
 
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_dir, track_priority=settings.track_names),
-        fetcher=ParallelFetcher(fetchers),
+        fetcher=ParallelFetcher(fetchers, streaks=SourceStreaks(
+            root / SOURCE_STREAKS_FILENAME, settings.dark_source_streak)),
         prefilter=PreFilter(
             include_location_terms=settings.include_location_terms,
             exclude_location_terms=settings.exclude_location_terms,
@@ -140,6 +141,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         # LevelClassifier routes a referral-company senior role to Referral, not Senior.
         suppressed_groups={leveler.senior_group},
         subject_time=subject_time,
+        jd_retry=settings.jd_retry_policy,
     )
     return pipeline.run()
 

@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from typing import NamedTuple
 from urllib.parse import parse_qsl, urljoin, urlparse
 
 import requests
@@ -24,9 +25,9 @@ from dataclasses import replace
 
 from .company_aliases import canonical_company
 from .config import Company
-from .coverage import catchup_log
+from .coverage import SourceStreaks, catchup_log
 from .dates import posted_iso
-from .models import EMPTY_SEEN_LEDGER, DescriptionPolicy, Job, SeenLedger
+from .models import EMPTY_SEEN_LEDGER, DescriptionPolicy, EnrichResult, Job, SeenLedger
 from .protocols import Enricher, RequestMeter
 
 log = logging.getLogger(__name__)
@@ -3208,11 +3209,18 @@ class ParallelFetcher:
     sequentially in one thread — a host is never hit by two threads at once, and
     per-request pacing still applies within each sequence. Satisfies the `Fetcher` protocol."""
 
-    def __init__(self, fetchers: list[AtsFetcher], max_workers: int = 8):
+    def __init__(self, fetchers: list[AtsFetcher], max_workers: int = 8,
+                 streaks: SourceStreaks | None = None):
         self._fetchers = fetchers
         self._max_workers = max_workers
+        self._streaks = streaks if streaks is not None else SourceStreaks.in_memory()
 
     def fetch_all(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
+        jobs = self._fetch_groups(seen)
+        self._streaks.finish()
+        return jobs
+
+    def _fetch_groups(self, seen: SeenLedger) -> list[Job]:
         groups: dict[str, list[AtsFetcher]] = {}
         for fetcher in self._fetchers:
             try:
@@ -3256,8 +3264,7 @@ class ParallelFetcher:
         log.info("host %s done: %d jobs in %.1fs", host, len(jobs), time.perf_counter() - started)
         return jobs
 
-    @staticmethod
-    def _report_dark(subject: str, detail: str) -> None:
+    def _report_dark(self, subject: str, detail: str) -> None:
         """A source contributed nothing this run. catchup_log, not `log`: this is the
         "saw less than it should" channel, and the only one that survives the run
         (coverage.attach_catchup_log / attach_catchup_annotations). Left on `log` it was
@@ -3266,6 +3273,7 @@ class ParallelFetcher:
         diff against local runs found it. Takes the subject already resolved, like
         _paginate_new does, so it never touches a fetcher that just raised."""
         catchup_log.warning("%s: %s", subject, detail)
+        self._streaks.record_dark(subject, detail)
 
 
 class DispatchingEnricher:
@@ -3277,13 +3285,37 @@ class DispatchingEnricher:
     def __init__(self, fetchers: list[AtsFetcher]):
         self._prefixed = tuple((f.own_uid_prefix, f) for f in fetchers)
 
-    def enrich(self, job: Job) -> Job:
+    def enrich(self, job: Job) -> EnrichResult:
         # Linear scan: uid prefixes end in ':' so at most one entry can match (one company
         # name can't be a prefix of another's), and enriched jobs number a handful per run.
+        # Never pending: a fetcher's own enrich reports no failure kind, only the job.
         for prefix, fetcher in self._prefixed:
             if job.job_uid.startswith(prefix):
-                return fetcher.enrich(job)
-        return job
+                return EnrichResult(fetcher.enrich(job))
+        return EnrichResult(job)
+
+
+class JdFetch(NamedTuple):
+    text: str
+    # The fetch failed, and a later attempt could plausibly succeed (see _jd_retryable).
+    retryable: bool = False
+
+
+def _jd_retryable(exc: Exception) -> bool:
+    """Is a failed JD fetch worth another try on a LATER run?
+
+    Wider than `_is_transient`, which decides an immediate retry inside one request. 429
+    is excluded there because hammering a throttling board right away makes it worse, but
+    a retry hours later is exactly what it asks for. 403 is included because Workday
+    answers it both while throttling and when WorkdayJdSource guessed the wrong tenant,
+    and the two cannot be told apart; the wrong-tenant case only costs a few retries
+    before JdRetryPolicy gives up. 404 and 410 mean the posting is gone, so they stay final.
+    """
+    if _is_transient(exc):
+        return True
+    # getattr: this runs inside JdSource.fetch's except, which must never raise.
+    return (isinstance(exc, requests.HTTPError)
+            and getattr(exc.response, "status_code", None) in (403, 429))
 
 
 class JdSource(ABC):
@@ -3293,7 +3325,7 @@ class JdSource(ABC):
     That URL is all an aggregator row carries, so this is the only handle available for
     Simplify/SpeedyApply postings, whose links point at arbitrary employer ATSes.
     Subclasses map a JD URL to its detail endpoint and pull the body out of the payload;
-    `description` adds the shared fetch + fail-open handling.
+    `fetch` adds the shared fetch + fail-open handling.
     """
 
     def __init__(self, http: HttpClient):
@@ -3324,24 +3356,24 @@ class JdSource(ABC):
         Sources whose "endpoint" is a server-rendered HTML page override this to hand `_body`
         the markup instead. Whatever a subclass returns here must match what that SAME
         subclass's `_body` expects — the pair is not independently type-checked, and a
-        mismatch raises inside `description`'s fail-open except, surfacing as an ordinary
+        mismatch raises inside `fetch`'s fail-open except, surfacing as an ordinary
         "JD fetch failed" info log rather than an error."""
         return self._http.get_json(api)
 
-    def description(self, jd_url: str) -> str:
-        """Stripped job-ad text for `jd_url`, or "" when this source doesn't serve that
-        URL or the fetch failed. Callers rely on "" (never an exception) to keep the
-        Enricher fail-open contract."""
+    def fetch(self, jd_url: str) -> JdFetch:
+        """Stripped job-ad text for `jd_url`, with empty text when this source doesn't
+        serve that URL or the fetch failed. Never raises, which is what keeps the Enricher
+        fail-open contract."""
         api = self.detail_url(jd_url)
         if not api:
-            return ""
+            return JdFetch("")
         try:
-            return strip_html(self._body(self._payload(api)))
+            return JdFetch(strip_html(self._body(self._payload(api))))
         except Exception as exc:
             # Expected, not exceptional: a delisted or re-posted requisition 403s/404s on
             # its old URL, and the caller's fallback (title-only matching) is unchanged.
             log.info("%s: JD fetch failed for %s: %s", type(self).__name__, jd_url, exc)
-            return ""
+            return JdFetch("", retryable=_jd_retryable(exc))
 
 
 class WorkdayJdSource(JdSource):
@@ -3415,7 +3447,7 @@ class SuccessFactorsJdSource(JdSource):
     # its own — re-verify that before loosening this regex for a new tenant.
     # ?ats=successfactors links serve the same markup as the bare URL. A filled posting
     # answers 200 with a "position has been filled" shell and no jobdescription span, so
-    # it fails open through `_body`, never `description`'s except.
+    # it fails open through `_body`, never `fetch`'s except.
     _JD_URL_RE = re.compile(r"^https://[\w.-]+(?:/[^/]+)?/job/[^/]+/\d+/?(?:\?[^#]*)?$",
                             re.IGNORECASE)
     # Lookahead on the class so the match still STARTS at "<span" -- _balanced_element needs
@@ -3441,7 +3473,7 @@ class AppOneJdSource(JdSource):
     description. Every AppOne tenant shares this one host, so dispatch keys on it.
 
     An unknown or closed R_ID answers 200 with a one-line "job opening was not found"
-    page and no such table, so it fails open through `_body`, never `description`'s except.
+    page and no such table, so it fails open through `_body`, never `fetch`'s except.
     """
 
     _JD_URL_RE = re.compile(
@@ -3473,7 +3505,7 @@ class AvatureJdSource(JdSource):
     Dispatch keys on the /careers/JobDetail path, case-sensitive so Keka's lowercase
     /careers/jobdetails/ never matches. careers.ibm.com shares the path but answers 202
     with an empty body, failing open through `_body`; a delisted posting redirects to
-    /careers/Error, which 404s into `description`'s except.
+    /careers/Error, which 404s into `fetch`'s except.
     """
 
     # The locale segment is present on EA/Lenovo/TSMC and absent on Two Sigma. TSMC carries
@@ -3564,8 +3596,8 @@ class AshbyJdSource(LdJsonJdSource):
     still pinned to {org}/{uuid} so the board root, which carries no JobPosting block,
     cannot cost a wasted request.
 
-    A delisted posting answers 200 with a JD-less shell, not the 403/404 `description`
-    assumes, so it fails open via `_body`'s empty return, never `description`'s `except`.
+    A delisted posting answers 200 with a JD-less shell, not the 403/404 `fetch`
+    assumes, so it fails open via `_body`'s empty return, never `fetch`'s `except`.
     """
 
     _JD_URL_RE = re.compile(
@@ -3595,7 +3627,7 @@ class IcimsJdSource(LdJsonJdSource):
     carries no ad, costs no request.
 
     A delisted requisition answers 410 Gone rather than the 403/404 seen elsewhere, but
-    it reaches `description`'s except the same way.
+    it reaches `fetch`'s except the same way.
     """
 
     # Barring "#" is what lets detail_url append the param by concatenation instead of
@@ -3624,7 +3656,7 @@ class JibeJdSource(LdJsonJdSource):
     optional segment only covers a link already pointing there. It cannot collide with
     IcimsJdSource, whose path must end in "job".
 
-    A delisted requisition answers 404, reaching `description`'s except as elsewhere.
+    A delisted requisition answers 404, reaching `fetch`'s except as elsewhere.
     """
 
     _JD_URL_RE = re.compile(
@@ -3650,7 +3682,7 @@ class GreenhouseJdSource(JdSource):
     and `_payload` spends a second request learning the board from where that resolver
     redirects, job-boards.greenhouse.io/embed/job_app?for={board}&token={id}.
 
-    An unknown id redirects to an embed error page that 404s, reaching `description`'s
+    An unknown id redirects to an embed error page that 404s, reaching `fetch`'s
     except as elsewhere.
     """
 
@@ -3733,14 +3765,16 @@ class JdUrlEnricher:
         self._sources = tuple(sources)
         self._policy = description_policy
 
-    def enrich(self, job: Job) -> Job:
+    def enrich(self, job: Job) -> EnrichResult:
         if self._policy.is_usable(job.description) or not job.url:
-            return job
+            return EnrichResult(job)
+        retryable = False
         for source in self._sources:
-            description = source.description(job.url)
-            if description:
-                return replace(job, description=description)
-        return job
+            fetched = source.fetch(job.url)
+            if fetched.text:
+                return EnrichResult(replace(job, description=fetched.text))
+            retryable = retryable or fetched.retryable
+        return EnrichResult(job, jd_pending=retryable)
 
 
 class ChainedEnricher:
@@ -3752,9 +3786,11 @@ class ChainedEnricher:
     def __init__(self, enrichers: list[Enricher]):
         self._enrichers = tuple(enrichers)
 
-    def enrich(self, job: Job) -> Job:
+    def enrich(self, job: Job) -> EnrichResult:
+        pending = False
         for enricher in self._enrichers:
-            enriched = enricher.enrich(job)
-            if enriched is not job:
-                return enriched
-        return job
+            result = enricher.enrich(job)
+            if result.job is not job:
+                return result
+            pending = pending or result.jd_pending
+        return EnrichResult(job, jd_pending=pending)

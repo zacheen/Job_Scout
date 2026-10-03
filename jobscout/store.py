@@ -23,7 +23,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .dates import posted_iso
-from .models import Job, Score, ScoreMethod, SeenLedger
+from .models import Job, PendingJd, Score, ScoreMethod, SeenLedger
 from .urls import canon_url
 
 log = logging.getLogger(__name__)
@@ -41,7 +41,15 @@ _FIELDS = [
     "job_key", "company", "title", "location", "department", "urls", "date_posted",
     "date_posted_iso", "first_seen", "first_seen_pt", "track", "scored", "score_method",
     "experience_score", "reason", "emailed", "source_uids", "source_dates",
+    "jd_state", "jd_attempts", "jd_first_failed", "jd_last_attempt",
 ]
+
+# jd_state values. "" covers every row that never had a retryable JD failure, which is
+# also what a row written before these columns existed reads as, so old rows need no
+# backfill. On merge the later state in this order wins, and RESOLVED is terminal.
+_JD_PENDING = "pending"
+_JD_RESOLVED = "resolved"
+_JD_STATE_RANK = {"": 0, _JD_PENDING: 1, _JD_RESOLVED: 2}
 
 # Free-text fields describing the posting itself; on merge the FULLER value wins (_fuller).
 # "company" is deliberately NOT here: it picks by source authority first (_merge_company).
@@ -231,6 +239,22 @@ def _merge_sources(existing: dict, incoming: dict, newer: dict, older: dict) -> 
     return uids
 
 
+def _merge_jd(existing: dict, incoming: dict) -> None:
+    """Settle the four jd_* columns. Every rule is order-independent (max/min over
+    monotone values), for the same reason _merge_posted's is: local_run.py and
+    merge_seen_jobs.py fold the two shard dirs in opposite directions, and both must
+    converge on one answer."""
+    existing["jd_state"] = max(existing["jd_state"], incoming["jd_state"],
+                               key=lambda s: _JD_STATE_RANK.get(s, 0))
+    attempts = [int(v) for v in (existing["jd_attempts"], incoming["jd_attempts"])
+                if v.isdigit()]
+    existing["jd_attempts"] = str(max(attempts)) if attempts else ""
+    firsts = [v for v in (existing["jd_first_failed"], incoming["jd_first_failed"]) if v]
+    existing["jd_first_failed"] = min(firsts) if firsts else ""
+    lasts = [v for v in (existing["jd_last_attempt"], incoming["jd_last_attempt"]) if v]
+    existing["jd_last_attempt"] = max(lasts) if lasts else ""
+
+
 def _score_rank(row: dict) -> int:
     if row.get("scored") != "true":
         return _UNSCORED_RANK
@@ -405,6 +429,41 @@ class CsvStore:
                 continue
             row["emailed"] = "true"
 
+    def is_emailed(self, job_uid: str) -> bool:
+        row = self._by_uid.get(job_uid)
+        return row is not None and row["emailed"] == "true"
+
+    def pending_jds(self) -> list[PendingJd]:
+        pending = []
+        for row in self._rows:
+            if row["jd_state"] != _JD_PENDING:
+                continue
+            try:
+                entry = PendingJd(self._job_from_row(row), int(row["jd_attempts"]),
+                                  datetime.fromisoformat(row["jd_first_failed"]),
+                                  datetime.fromisoformat(row["jd_last_attempt"]))
+            except ValueError:
+                # Only a hand edit gets here. Resolving leaves the row exactly as the
+                # pre-retry design would have, scored on whatever it had, and warns once
+                # instead of on every run.
+                log.warning("resolving malformed pending JD row %s", row["job_key"])
+                row["jd_state"] = _JD_RESOLVED
+                continue
+            pending.append(entry)
+        return pending
+
+    def record_jd_failure(self, job_uid: str, now: datetime) -> None:
+        row = self._by_uid[job_uid]
+        stamp = now.isoformat(timespec="seconds")
+        row["jd_state"] = _JD_PENDING
+        row["jd_attempts"] = str(int(row["jd_attempts"] or 0) + 1)
+        row["jd_first_failed"] = row["jd_first_failed"] or stamp
+        row["jd_last_attempt"] = stamp
+
+    def resolve_jd(self, job_uid: str) -> None:
+        # The counters stay, so a resolved row still shows how many tries it took.
+        self._by_uid[job_uid]["jd_state"] = _JD_RESOLVED
+
     def absorb(self, path: Path) -> None:
         """Merge every row of another ledger CSV (legacy or current schema) into this
         store; also how the store loads its own file."""
@@ -454,6 +513,7 @@ class CsvStore:
 
         if incoming["emailed"] == "true":
             existing["emailed"] = "true"  # never re-email an opening
+        _merge_jd(existing, incoming)
         self._index(existing)
         return existing
 
@@ -625,7 +685,23 @@ class CsvStore:
             # One uid, so its own date IS the row's; the two only diverge once merge_rows
             # folds another source in.
             "source_dates": reported,
+            "jd_state": "",
+            "jd_attempts": "",
+            "jd_first_failed": "",
+            "jd_last_attempt": "",
         }
+
+    @staticmethod
+    def _job_from_row(row: dict) -> Job:
+        """A Job good enough to enrich, route and score a stored row again. Its uid is the
+        row's first source uid and its url the newest one; any uid of the row addresses the
+        same row in set_score and mark_emailed, and description is always empty because a
+        pending row is by definition one whose description never arrived."""
+        uids, urls = _split_multi(row["source_uids"]), _split_multi(row["urls"])
+        return Job(job_uid=uids[0] if uids else row["job_key"], company=row["company"],
+                   title=row["title"], location=row["location"],
+                   url=urls[0] if urls else "", description="",
+                   department=row["department"], date_posted=row["date_posted"])
 
     @staticmethod
     def _from_legacy(old: dict) -> dict:

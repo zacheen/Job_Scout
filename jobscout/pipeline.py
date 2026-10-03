@@ -5,13 +5,13 @@ import logging
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import NamedTuple
 
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 
 from .config import DIGEST_TZ, Track
-from .models import Job, Score
+from .models import EnrichResult, Job, JdRetryPolicy, PendingJd, Score
 from .protocols import (Annotator, Digest, Enricher, Fetcher, JobFilter, JobScorer, JobStore,
                         Leveler, Notifier, RequestMeter, Router)
 from .urls import canon_url
@@ -46,6 +46,8 @@ class Pipeline:
         scorer_overrides: Mapping[str, JobScorer] | None = None,
         suppressed_groups: Collection[str] = (),
         subject_time: datetime | None = None,
+        jd_retry: JdRetryPolicy | None = None,
+        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
         self._score_workers = self._require_positive("score_workers", score_workers)
         self._enrich_workers = self._require_positive("enrich_workers", enrich_workers)
@@ -75,6 +77,10 @@ class Pipeline:
         # passes its scan-start time so the subject matches the footer's
         # deletable-window end exactly (one cutoff for the user).
         self._subject_time = subject_time
+        # None = no JD retry: a retryable JD failure is neither recorded nor retried, which
+        # is exactly the behaviour from before the retry existed.
+        self._jd_retry = jd_retry
+        self._clock = clock
 
     @staticmethod
     def _require_positive(name: str, value: int) -> int:
@@ -123,57 +129,37 @@ class Pipeline:
             log.info("first run: seeded %d jobs, no scoring or email", len(new_fetched))
             return True
 
+        now = self._clock()
+        if now.tzinfo is None:
+            # Stored JD timestamps are aware, and comparing them with a naive clock raises
+            # TypeError mid-run rather than here.
+            raise ValueError("Pipeline clock must return a timezone-aware datetime")
+        retries = self._due_jd_retries(now)
+        emailable = self._new_emailable(new_candidates, known_urls) if new_candidates else []
         if not new_candidates:
-            self._store.save()
             log.info("no new roles this run")
-            return True
-
-        # URL dedup and group suppression run BEFORE enrichment (the only stage costing a
-        # network call per job), because both decide on fields enrichment cannot touch:
-        # `url`/`job_uid` via `_same_identity`, company/title via `Leveler.group`. That
-        # ordering stops the enrich stage paying for roles about to be thrown away — on
-        # 2026-09-16 it enriched all 3916 new candidates to reach only 1724 emailable ones.
-        #
-        # One behaviour narrows from this reordering: a duplicate-URL twin the detail
-        # re-filter would have dropped no longer leaves its sibling in its place, since the
-        # sibling is discarded here first — resting on `_emailable`'s source-independence
-        # assumption that one canon_url is one posting judged on shared detail-fetched text.
-        #
-        # Email dedup is by URL (not uid): same job via another source/prior run is skipped.
-        # Early-stop dedup stays per-source by uid, so this never affects pagination.
-        emailable = self._emailable(new_candidates, known_urls)
-        if deduped := len(new_candidates) - len(emailable):
-            # Logged because nothing else reveals it and it sizes the enrich stage's real
-            # input: the count was previously invisible unless it happened to reach zero.
-            log.info("dropped %d new role(s) already in the ledger by URL (another source)",
-                     deduped)
-        if not emailable:
+        if not emailable and not retries:
             self._store.save()
-            log.info("%d new roles, all already in the ledger by URL (another source)", len(new_candidates))
-            return True
-
-        before_suppress = len(emailable)
-        emailable = self._drop_suppressed(emailable)
-        if not emailable:
-            self._store.save()
-            log.info("%d emailable (of %d new), all in suppressed groups (e.g. senior at a non-referral company)",
-                     before_suppress, len(new_candidates))
             return True
 
         # Enrich + annotate only what can still be emailed, and only after the seeding
         # early-returns above. Enriched/annotated copies flow only to the email path;
-        # add_seen above recorded the originals from all_jobs.
-        emailable = [self._annotate(j) for j in self._enrich_and_refilter(emailable)]
-        if not emailable:
+        # add_seen above recorded the originals from all_jobs. Due JD retries share the
+        # stage, so they share its per-host pacing and its cost report.
+        scorable = [self._annotate(j)
+                    for j in self._enrich_and_refilter(emailable, retries, now)]
+        if not scorable:
             self._store.save()
-            log.info("all new roles dropped on their detail-fetched text")
+            log.info("nothing left to score after the enrich stage")
             return True
 
-        by_track = self._score_by_track(emailable)
+        by_track, unscored = self._score_by_track(scorable)
+        self._settle_scored_retries(scorable, unscored, retries, now)
+        by_track = self._unemailed(by_track, retries)
         if not by_track:
             self._store.save()
-            log.info("%d emailable (of %d new), but none passed a track threshold",
-                     len(emailable), len(new_candidates))
+            log.info("%d scorable (of %d new), but none passed a track threshold",
+                     len(scorable), len(new_candidates))
             return True
 
         digest = self._build_digest(by_track)
@@ -202,6 +188,39 @@ class Pipeline:
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
         return True
 
+    def _new_emailable(self, new_candidates: list[Job], known_urls: set[str]) -> list[Job]:
+        """The new candidates still worth enriching and scoring: not already in the ledger
+        under another source's URL, and not in a suppressed group."""
+        # URL dedup and group suppression run BEFORE enrichment (the only stage costing a
+        # network call per job), because both decide on fields enrichment cannot touch:
+        # `url`/`job_uid` via `_same_identity`, company/title via `Leveler.group`. That
+        # ordering stops the enrich stage paying for roles about to be thrown away — on
+        # 2026-09-16 it enriched all 3916 new candidates to reach only 1724 emailable ones.
+        #
+        # One behaviour narrows from this reordering: a duplicate-URL twin the detail
+        # re-filter would have dropped no longer leaves its sibling in its place, since the
+        # sibling is discarded here first — resting on `_emailable`'s source-independence
+        # assumption that one canon_url is one posting judged on shared detail-fetched text.
+        #
+        # Email dedup is by URL (not uid): same job via another source/prior run is skipped.
+        # Early-stop dedup stays per-source by uid, so this never affects pagination.
+        emailable = self._emailable(new_candidates, known_urls)
+        if deduped := len(new_candidates) - len(emailable):
+            # Logged because nothing else reveals it and it sizes the enrich stage's real
+            # input: the count was previously invisible unless it happened to reach zero.
+            log.info("dropped %d new role(s) already in the ledger by URL (another source)",
+                     deduped)
+        if not emailable:
+            log.info("%d new roles, all already in the ledger by URL (another source)", len(new_candidates))
+            return []
+
+        before_suppress = len(emailable)
+        emailable = self._drop_suppressed(emailable)
+        if not emailable:
+            log.info("%d emailable (of %d new), all in suppressed groups (e.g. senior at a non-referral company)",
+                     before_suppress, len(new_candidates))
+        return emailable
+
     @staticmethod
     def _drop_untitled(jobs: list[Job]) -> list[Job]:
         """Discard postings the source returned with no title, before run() records them.
@@ -226,12 +245,106 @@ class Pipeline:
     def _annotate(self, job: Job) -> Job:
         return self._same_identity(self._annotator.annotate(job), job, "annotator")
 
-    def _enrich_and_refilter(self, jobs: list[Job]) -> list[Job]:
+    def _due_jd_retries(self, now: datetime) -> dict[str, PendingJd]:
+        """Pending rows whose next JD attempt is due, keyed by the uid their rebuilt Job
+        carries. Empty when retry is disabled."""
+        if self._jd_retry is None:
+            return {}
+        pending = self._store.pending_jds()
+        due = {p.job.job_uid: p for p in pending if self._jd_retry.is_due(p, now)}
+        if pending:
+            log.info("jd retry: %d role(s) pending, %d due this run", len(pending), len(due))
+        return due
+
+    def _enrich_and_refilter(self, new_jobs: list[Job], retries: Mapping[str, PendingJd],
+                             now: datetime) -> list[Job]:
+        """Enrich the new jobs and the due JD retries in one pool, settle every retry's
+        pending state, and return what should be scored.
+
+        A new job is always returned (minus re-filter drops), pending or not, so a role
+        whose JD is down still gets its title-only score and email on first sight, as it
+        did before the retry existed. A retry is returned only when its JD actually arrived:
+        it was already scored on its title when first seen, so scoring it again without new
+        text would only repeat that answer."""
+        jobs = new_jobs + [p.job for p in retries.values()]
+        results = self._enrich_all(jobs)
+        self._settle_jds(results, retries, now)
+        scorable = []
+        for job, result in zip(jobs, results):
+            if result.job is job:
+                if job.job_uid not in retries:
+                    scorable.append(job)
+                continue
+            # Re-filtering stays on this thread: PreFilter is shared and makes no
+            # concurrency promise, and judging in input order is what keeps the drop log
+            # ordered independently of completion order.
+            if not self._prefilter.keep(result.job):
+                log.info("dropped on detail-fetched text: %s (%s)", job.job_uid, job.title)
+                if job.job_uid in retries:
+                    self._store.resolve_jd(job.job_uid)
+                continue
+            scorable.append(result.job)
+        return scorable
+
+    def _settle_jds(self, results: list[EnrichResult], retries: Mapping[str, PendingJd],
+                    now: datetime) -> None:
+        """Write each job's JD outcome to the store: a retryable failure counts one more
+        attempt, and a final error or a URL no source serves ends a retry. A retry whose JD
+        ARRIVED is left pending here on purpose: the text lives only in memory, so the row
+        resolves once that text has been judged (_enrich_and_refilter, or
+        _settle_scored_retries after scoring), never before."""
+        if self._jd_retry is None:
+            return
+        newly, recovered, still, gave_up = 0, 0, 0, 0
+        for result in results:
+            uid = result.job.job_uid
+            retry = retries.get(uid)
+            if result.jd_pending:
+                if retry is None:
+                    self._store.record_jd_failure(uid, now)
+                    newly += 1
+                elif self._count_retry_failure(retry, now):
+                    gave_up += 1
+                else:
+                    still += 1
+            elif retry is not None:
+                if result.job.description:
+                    recovered += 1
+                else:
+                    self._store.resolve_jd(uid)
+        if newly or retries:
+            log.info("jd retry: %d new pending, %d recovered, %d still pending, %d given up",
+                     newly, recovered, still, gave_up)
+
+    def _count_retry_failure(self, retry: PendingJd, now: datetime) -> bool:
+        """Record one more failed attempt for a retry; True when that ends retrying."""
+        uid = retry.job.job_uid
+        self._store.record_jd_failure(uid, now)
+        if self._jd_retry.gives_up(retry, now):
+            self._store.resolve_jd(uid)
+            return True
+        return False
+
+    def _settle_scored_retries(self, scorable: list[Job], unscored: set[str],
+                               retries: Mapping[str, PendingJd], now: datetime) -> None:
+        """Resolve each retry whose recovered JD was judged by the scorer (or routed to no
+        track, which is just as final). A scoring failure instead counts as one more failed
+        attempt, so the row comes back on a later run and JdRetryPolicy still bounds it."""
+        for job in scorable:
+            retry = retries.get(job.job_uid)
+            if retry is None:
+                continue
+            if job.job_uid in unscored:
+                self._count_retry_failure(retry, now)
+            else:
+                self._store.resolve_jd(job.job_uid)
+
+    def _enrich_all(self, jobs: list[Job]) -> list[EnrichResult]:
         """Fill each job's costly-to-fetch fields from its source's per-job detail endpoint
-        (a no-op for most sources), then re-run the prefilter on the touched jobs: exclude
-        boilerplate (e.g. "no visa sponsorship") often lives only in the detail text that
-        the listing API omitted. Enrichment fails open (Enricher contract), so a fetch
-        error just leaves a job on its listing-level text.
+        (a no-op for most sources). Enrichment fails open (Enricher contract), so a fetch
+        error just leaves a job on its listing-level text. The caller re-runs the prefilter
+        on the touched jobs, since exclude boilerplate (e.g. "no visa sponsorship") often
+        lives only in the detail text that the listing API omitted.
 
         Only the network call is fanned out. `pool.map` preserves input order, so the kept
         list, the drop log and the digest built from them stay byte-identical however the
@@ -241,7 +354,7 @@ class Pipeline:
         wait blocking an unrelated host's request.
         """
         if self._enricher is None or not jobs:
-            return jobs
+            return [EnrichResult(job) for job in jobs]
         workers = min(self._enrich_workers, len(jobs))
         before = self._request_meter.request_counts() if self._request_meter else {}
         started = time.monotonic()
@@ -251,16 +364,7 @@ class Pipeline:
         # transposition would otherwise type-check and only show up as a wrong log line.
         self._log_enrich_cost(jobs=len(jobs), workers=workers,
                               elapsed=time.monotonic() - started, before=before)
-        kept = []
-        for job, result in zip(jobs, enriched):
-            # Re-filtering stays on this thread: PreFilter is shared and makes no
-            # concurrency promise, and judging in input order is what keeps the drop log
-            # ordered independently of completion order.
-            if result is not job and not self._prefilter.keep(result):
-                log.info("dropped on detail-fetched text: %s (%s)", job.job_uid, job.title)
-                continue
-            kept.append(result)
-        return kept
+        return enriched
 
     def _log_enrich_cost(self, jobs: int, workers: int, elapsed: float,
                          before: Mapping[str, int]) -> None:
@@ -297,18 +401,19 @@ class Pipeline:
         for host, n in made.most_common(5):
             log.info("enrich stage:   %5d %s", n, host)
 
-    def _enrich_one(self, job: Job) -> Job:
+    def _enrich_one(self, job: Job) -> EnrichResult:
         """One job's detail fetch, run on a pool thread. Returns the original job on
         failure, honoring the Enricher fail-open contract."""
         try:
-            enriched = self._enricher.enrich(job)
+            result = self._enricher.enrich(job)
         except Exception as exc:  # enricher broke its fail-open contract; honor it here
             log.warning("enrich failed for %s, keeping listing-level text: %s",
                         job.job_uid, exc)
-            return job
+            return EnrichResult(job)
         # Outside the try: an identity violation is a programming error — fail loud. It
         # surfaces where `pool.map`'s result is iterated, not here, but still aborts the run.
-        return self._same_identity(enriched, job, "enricher")
+        self._same_identity(result.job, job, "enricher")
+        return result
 
     @staticmethod
     def _same_identity(derived: Job, original: Job, component: str) -> Job:
@@ -349,7 +454,10 @@ class Pipeline:
                      dropped, sorted(self._suppressed_groups))
         return kept
 
-    def _score_by_track(self, new_jobs: list[Job]) -> dict[str, list[tuple[Job, Score]]]:
+    def _score_by_track(self, new_jobs: list[Job]
+                        ) -> tuple[dict[str, list[tuple[Job, Score]]], set[str]]:
+        """Score every routed job. Returns the jobs over their track's threshold, by track,
+        and the uids whose scoring failed."""
         routed: list[tuple[Job, Track]] = []
         for job in new_jobs:
             track = self._router.route(job)
@@ -358,7 +466,7 @@ class Pipeline:
                 continue
             routed.append((job, track))
         if not routed:
-            return {}
+            return {}, set()
 
         total = len(routed)
         workers = min(self._score_workers, total)  # __init__ guarantees score_workers >= 1
@@ -366,6 +474,7 @@ class Pipeline:
         step = max(1, total // 10)  # log progress roughly every 10%
 
         by_track: dict[str, list[tuple[Job, Score]]] = {}
+        unscored: set[str] = set()
         # score() blocks (LLM/CLI call; CLI path spawns a subprocess per worker) so it's
         # fanned out over a thread pool. map() preserves submission order -> deterministic
         # digest. Store writes stay on this thread: CsvStore is not concurrency-safe.
@@ -374,12 +483,26 @@ class Pipeline:
                 if done % step == 0 or done == total:
                     log.info("scoring progress: %d/%d", done, total)
                 if attempt.score is None:
+                    unscored.add(attempt.job.job_uid)
                     continue
                 self._store.set_score(attempt.job.job_uid, attempt.track.name, attempt.score,
                                       method=attempt.method)
                 if attempt.score.experience_score > attempt.track.threshold_for(attempt.score.scale):
                     by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
-        return by_track
+        return by_track, unscored
+
+    def _unemailed(self, by_track: dict[str, list[tuple[Job, Score]]],
+                   retries: Collection[str]) -> dict[str, list[tuple[Job, Score]]]:
+        """Drop JD retries whose row was already emailed: the title-only score may have
+        passed the threshold on first sight, and the fuller score now replaces it in the
+        ledger but must not send the role a second time. A new role cannot have been."""
+        kept = {}
+        for track, items in by_track.items():
+            items = [(job, score) for job, score in items
+                     if job.job_uid not in retries or not self._store.is_emailed(job.job_uid)]
+            if items:
+                kept[track] = items
+        return kept
 
     def _score_one(self, pair: tuple[Job, Track]) -> _ScoreAttempt:
         job, track = pair

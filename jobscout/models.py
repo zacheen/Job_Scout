@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
+from datetime import datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
+from typing import NamedTuple
 
 from .dates import posted_iso
 
@@ -242,3 +244,43 @@ class Score:
             return ""
         return ("LLM read a work-authorization bar in this ad "
                 "(sponsorship / citizenship / clearance)")
+
+
+class EnrichResult(NamedTuple):
+    """One enrich call's outcome. `job` keeps the Enricher identity rule (the SAME object
+    when nothing was fetched). `jd_pending` is True only when a JD fetch failed in a way a
+    later attempt could plausibly fix, so the pipeline should come back for it."""
+
+    job: Job
+    jd_pending: bool = False
+
+
+class PendingJd(NamedTuple):
+    """A ledger row still waiting for its job description (CsvStore.pending_jds)."""
+
+    job: Job                 # rebuilt from the row; description is always ""
+    attempts: int            # failed JD fetches so far, the first one included
+    first_failed: datetime   # timezone-aware UTC
+    last_attempt: datetime   # timezone-aware UTC
+
+
+@dataclass(frozen=True)
+class JdRetryPolicy:
+    """When to retry a role whose JD fetch failed transiently, and when to stop.
+
+    Giving up needs BOTH conditions. Attempts alone are not enough because the cloud scans
+    every 30 minutes, so three attempts could all land inside one outage; age alone is not
+    enough because a role checked twice in a day has not been given a fair number of tries.
+    """
+
+    min_interval: timedelta
+    max_attempts: int
+    min_age: timedelta
+
+    def is_due(self, pending: PendingJd, now: datetime) -> bool:
+        return now - pending.last_attempt >= self.min_interval
+
+    def gives_up(self, pending: PendingJd, now: datetime) -> bool:
+        """Called after recording one MORE failure, which `pending` predates."""
+        attempts = pending.attempts + 1
+        return attempts >= self.max_attempts and now - pending.first_failed >= self.min_age
