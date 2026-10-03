@@ -97,6 +97,16 @@ enrich_workers: 8
 # (coverage.SourceStreaks, source_streaks.json).
 dark_source_streak: 3
 
+# A role whose job description fetch fails in a way a later run could fix (5xx, timeout,
+# a maintenance page that is not JSON, 403, 429) is still scored on its title and emailed
+# if it passes, but its ledger row stays pending and every run retries the JD fetch once
+# the interval has passed. When the JD arrives the role is filtered and scored again,
+# and emailed only if it was not emailed already. Retrying stops once BOTH the attempt
+# count and the age are reached (models.JdRetryPolicy explains why both).
+jd_retry_interval_minutes: 100
+jd_retry_max_attempts: 3
+jd_retry_min_age_hours: 24
+
 # HTTP behaviour for the ATS fetchers.
 request_timeout: 20
 user_agent: "job-scout/1.0 (+https://github.com/)"

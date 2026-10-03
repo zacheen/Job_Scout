@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml
 
-from .models import DescriptionPolicy, ScoreScale
+from .models import DescriptionPolicy, JdRetryPolicy, ScoreScale
 
 # tz shared by every digest timestamp (email subject line, local_run.py's
 # footer) so footer times stay directly comparable to subject times across runs.
@@ -148,6 +149,9 @@ class Settings:
     score_workers: int
     enrich_workers: int
     dark_source_streak: int
+    jd_retry_interval_minutes: int
+    jd_retry_max_attempts: int
+    jd_retry_min_age_hours: int
     request_timeout: int
     user_agent: str
     request_delay_min: float
@@ -182,6 +186,12 @@ class Settings:
         __main__ reads it again for the enricher."""
         return DescriptionPolicy(self.min_description_chars, self.description_truncation_marks)
 
+    @property
+    def jd_retry_policy(self) -> JdRetryPolicy:
+        return JdRetryPolicy(min_interval=timedelta(minutes=self.jd_retry_interval_minutes),
+                             max_attempts=self.jd_retry_max_attempts,
+                             min_age=timedelta(hours=self.jd_retry_min_age_hours))
+
     @classmethod
     def load(cls, root: Path) -> "Settings":
         cfg = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
@@ -215,6 +225,9 @@ class Settings:
             score_workers=int(cfg.get("score_workers", 5)),
             enrich_workers=int(cfg.get("enrich_workers", 8)),
             dark_source_streak=int(cfg.get("dark_source_streak", 3)),
+            jd_retry_interval_minutes=int(cfg.get("jd_retry_interval_minutes", 100)),
+            jd_retry_max_attempts=int(cfg.get("jd_retry_max_attempts", 3)),
+            jd_retry_min_age_hours=int(cfg.get("jd_retry_min_age_hours", 24)),
             request_timeout=int(cfg.get("request_timeout", 20)),
             user_agent=cfg.get("user_agent", "job-scout/1.0"),
             request_delay_min=float(cfg.get("request_delay_min", 1.25)),

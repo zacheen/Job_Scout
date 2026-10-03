@@ -5,7 +5,9 @@ from collections.abc import Mapping
 from typing import ClassVar, Protocol
 
 from .config import Track
-from .models import Job, Score, ScoreScale, SeenLedger
+from datetime import datetime
+
+from .models import EnrichResult, Job, PendingJd, Score, ScoreScale, SeenLedger
 
 # A group's ordered track sections: (track_name, ranked [(job, score), ...]).
 Sections = list[tuple[str, list[tuple[Job, Score]]]]
@@ -43,6 +45,20 @@ class JobStore(Protocol):
         the opposite contract precisely because it runs BEFORE the send."""
         ...
 
+    def is_emailed(self, job_uid: str) -> bool: ...
+
+    def pending_jds(self) -> list[PendingJd]:
+        """Every row still waiting for its job description, due or not."""
+        ...
+
+    def record_jd_failure(self, job_uid: str, now: datetime) -> None:
+        """Count one more retryable JD fetch failure, making the row pending if it was not."""
+        ...
+
+    def resolve_jd(self, job_uid: str) -> None:
+        """Stop retrying this row's JD, whether it arrived, failed for good or was given up."""
+        ...
+
     def save(self) -> None: ...
 
 
@@ -58,12 +74,13 @@ class Annotator(Protocol):
 
 
 class Enricher(Protocol):
-    def enrich(self, job: Job) -> Job:
+    def enrich(self, job: Job) -> EnrichResult:
         """Return the job, or a copy with fields the listing API omitted (e.g. the full
-        description) filled from a per-job detail request. Must not change identity fields
-        (job_uid/url), and must fail open — on a fetch error, return `job` unchanged.
-        Return `job` ITSELF (same object) when nothing was fetched — the pipeline keys
-        "skip the redundant re-filter" on object identity."""
+        description) filled from a per-job detail request, as `EnrichResult.job`. Must not
+        change identity fields (job_uid/url), and must fail open — on a fetch error, return
+        `job` unchanged. Return `job` ITSELF (same object) when nothing was fetched — the
+        pipeline keys "skip the redundant re-filter" on object identity. Set `jd_pending`
+        only when the fetch failed in a way a later run could fix (fetchers._jd_retryable)."""
         ...
 
 

@@ -141,6 +141,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         # LevelClassifier routes a referral-company senior role to Referral, not Senior.
         suppressed_groups={leveler.senior_group},
         subject_time=subject_time,
+        jd_retry=settings.jd_retry_policy,
     )
     return pipeline.run()
 
