@@ -92,6 +92,11 @@ score_workers: 5
 # sees (the fetch stage already draws 429s from Qualcomm and Microsoft at this pacing).
 enrich_workers: 8
 
+# Warn only for a source dark (exception, or 0 roles while the ledger holds its rows) for this
+# many consecutive runs; one dark run is usually transient, e.g. a Workday maintenance window
+# (coverage.SourceStreaks, source_streaks.json).
+dark_source_streak: 3
+
 # HTTP behaviour for the ATS fetchers.
 request_timeout: 20
 user_agent: "job-scout/1.0 (+https://github.com/)"

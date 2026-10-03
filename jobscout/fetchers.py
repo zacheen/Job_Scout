@@ -24,7 +24,7 @@ from dataclasses import replace
 
 from .company_aliases import canonical_company
 from .config import Company
-from .coverage import catchup_log
+from .coverage import SourceStreaks, catchup_log
 from .dates import posted_iso
 from .models import EMPTY_SEEN_LEDGER, DescriptionPolicy, Job, SeenLedger
 from .protocols import Enricher, RequestMeter
@@ -3208,11 +3208,18 @@ class ParallelFetcher:
     sequentially in one thread — a host is never hit by two threads at once, and
     per-request pacing still applies within each sequence. Satisfies the `Fetcher` protocol."""
 
-    def __init__(self, fetchers: list[AtsFetcher], max_workers: int = 8):
+    def __init__(self, fetchers: list[AtsFetcher], max_workers: int = 8,
+                 streaks: SourceStreaks | None = None):
         self._fetchers = fetchers
         self._max_workers = max_workers
+        self._streaks = streaks if streaks is not None else SourceStreaks.in_memory()
 
     def fetch_all(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
+        jobs = self._fetch_groups(seen)
+        self._streaks.finish()
+        return jobs
+
+    def _fetch_groups(self, seen: SeenLedger) -> list[Job]:
         groups: dict[str, list[AtsFetcher]] = {}
         for fetcher in self._fetchers:
             try:
@@ -3256,8 +3263,7 @@ class ParallelFetcher:
         log.info("host %s done: %d jobs in %.1fs", host, len(jobs), time.perf_counter() - started)
         return jobs
 
-    @staticmethod
-    def _report_dark(subject: str, detail: str) -> None:
+    def _report_dark(self, subject: str, detail: str) -> None:
         """A source contributed nothing this run. catchup_log, not `log`: this is the
         "saw less than it should" channel, and the only one that survives the run
         (coverage.attach_catchup_log / attach_catchup_annotations). Left on `log` it was
@@ -3266,6 +3272,7 @@ class ParallelFetcher:
         diff against local runs found it. Takes the subject already resolved, like
         _paginate_new does, so it never touches a fetcher that just raised."""
         catchup_log.warning("%s: %s", subject, detail)
+        self._streaks.record_dark(subject, detail)
 
 
 class DispatchingEnricher:

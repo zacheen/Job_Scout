@@ -32,6 +32,11 @@ DIGEST_CHECKPOINT_FILENAME = "digest_checkpoint.txt"
 # cap needs raising, or whether a company needs a persistent coverage checkpoint instead.
 CATCHUP_LOG_FILENAME = "catchup_cap_hits.txt"
 
+# Untracked JSON at the repo root: consecutive dark-run count per dark source
+# (coverage.SourceStreaks). Untracked for the same reason as the file above, so it
+# survives the post-scan reset --hard.
+SOURCE_STREAKS_FILENAME = "source_streaks.json"
+
 
 def _as_bool(value) -> bool:
     """Parse a YAML scalar as bool: native booleans pass through, strings use truthy words."""
@@ -142,6 +147,7 @@ class Settings:
     description_truncation_marks: tuple[str, ...]
     score_workers: int
     enrich_workers: int
+    dark_source_streak: int
     request_timeout: int
     user_agent: str
     request_delay_min: float
@@ -208,6 +214,7 @@ class Settings:
                 cfg.get("description_truncation_marks", ("...", "…"))),
             score_workers=int(cfg.get("score_workers", 5)),
             enrich_workers=int(cfg.get("enrich_workers", 8)),
+            dark_source_streak=int(cfg.get("dark_source_streak", 3)),
             request_timeout=int(cfg.get("request_timeout", 20)),
             user_agent=cfg.get("user_agent", "job-scout/1.0"),
             request_delay_min=float(cfg.get("request_delay_min", 1.25)),

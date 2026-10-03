@@ -8,9 +8,12 @@ so wiring one never silently suppresses the other.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
+import threading
+from datetime import date
 from pathlib import Path
 
 # Propagates, so records still show up in the normal log whether or not a file is attached.
@@ -65,3 +68,85 @@ def attach_catchup_annotations() -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(_AnnotationFormatter())
     catchup_log.addHandler(handler)
+
+
+class SourceStreaks:
+    """Consecutive dark-run count per source, persisted between runs.
+
+    One dark run is routinely transient (planned Workday maintenance, a board mid-redeploy),
+    so the per-run catchup_log lines cannot tell a blip from a gone source. Warns once a
+    source stays dark for `threshold` runs in a row.
+
+    The file holds dark sources only: a source that fetched fine is not written, which resets
+    its streak and prunes companies removed from companies.yaml. Only a COMPLETED fetch stage
+    calls `finish`, so a run killed mid-fetch leaves the file untouched rather than resetting
+    sources it never reached. On a cloud runner the file dies with the job, so streaks stay
+    at 1 and the warning never fires; local runs only.
+    """
+
+    def __init__(self, path: Path | None, threshold: int):
+        """`path` None keeps the counting in memory only."""
+        self._path = path
+        self._threshold = max(1, threshold)
+        self._previous = self._load()
+        self._dark: dict[str, str] = {}
+        self._lock = threading.Lock()  # record_dark runs on ParallelFetcher's pool threads
+
+    @classmethod
+    def in_memory(cls) -> "SourceStreaks":
+        """No file and a threshold no run reaches, so it adds no log lines of its own."""
+        return cls(None, threshold=sys.maxsize)
+
+    def record_dark(self, subject: str, detail: str) -> None:
+        with self._lock:
+            self._dark.setdefault(subject, detail)
+
+    def finish(self) -> None:
+        """Advance every streak by this run and persist. Call once per fetch stage."""
+        today = date.today().isoformat()
+        current = {}
+        for subject, detail in sorted(self._dark.items()):
+            prev = self._previous.get(subject, {})
+            current[subject] = {"streak": int(prev.get("streak", 0)) + 1,
+                                "since": prev.get("since", today),
+                                "detail": detail}
+        persistent = {s: e for s, e in current.items() if e["streak"] >= self._threshold}
+        for subject, entry in persistent.items():
+            catchup_log.warning("%s: dark for %d consecutive runs since %s; last: %s",
+                                subject, entry["streak"], entry["since"], entry["detail"])
+        logging.getLogger(__name__).info(
+            "source streaks: %d dark this run, %d dark for %d+ consecutive runs",
+            len(current), len(persistent), self._threshold)
+        try:
+            self._save(current)
+        except OSError as exc:
+            # Runs after the whole fetch stage, so raising here would discard every job
+            # just fetched over a bookkeeping file.
+            logging.getLogger(__name__).warning("could not persist %s: %s", self._path, exc)
+        self._previous = current
+        self._dark = {}
+
+    def _load(self) -> dict[str, dict]:
+        if self._path is None or not self._path.exists():
+            return {}
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            # Restarting every streak at 1 costs at most `threshold` runs of silence;
+            # raising would cost the whole scan over a bookkeeping file.
+            logging.getLogger(__name__).warning("ignoring unreadable %s: %s", self._path, exc)
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        # Keep only well-formed entries, so a hand-edited file cannot raise inside finish().
+        return {s: e for s, e in data.items()
+                if isinstance(e, dict) and isinstance(e.get("streak"), int)
+                and isinstance(e.get("since"), str)}
+
+    def _save(self, current: dict[str, dict]) -> None:
+        if self._path is None:
+            return
+        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+        tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n",
+                       encoding="utf-8", newline="\n")
+        tmp.replace(self._path)

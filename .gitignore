@@ -10,6 +10,8 @@ dropped_jobs.txt
 digest_checkpoint.txt
 # Append-only record of pagination cap hits (see jobscout/config.py) — local only.
 catchup_cap_hits.txt
+# Consecutive dark-run count per source (see jobscout/config.py) — local only.
+source_streaks.json
 __pycache__/
 *.pyc
 .venv/
