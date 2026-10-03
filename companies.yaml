@@ -533,7 +533,7 @@
 
 # --- Computer vision expansion: 50 additional companies (live-verified 2026-07-17) ---
 # Autonomous vehicles / automaker (6)
-- {name: Wayve, ats: greenhouse, board: wayve, seed_only: true}
+- {name: Wayve, ats: ashby, org: wayve, seed_only: true}  # moved off Greenhouse 2026-10, whose board now 404s
 - {name: Avride, ats: greenhouse, board: avride, seed_only: true}
 - {name: WeRide, ats: lever, org: weride, seed_only: true}
 - {name: Vay, ats: greenhouse, board: vay, seed_only: true}
@@ -562,7 +562,8 @@
 - {name: Gather AI, ats: greenhouse, board: gatherai, seed_only: true}
 - {name: OpenSpace, ats: greenhouse, board: openspace, seed_only: true}
 
-# Cameras, security, conferencing, and pet devices (6)
+# Cameras, security, conferencing, and pet devices (7)
+- {name: Pano AI, ats: ashby, org: pano-ai, seed_only: true}  # wildfire-detection cameras
 - {name: Alarm.com, ats: greenhouse, board: alarmcom, seed_only: true}
 - {name: SimpliSafe, ats: greenhouse, board: simplisafe, seed_only: true}
 - {name: OpenEye, ats: greenhouse, board: openeye, seed_only: true}
