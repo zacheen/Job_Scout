@@ -2738,6 +2738,50 @@ class DeShawFetcher(AtsFetcher):
         return jobs
 
 
+class NioFetcher(AtsFetcher):
+    """NIO's own careers page, nio.com/careers/jobs, which embeds the whole board as Next.js
+    __NEXT_DATA__ JSON under `pageProps.jobsLists.jobs`. Preferred over NIO's Workday tenant,
+    which updates later and has served only a service-interruption page for weeks at a time.
+    The rendered HTML holds only the first ten rows, so the JSON is the only complete copy.
+
+    No dates and no body -> single-shot. Each row links to its Workday posting, which stays
+    the stored URL, so WorkdayJdSource can backfill the body whenever the tenant answers.
+    `jobsLists` is a Next.js build prop, not a public contract; re-probe on a redesign."""
+
+    ats_name = "nio"
+    _PAGE = "https://www.nio.com/careers/jobs"
+    _NEXT_RE = re.compile(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL)
+    _REQ_RE = re.compile(r"_(R-\d+)(?:[/?#]|$)")
+
+    @property
+    def host(self) -> str:
+        return "www.nio.com"
+
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
+        match = self._NEXT_RE.search(self._http.get_text(self._PAGE))
+        if not match:
+            raise ValueError(f"{self._company.name}: nio __NEXT_DATA__ not found")
+        props = (json.loads(match.group(1)).get("props") or {}).get("pageProps") or {}
+        jobs = []
+        for item in (props.get("jobsLists") or {}).get("jobs") or []:
+            url = item.get("hostedUrl") or item.get("applyUrl") or ""
+            if not url:
+                continue
+            # The requisition number outlives a retitled posting, whose URL slug changes.
+            req = self._REQ_RE.search(url)
+            jobs.append(Job(
+                job_uid=self._uid(req.group(1) if req else url),
+                company=self._company.name,
+                title=item.get("title", ""),
+                location=item.get("location", ""),
+                url=url,
+                description="",
+                department=item.get("department", ""),
+            ))
+        return jobs
+
+
 class VisaFetcher(AtsFetcher):
     """Visa's first-party search service (search.visa.com) returns the whole board in one
     anonymous POST (pageSize large). Single-shot; the pipeline dedupes. `createdOn` gives
@@ -3185,6 +3229,7 @@ class FetcherFactory:
         WhatnotFetcher.ats_name: WhatnotFetcher,
         AuroraFetcher.ats_name: AuroraFetcher,
         DeShawFetcher.ats_name: DeShawFetcher,
+        NioFetcher.ats_name: NioFetcher,
         VisaFetcher.ats_name: VisaFetcher,
         BioRadFetcher.ats_name: BioRadFetcher,
         MathWorksFetcher.ats_name: MathWorksFetcher,
