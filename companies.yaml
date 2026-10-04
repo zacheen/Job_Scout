@@ -248,7 +248,10 @@
 - {name: RAI Institute,  ats: lever, org: rai}             # Robotics & AI Institute (ex-Boston Dynamics AI Institute), Cambridge MA; ~2
 - {name: Mashgin,        ats: lever, org: mashgin}         # checkout CV (Palo Alto); ~15 (some Brazil)
 - {name: Hive,           ats: lever, org: hive}            # content-moderation / media CV (SF); ~75
-- {name: DroneDeploy,    ats: lever, org: dronedeploy}     # drone mapping CV; ~10 US + AU/NZ
+# DroneDeploy disabled 2026-10-03: Procore acquired it, its Lever org now returns an empty
+# list, and dronedeploy.com/about/careers sends applicants to careers.procore.com, which no
+# fetcher reads.
+# - {name: DroneDeploy,    ats: lever, org: dronedeploy}     # drone mapping CV; ~10 US + AU/NZ
 # Landing AI disabled 2026-09-11: it shared AI Fund's Lever org and the ?department= filter
 # scoped it to Landing AI only (bare AIFund would mislabel the whole Andrew Ng portfolio).
 # That department no longer exists — the board's 43 live rows carry only "AI Fund",
@@ -498,7 +501,10 @@
 # duplicate entries. Verdant is intentionally kept even at zero openings so its official
 # Webflow collection will be watched for the first future role.
 - {name: Verdant Robotics, ats: scoped_html, url: "https://www.verdantrobotics.com/careers", scope_start: 'class="open-roles_collection-list-wrapper', scope_end: "</section>", link_pattern: "linkedin[.]com/jobs/view|/careers/[^/]+/?$"}
-- {name: Monarch Tractor, ats: ukg_ready, host: secure6.saashr.com, company_id: "6189027"}  # 1 current role
+# Monarch Tractor disabled 2026-10-03: the company shut down in April 2026 and Caterpillar
+# bought its technology, so the UKG Ready endpoint answers 410 Gone. It was the only ukg_ready
+# entry; UKGReadyFetcher is kept for the next board on that ATS.
+# - {name: Monarch Tractor, ats: ukg_ready, host: secure6.saashr.com, company_id: "6189027"}  # 1 current role
 # Cruise has been absorbed into GM. The branded search UI is bot-gated, but GM's underlying
 # official Workday CXS remains anonymously readable with structured locations and dates.
 - {name: General Motors, ats: workday, host: generalmotors.wd5.myworkdayjobs.com, tenant: generalmotors, site: Careers_GM, seed_only: true}  # ~810 global roles, including autonomy/ex-Cruise work
