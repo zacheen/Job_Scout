@@ -378,9 +378,9 @@ def _is_transient(exc: Exception) -> bool:
     endpoint answered one page that way on 2026-09-18, while every page of a re-probe
     minutes later parsed fine.
 
-    429 is deliberately NOT transient. It means the board wants FEWER requests, and
-    Known_concern records two eightfold boards answering it on most runs — retrying would
-    worsen exactly what it is complaining about. Other 4xx (403, 410 Gone, 422) are
+    429 is deliberately NOT transient. It means the board wants FEWER requests, and two
+    eightfold boards have answered it run after run — retrying would worsen exactly what it
+    is complaining about. Other 4xx (403, 410 Gone, 422) are
     deterministic, so a second identical request cannot change the answer; that is the
     same reasoning as OpenAiScorer._FATAL_STATUS.
     """
@@ -442,8 +442,8 @@ class HttpClient:
     # A board that is dead rather than flaky costs almost nothing: neither
     # _paginate_bounded nor _paginate_new catches a per-page exception, so the failure
     # escapes from page ONE and aborts that company's whole fetch — two requests total,
-    # not two per page. Measured against jobs.bytedance.com, whose resets come and go
-    # (Known_concern entry 9) and so exercise both halves of this on different runs.
+    # not two per page. Measured against jobs.bytedance.com, whose resets come and go and so
+    # exercise both halves of this on different runs.
     # BioRadFetcher stacks its own retry on top, keyed on response CONTENT rather than on
     # an exception, so its worst case is 2x2 requests — bounded, but higher than either
     # layer alone suggests.
