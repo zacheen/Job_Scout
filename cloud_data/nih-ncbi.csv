@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates,jd_state,jd_attempts,jd_first_failed,jd_last_attempt
+NIH-NCBI:8012994003,NIH-NCBI,Junior Data Scientist,"Bethesda, MD",,https://job-boards.greenhouse.io/blackcanyonconsulting/jobs/8012994003,,,2026-10-05T20:59:05+00:00,2026-10-05 13:59 Mon,Computer Vision,true,Keyword,76,僅以關鍵字比對評分,true,speedyapply:SpeedyApply AI:8012994003,,,,,

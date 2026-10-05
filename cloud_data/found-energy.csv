@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates,jd_state,jd_attempts,jd_first_failed,jd_last_attempt
+Found Energy:4719227006,Found Energy,Data Engineer Co-op,"Cambridge, MA",AI/ML/Data,https://job-boards.greenhouse.io/foundenergy/jobs/4719227006,2026-10-05,2026-10-05,2026-10-05T23:16:36+00:00,2026-10-05 16:16 Mon,Computer Vision,true,Keyword,73,僅以關鍵字比對評分,true,simplify:Simplify Internships:4719227006,2026-10-05,,,,
