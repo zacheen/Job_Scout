@@ -36,6 +36,7 @@
 #   whatnot:    (no params) jobs.whatnot.com/api/jobs
 #   aurora:     (no params) aurora.tech/api/jobs-index (first-party; body included)
 #   deshaw:     (no params) deshaw.com/careers __NEXT_DATA__
+#   nio:        (no params) nio.com/careers/jobs __NEXT_DATA__
 #   visa:       (no params) search.visa.com single POST
 #   janestreet: (no params) janestreet.com/jobs/main.json
 #   teamtailor: host             -> {host}/jobs.rss
@@ -247,7 +248,10 @@
 - {name: RAI Institute,  ats: lever, org: rai}             # Robotics & AI Institute (ex-Boston Dynamics AI Institute), Cambridge MA; ~2
 - {name: Mashgin,        ats: lever, org: mashgin}         # checkout CV (Palo Alto); ~15 (some Brazil)
 - {name: Hive,           ats: lever, org: hive}            # content-moderation / media CV (SF); ~75
-- {name: DroneDeploy,    ats: lever, org: dronedeploy}     # drone mapping CV; ~10 US + AU/NZ
+# DroneDeploy disabled 2026-10-03: Procore acquired it, its Lever org now returns an empty
+# list, and dronedeploy.com/about/careers sends applicants to careers.procore.com, which no
+# fetcher reads.
+# - {name: DroneDeploy,    ats: lever, org: dronedeploy}     # drone mapping CV; ~10 US + AU/NZ
 # Landing AI disabled 2026-09-11: it shared AI Fund's Lever org and the ?department= filter
 # scoped it to Landing AI only (bare AIFund would mislabel the whole Andrew Ng portfolio).
 # That department no longer exists — the board's 43 live rows carry only "AI Fund",
@@ -497,7 +501,10 @@
 # duplicate entries. Verdant is intentionally kept even at zero openings so its official
 # Webflow collection will be watched for the first future role.
 - {name: Verdant Robotics, ats: scoped_html, url: "https://www.verdantrobotics.com/careers", scope_start: 'class="open-roles_collection-list-wrapper', scope_end: "</section>", link_pattern: "linkedin[.]com/jobs/view|/careers/[^/]+/?$"}
-- {name: Monarch Tractor, ats: ukg_ready, host: secure6.saashr.com, company_id: "6189027"}  # 1 current role
+# Monarch Tractor disabled 2026-10-03: the company shut down in April 2026 and Caterpillar
+# bought its technology, so the UKG Ready endpoint answers 410 Gone. It was the only ukg_ready
+# entry; UKGReadyFetcher is kept for the next board on that ATS.
+# - {name: Monarch Tractor, ats: ukg_ready, host: secure6.saashr.com, company_id: "6189027"}  # 1 current role
 # Cruise has been absorbed into GM. The branded search UI is bot-gated, but GM's underlying
 # official Workday CXS remains anonymously readable with structured locations and dates.
 - {name: General Motors, ats: workday, host: generalmotors.wd5.myworkdayjobs.com, tenant: generalmotors, site: Careers_GM, seed_only: true}  # ~810 global roles, including autonomy/ex-Cruise work
@@ -624,7 +631,10 @@
 - {name: Pivotal,         ats: lever, org: pivotal, seed_only: true}          # personal eVTOL aircraft (Palo Alto); ~24
 - {name: Odys Aviation,   ats: ashby, org: odys-aviation, seed_only: true}    # autonomous VTOL aircraft; ~12. Writes "Long Beach CA" comma-less -> needed the "long beach" include_location_terms token
 - {name: Blue River Technology, ats: greenhouse, board: bluerivertech, seed_only: true}  # John Deere ag autonomy/CV; slug bluerivertech ("bluerivertechnology" 404s); ~11
-- {name: NIO,             ats: workday, host: nio.wd3.myworkdayjobs.com, tenant: nio, site: nio_careers, seed_only: true}  # EV automaker US board; ~18, all San Jose (robotics/AV research)
+- {name: NIO,             ats: nio, seed_only: true}  # EV automaker; ~24, all San Jose (robotics/AV research). Company page, not Workday: it updates first
+# Previous source, the Workday tenant every nio.com row still links to for applying. It served
+# only a service-interruption page from 2026-09-17 to at least 2026-10-03:
+# - {name: NIO,             ats: workday, host: nio.wd3.myworkdayjobs.com, tenant: nio, site: nio_careers, seed_only: true}
 - {name: Nissan,          ats: workday, host: alliance.wd3.myworkdayjobs.com, tenant: alliance, site: nissanjobs, seed_only: true}  # Alliance tenant, global (~309); US = Santa Clara AV research etc. Aggregators spell "Nissan Global" (aliased)
 - {name: Magna,           ats: workday, host: magna.wd3.myworkdayjobs.com, tenant: magna, site: Magna, seed_only: true}  # auto Tier-1 with ADAS/CV co-ops; ~1319 global plants
 # Vision-first products

@@ -6,8 +6,7 @@
       "Skill(claude-api)",
       "Skill(claude-api:*)",
       "Bash(gh auth *)",
-      "Bash(gh secret *)",
-      "Bash(git -C D:\\\\dont_move\\\\git_save\\\\Job_Scout diff --cached -- jobscout/fetchers.py)"
+      "Bash(gh secret *)"
     ]
   }
 }
