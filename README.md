@@ -55,6 +55,11 @@ Run `run.py` directly (or point the VS Code debugger at it) — do **not** run
 `.env` is loaded automatically. The first invocation seeds `local_data/` (one CSV
 per company) and exits without scoring (so no OpenAI key is needed just to seed).
 
+If you work in this repo with Claude Code, copy `.claude/settings.local.example.json` to
+`.claude/settings.local.json` (gitignored) and replace the placeholder with this repo's
+absolute path, so Claude's auto memory lives in the gitignored `notes/claude_memory/`.
+Shared permissions are in the committed `.claude/settings.json`.
+
 ## Notes / limitations
 
 - Workday listings expose title + location but not the full description, so

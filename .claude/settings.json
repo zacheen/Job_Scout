@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(gh auth *)",
+      "Bash(gh secret *)"
+    ]
+  }
+}
