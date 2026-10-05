@@ -1,4 +1,5 @@
 {
+  "autoMemoryDirectory": "D:\\dont_move\\git_save\\Job_Scout\\notes\\claude_memory",
   "permissions": {
     "allow": [
       "WebSearch",
