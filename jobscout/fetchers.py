@@ -537,6 +537,28 @@ class AtsFetcher(ABC):
         """Network host this fetcher hits — the grouping key for parallel fetching."""
         ...
 
+    # True when an empty result is the source itself saying the board has no openings: a
+    # whole-board JSON answer, read through _listing, that listed nothing. A block or error
+    # page raises instead (non-2xx, non-JSON, or JSON missing the listing key). Left False for
+    # page and feed parsers, where a redesign also yields zero, and for big-company search
+    # APIs, whose boards are never truly empty, so a zero there is more likely an API change.
+    # ParallelFetcher counts a confirmed empty board as SourceStreaks.EMPTY and logs it at
+    # INFO only, so a cloud run, whose streak file never persists, shows no warning for it.
+    empty_is_confirmed = False
+
+    @staticmethod
+    def _listing(data, *keys: str) -> list:
+        """The job list at `data[keys[0]][keys[1]]...`, raising on a missing key or a non-list.
+        empty_is_confirmed fetchers must read through this, so a wrong-shaped 200 (a WAF's
+        JSON error, a renamed key) fails loudly instead of passing for an empty board."""
+        for key in keys:
+            if not isinstance(data, dict) or key not in data:
+                raise ValueError(f"listing answer has no {'.'.join(keys)!r}")
+            data = data[key]
+        if not isinstance(data, list):
+            raise ValueError(f"listing answer at {'.'.join(keys) or 'top level'!r} is not a list")
+        return data
+
     @staticmethod
     def uid_prefix(ats: str, company_name: str) -> str:
         """uid namespace for one (ats, company) pair, shared by _uid, watermark lookups,
@@ -633,6 +655,7 @@ class BoundedPaginatedFetcher(PagedFetcher):
 
 class GreenhouseFetcher(AtsFetcher):
     ats_name = "greenhouse"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -652,7 +675,7 @@ class GreenhouseFetcher(AtsFetcher):
             params={"content": "true"},
         )
         jobs = []
-        for item in data.get("jobs", []):
+        for item in self._listing(data, "jobs"):
             departments = item.get("departments") or []
             jobs.append(
                 Job(
@@ -683,6 +706,7 @@ class GreenhouseFetcher(AtsFetcher):
 
 class LeverFetcher(AtsFetcher):
     ats_name = "lever"
+    empty_is_confirmed = True
 
     _REGION_HOSTS = {
         "us": "api.lever.co",
@@ -710,7 +734,7 @@ class LeverFetcher(AtsFetcher):
             f"https://{self.host}/v0/postings/{org}", params={"mode": "json"}
         )
         jobs = []
-        for item in data:
+        for item in self._listing(data):
             categories = item.get("categories") or {}
             jobs.append(
                 Job(
@@ -731,6 +755,7 @@ class LeverFetcher(AtsFetcher):
 
 class AshbyFetcher(AtsFetcher):
     ats_name = "ashby"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -743,7 +768,7 @@ class AshbyFetcher(AtsFetcher):
             params={"includeCompensation": "true"},
         )
         jobs = []
-        for item in data.get("jobs", []):
+        for item in self._listing(data, "jobs"):
             jobs.append(
                 Job(
                     job_uid=self._uid(item["id"]),
@@ -770,6 +795,7 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
     small)."""
 
     ats_name = "workday"
+    empty_is_confirmed = True
     _PAGE = 20
     _MAX_SEARCH_PAGES = 25  # hard bound for the searchText (relevance-ordered) mode
 
@@ -821,7 +847,7 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
              "offset": index * self._PAGE, "searchText": self._search_text},
         )
         jobs = []
-        for item in data.get("jobPostings", []):
+        for item in self._listing(data, "jobPostings"):
             # externalPath is the job's identity — placeholder postings that lack
             # it would get a blank job_key and a board-root URL.
             if not item.get("externalPath"):
@@ -855,6 +881,7 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
     early-stop applies. `host` + `site` (the CX_N siteNumber) identify the career site."""
 
     ats_name = "oracle"
+    empty_is_confirmed = True
     _PAGE = 20
     # Job text is split across several fields; the visa/clearance boilerplate PreFilter scans for
     # lives in ExternalQualificationsStr, NOT the ShortDescriptionStr blurb — concatenate them all.
@@ -882,7 +909,7 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
             # them on the per-req detail endpoint — enrich() backfills survivors from there.
             params={"onlyData": "true", "expand": "all", "finder": finder},
         )
-        result = (data.get("items") or [{}])[0]
+        result = (self._listing(data, "items") or [{"requisitionList": []}])[0]
         jobs = [
             Job(
                 job_uid=self._uid(item["Id"]),
@@ -894,7 +921,7 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
                 department=item.get("JobFamily") or "",
                 date_posted=item.get("PostedDate", ""),
             )
-            for item in result.get("requisitionList", []) if item.get("Id")
+            for item in self._listing(result, "requisitionList") if item.get("Id")
         ]
         return jobs, result.get("TotalJobsCount")
 
@@ -932,6 +959,7 @@ class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
     is the SmartRecruiters companyId (jobs.smartrecruiters.com/{company})."""
 
     ats_name = "smartrecruiters"
+    empty_is_confirmed = True
     _PAGE = 100  # API max page size
 
     @property
@@ -955,7 +983,7 @@ class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
                 department=self._label(item.get("department")) or self._label(item.get("function")),
                 date_posted=item.get("releasedDate", ""),
             )
-            for item in data.get("content", []) if item.get("id")
+            for item in self._listing(data, "content") if item.get("id")
         ]
         return jobs, data.get("totalFound")
 
@@ -979,6 +1007,7 @@ class JibeFetcher(EarlyStopPaginatedFetcher):
     server-fixed. `host` is the careers host (careers.amd.com, careers.rivian.com)."""
 
     ats_name = "jibe"
+    empty_is_confirmed = True
     _PAGE = 10
 
     @property
@@ -992,7 +1021,7 @@ class JibeFetcher(EarlyStopPaginatedFetcher):
             params={"page": index + 1, "sortBy": "posted_date", "descending": "true"},
         )
         jobs = []
-        for wrapper in data.get("jobs", []):
+        for wrapper in self._listing(data, "jobs"):
             item = wrapper.get("data") or {}
             if not item.get("req_id"):
                 continue
@@ -1083,6 +1112,7 @@ class EightfoldFetcher(EarlyStopPaginatedFetcher):
     `host` is the careers host, `domain` the tenant's Eightfold domain key."""
 
     ats_name = "eightfold"
+    empty_is_confirmed = True
     _PAGE = 10
 
     def __init__(self, company: Company, http: HttpClient):
@@ -1123,7 +1153,7 @@ class EightfoldFetcher(EarlyStopPaginatedFetcher):
                 department=item.get("department") or "",
                 date_posted=_unix_to_date(item.get("postedTs")),
             )
-            for item in payload.get("positions", []) if item.get("id")
+            for item in self._listing(payload, "positions") if item.get("id")
         ]
         return jobs, payload.get("count")
 
@@ -1146,7 +1176,7 @@ class EightfoldFetcher(EarlyStopPaginatedFetcher):
                 department=item.get("department") or "",
                 date_posted=_unix_to_date(item.get("t_create")),
             )
-            for item in data.get("positions") or [] if item.get("id")
+            for item in self._listing(data, "positions") if item.get("id")
         ]
         return jobs, data.get("count")
 
@@ -1665,6 +1695,7 @@ class TinderFetcher(AtsFetcher):
     board with no date field: return everything and let the pipeline dedupe (no early-stop)."""
 
     ats_name = "tinder"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -1685,7 +1716,7 @@ class TinderFetcher(AtsFetcher):
                 department=item.get("department", ""),
                 date_posted="",  # proxy carries no posting date
             )
-            for item in data.get("data", []) if item.get("id")
+            for item in self._listing(data, "data") if item.get("id")
         ]
 
 
@@ -1696,6 +1727,7 @@ class WorkableFetcher(AtsFetcher):
     `account` is the apply.workable.com account slug (e.g. pony-dot-ai)."""
 
     ats_name = "workable"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -1721,7 +1753,7 @@ class WorkableFetcher(AtsFetcher):
                 department=item.get("department") or "",
                 date_posted=item.get("published_on", ""),
             )
-            for item in data.get("jobs", []) if item.get("shortcode")
+            for item in self._listing(data, "jobs") if item.get("shortcode")
         ]
 
 
@@ -1787,6 +1819,7 @@ class RipplingFetcher(AtsFetcher):
     -> single-shot board, roles match on title only."""
 
     ats_name = "rippling"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -1816,7 +1849,7 @@ class RipplingFetcher(AtsFetcher):
     def _merge_by_uuid(data: list[dict]) -> dict[str, dict]:
         """Collapse the one-row-per-location rows: uuid -> first row + accumulated locations."""
         merged: dict[str, dict] = {}
-        for item in data:
+        for item in RipplingFetcher._listing(data):
             uuid = item.get("uuid")
             if not uuid:
                 continue
@@ -1840,6 +1873,7 @@ class KekaFetcher(AtsFetcher):
     segment at all — so both are derived here from the one param."""
 
     ats_name = "keka"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -1868,7 +1902,7 @@ class KekaFetcher(AtsFetcher):
                 date_posted=str(item.get("publishedOn") or ""),
             )
             # Single unpaged request: an uncaught KeyError here zeroes the whole company, not just one row.
-            for item in data if item.get("id")
+            for item in self._listing(data) if item.get("id")
         ]
 
     @staticmethod
@@ -1896,6 +1930,7 @@ class GemFetcher(AtsFetcher):
     (both extId and the opaque `id` resolve; extId is the stable UUID form)."""
 
     ats_name = "gem"
+    empty_is_confirmed = True
 
     _QUERY = (
         "query JobBoardList($boardId: String!) { oatsExternalJobPostings(boardId: $boardId) "
@@ -1930,7 +1965,7 @@ class GemFetcher(AtsFetcher):
                 department=((item.get("job") or {}).get("department") or {}).get("name", ""),
                 date_posted="",  # board API carries no posting date
             )
-            for item in postings.get("jobPostings", []) if item.get("extId")
+            for item in self._listing(postings, "jobPostings") if item.get("extId")
         ]
 
     @staticmethod
@@ -2078,6 +2113,7 @@ class AtlassianFetcher(AtsFetcher):
     `atlassian` is an EMPTY decoy (200, zero jobs); this endpoint is the real source."""
 
     ats_name = "atlassian"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -2086,7 +2122,7 @@ class AtlassianFetcher(AtsFetcher):
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json("https://www.atlassian.com/endpoint/careers/listings")
         jobs = []
-        for item in data:
+        for item in self._listing(data):
             if not item.get("id"):
                 continue
             portal = item.get("portalJobPost") or {}
@@ -2152,6 +2188,7 @@ class JaneStreetFetcher(AtsFetcher):
     pass through raw and fail the location include-terms (non-US -> intended drop)."""
 
     ats_name = "janestreet"
+    empty_is_confirmed = True
     _CITY_MAP = {"NYC": "New York, NY, United States"}
 
     @property
@@ -2171,7 +2208,7 @@ class JaneStreetFetcher(AtsFetcher):
                 department=item.get("team") or item.get("category") or "",
                 date_posted="",  # feed carries no posting date
             )
-            for item in data if item.get("id")
+            for item in self._listing(data) if item.get("id")
         ]
 
 
@@ -2230,6 +2267,7 @@ class BambooHRFetcher(AtsFetcher):
     per-job at enrich time by BambooHrJdSource. JD URL = {account}.bamboohr.com/careers/{id}."""
 
     ats_name = "bamboohr"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -2238,7 +2276,7 @@ class BambooHRFetcher(AtsFetcher):
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json(f"https://{self.host}/careers/list")
         jobs = []
-        for item in data.get("result") or []:
+        for item in self._listing(data, "result"):
             if not item.get("id"):
                 continue
             location = item.get("location") or {}
@@ -2264,6 +2302,7 @@ class UKGReadyFetcher(AtsFetcher):
     no posting dates; ``company_id`` is the numeric id in the hosted careers URL."""
 
     ats_name = "ukg_ready"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -2276,7 +2315,7 @@ class UKGReadyFetcher(AtsFetcher):
             "job-requisitions"
         )
         jobs = []
-        for item in data.get("job_requisitions") or []:
+        for item in self._listing(data, "job_requisitions"):
             job_id = item.get("id")
             if not job_id:
                 continue
@@ -2620,6 +2659,7 @@ class WhatnotFetcher(AtsFetcher):
     one request. `externalLink` points at the Ashby JD page. Single-shot."""
 
     ats_name = "whatnot"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -2628,7 +2668,7 @@ class WhatnotFetcher(AtsFetcher):
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json("https://jobs.whatnot.com/api/jobs")
         jobs = []
-        for item in data.get("results") or []:
+        for item in self._listing(data, "results"):
             if not item.get("id"):
                 continue
             secondary = item.get("secondaryLocationNames") or []
@@ -2661,6 +2701,7 @@ class AuroraFetcher(AtsFetcher):
     backfill — which also means PreFilter judges them on full text from the first run."""
 
     ats_name = "aurora"
+    empty_is_confirmed = True
 
     @property
     def host(self) -> str:
@@ -2669,7 +2710,7 @@ class AuroraFetcher(AtsFetcher):
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.get_json("https://aurora.tech/api/jobs-index")
         jobs = []
-        for item in data.get("jobs") or []:
+        for item in self._listing(data, "jobs"):
             if not item.get("id"):
                 continue
             locations = item.get("locations") or []
@@ -2788,6 +2829,7 @@ class VisaFetcher(AtsFetcher):
     a date but ordering isn't guaranteed, so no early-stop."""
 
     ats_name = "visa"
+    empty_is_confirmed = True
     _API = "https://search.visa.com/CAREERS/careers/jobs"
     _PAGE_SIZE = 1000  # warn if the board ever reaches this (silent-truncation guard)
 
@@ -2797,7 +2839,7 @@ class VisaFetcher(AtsFetcher):
 
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         data = self._http.post_json(self._API, {"pageSize": self._PAGE_SIZE})
-        items = data.get("jobDetails") or []
+        items = self._listing(data, "jobDetails")
         if len(items) >= self._PAGE_SIZE:
             log.warning("visa %s: got %d results at the pageSize cap (%d) — board may exceed it",
                         self.host, len(items), self._PAGE_SIZE)
@@ -3294,16 +3336,18 @@ class ParallelFetcher:
             except Exception as exc:  # one company failing must not abort the run
                 self._report_dark(fetcher.log_subject, f"fetch failed: {exc}")
                 continue
-            # An empty pull is the SILENT form of the same failure — no exception, just a
-            # board that answered with nothing — so it needs the same report. Gated on
-            # has_rows because a genuinely new company fetching nothing is not a fault.
-            # Still fires on a live company that legitimately has zero openings today;
-            # fetch() may not filter by `seen`, so "no NEW roles" never reaches here and
-            # the two cases are indistinguishable from the return value alone.
+            # An empty pull can be the SILENT form of the failure above, a board that answered
+            # with nothing. Gated on has_rows because a new company fetching nothing is not a
+            # fault. fetch() may not filter by `seen`, so zero means the whole board was empty,
+            # not "no new roles".
             if not fetched and seen.has_rows(fetcher.own_uid_prefix):
-                self._report_dark(fetcher.log_subject,
-                                  "fetch returned 0 roles, but the ledger holds rows from "
-                                  "it; the source may be refusing this run")
+                if fetcher.empty_is_confirmed:
+                    log.info("%s: board lists no openings this run", fetcher.log_subject)
+                    self._streaks.record_empty(fetcher.log_subject)
+                else:
+                    self._report_dark(fetcher.log_subject,
+                                      "fetch returned 0 roles, but the ledger holds rows "
+                                      "from it; the source may be refusing this run")
             jobs.extend(fetched)
         # Logged when this host group finishes; the timestamp + elapsed expose the slowest host.
         log.info("host %s done: %d jobs in %.1fs", host, len(jobs), time.perf_counter() - started)
