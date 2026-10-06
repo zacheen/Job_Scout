@@ -149,6 +149,7 @@ class Settings:
     score_workers: int
     enrich_workers: int
     dark_source_streak: int
+    empty_source_streak: int
     jd_retry_interval_minutes: int
     jd_retry_max_attempts: int
     jd_retry_min_age_hours: int
@@ -225,6 +226,7 @@ class Settings:
             score_workers=int(cfg.get("score_workers", 5)),
             enrich_workers=int(cfg.get("enrich_workers", 8)),
             dark_source_streak=int(cfg.get("dark_source_streak", 3)),
+            empty_source_streak=int(cfg.get("empty_source_streak", 10)),
             jd_retry_interval_minutes=int(cfg.get("jd_retry_interval_minutes", 100)),
             jd_retry_max_attempts=int(cfg.get("jd_retry_max_attempts", 3)),
             jd_retry_min_age_hours=int(cfg.get("jd_retry_min_age_hours", 24)),

@@ -96,6 +96,10 @@ enrich_workers: 8
 # many consecutive runs; one dark run is usually transient, e.g. a Workday maintenance window
 # (coverage.SourceStreaks, source_streaks.json).
 dark_source_streak: 3
+# Like dark_source_streak, but for a JSON board that answers with zero openings, counted
+# apart because a campus board is empty between recruiting seasons. A long streak means
+# the company may have closed or moved boards.
+empty_source_streak: 10
 
 # A role whose job description fetch fails in a way a later run could fix (5xx, timeout,
 # a maintenance page that is not JSON, 403, 429) is still scored on its title and emailed

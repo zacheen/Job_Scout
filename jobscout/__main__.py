@@ -90,7 +90,8 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
     pipeline = Pipeline(
         store=CsvStore(root / settings.ledger_dir, track_priority=settings.track_names),
         fetcher=ParallelFetcher(fetchers, streaks=SourceStreaks(
-            root / SOURCE_STREAKS_FILENAME, settings.dark_source_streak)),
+            root / SOURCE_STREAKS_FILENAME, settings.dark_source_streak,
+            settings.empty_source_streak)),
         prefilter=PreFilter(
             include_location_terms=settings.include_location_terms,
             exclude_location_terms=settings.exclude_location_terms,
