@@ -2955,6 +2955,11 @@ class SimplifyFetcher(GithubRepoFetcher):
         for item in data:
             if not (item.get("active") and item.get("is_visible") and item.get("id")):
                 continue
+            # A row whose only listed degree is a PhD is PhD-only, and Simplify sometimes
+            # strips that marker from the title, which leaves PreFilter's "phd" term nothing
+            # to match. An empty list means Simplify did not say, so it is kept.
+            if set(item.get("degrees") or ()) == {"PhD"}:
+                continue
             jobs.append(
                 Job(
                     job_uid=self._uid(_native_job_id(item.get("url", "")) or item["id"]),
@@ -3647,8 +3652,13 @@ class LdJsonJdSource(JdSource):
                 # malformed block ahead of it.
                 continue
             if isinstance(data, dict) and data.get("@type") == "JobPosting":
-                return data.get("description") or ""
+                return self._posting_text(data)
         return ""
+
+    def _posting_text(self, posting: dict) -> str:
+        """The body taken from one JobPosting block. Most boards put the whole ad in
+        `description`; a subclass overrides this when requirements sit in other fields."""
+        return posting.get("description") or ""
 
 
 class RadancyJdSource(LdJsonJdSource):
@@ -3671,6 +3681,36 @@ class RadancyJdSource(LdJsonJdSource):
 
     def detail_url(self, jd_url: str) -> str:
         return self._passthrough(jd_url, self._JD_URL_RE)
+
+
+class MetaJdSource(LdJsonJdSource):
+    """Meta's per-posting pages (metacareers.com/jobs/{id}), which only aggregator rows
+    link to, since Meta has no native fetcher. The search page is a client-rendered shell,
+    but each posting page server-renders a JobPosting block.
+
+    The body joins `qualifications`, `description` and `responsibilities`, because Meta
+    states degree requirements in `qualifications`. Simplify has dropped a "(PhD)" marker
+    from these titles, so that field is the only place left where a PhD-only role says so.
+    """
+
+    _JD_URL_RE = re.compile(r"^https://(?:www\.)?metacareers\.com/(?:v2/)?jobs/\d+/?(?:\?[^#]*)?$",
+                            re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        return self._passthrough(jd_url, self._JD_URL_RE)
+
+    def _posting_text(self, posting: dict) -> str:
+        # Qualifications first, since the scorer truncates the body (max_description_chars)
+        # and the degree requirement is the part that must survive. schema.org allows a
+        # list here as well as a string.
+        parts = []
+        for key in ("qualifications", "description", "responsibilities"):
+            value = posting.get(key)
+            if isinstance(value, list):
+                value = " ".join(v for v in value if isinstance(v, str))
+            if isinstance(value, str) and value.strip():
+                parts.append(value)
+        return "\n\n".join(parts)
 
 
 class AshbyJdSource(LdJsonJdSource):
