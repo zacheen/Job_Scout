@@ -14,6 +14,7 @@ from types import MappingProxyType
 from typing import NamedTuple
 
 from .dates import posted_iso
+from .urls import workday_short_url
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,10 @@ class Job:
         for f in fields(self):
             if getattr(self, f.name) is None:
                 object.__setattr__(self, f.name, "")
+        # Done here, not per fetcher or at CSV write, so both the ledger row and the emailed
+        # link carry the short form. Dedup does not depend on it, since canon_url folds the
+        # long form too. dataclasses.replace re-runs this harmlessly (idempotent).
+        object.__setattr__(self, "url", workday_short_url(self.url))
 
     @property
     def display_location(self) -> str:

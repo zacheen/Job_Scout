@@ -859,7 +859,8 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
                 title=item.get("title", ""),
                 location=location,
                 location_display=location_display,
-                # externalPath alone 404s — the JD page only exists under /en-US/{site}.
+                # externalPath alone 404s, the page needs the site segment. The locale is
+                # optional, and Job shortens this link anyway (urls.workday_short_url).
                 url=f"https://{host}/en-US/{site}{item['externalPath']}",
                 # Workday listing API omits the body (per-role fetch for every LISTED
                 # job would be too costly). WorkdayJdSource backfills it later, but
