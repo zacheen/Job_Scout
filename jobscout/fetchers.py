@@ -2955,16 +2955,17 @@ class SimplifyFetcher(GithubRepoFetcher):
         for item in data:
             if not (item.get("active") and item.get("is_visible") and item.get("id")):
                 continue
-            # A row whose only listed degree is a PhD is PhD-only, and Simplify sometimes
-            # strips that marker from the title, which leaves PreFilter's "phd" term nothing
-            # to match. An empty list means Simplify did not say, so it is kept.
-            if set(item.get("degrees") or ()) == {"PhD"}:
-                continue
+            title = item.get("title", "")
+            # Simplify drops "(PhD)" from some titles while listing PhD as the only degree.
+            # Restoring it lets exclude_terms decide, as for every other source. An empty
+            # list means Simplify did not say, so the title is left alone.
+            if set(item.get("degrees") or ()) == {"PhD"} and not re.search(r"ph\.?d", title, re.I):
+                title = f"{title} (PhD)"
             jobs.append(
                 Job(
                     job_uid=self._uid(_native_job_id(item.get("url", "")) or item["id"]),
                     company=canonical_company(item.get("company_name", "")),
-                    title=item.get("title", ""),
+                    title=title,
                     location="; ".join(item.get("locations") or []),
                     url=item.get("url", ""),
                     description="",  # listings.json carries no description; matched on title
@@ -3656,8 +3657,7 @@ class LdJsonJdSource(JdSource):
         return ""
 
     def _posting_text(self, posting: dict) -> str:
-        """The body taken from one JobPosting block. Most boards put the whole ad in
-        `description`; a subclass overrides this when requirements sit in other fields."""
+        """Body of one JobPosting block. Override when requirements sit outside `description`."""
         return posting.get("description") or ""
 
 
@@ -3684,13 +3684,13 @@ class RadancyJdSource(LdJsonJdSource):
 
 
 class MetaJdSource(LdJsonJdSource):
-    """Meta's per-posting pages (metacareers.com/jobs/{id}), which only aggregator rows
-    link to, since Meta has no native fetcher. The search page is a client-rendered shell,
-    but each posting page server-renders a JobPosting block.
+    """Meta's per-posting pages (metacareers.com/jobs/{id}), reached only from aggregator
+    rows since Meta has no native fetcher. The search page is a client-rendered shell, but
+    each posting page server-renders a JobPosting block.
 
-    The body joins `qualifications`, `description` and `responsibilities`, because Meta
-    states degree requirements in `qualifications`. Simplify has dropped a "(PhD)" marker
-    from these titles, so that field is the only place left where a PhD-only role says so.
+    The body joins `qualifications`, `description` and `responsibilities` because Meta
+    states degree requirements in `qualifications`, the only place left to flag a PhD-only
+    role once Simplify drops the "(PhD)" title marker.
     """
 
     _JD_URL_RE = re.compile(r"^https://(?:www\.)?metacareers\.com/(?:v2/)?jobs/\d+/?(?:\?[^#]*)?$",
@@ -3700,9 +3700,8 @@ class MetaJdSource(LdJsonJdSource):
         return self._passthrough(jd_url, self._JD_URL_RE)
 
     def _posting_text(self, posting: dict) -> str:
-        # Qualifications first, since the scorer truncates the body (max_description_chars)
-        # and the degree requirement is the part that must survive. schema.org allows a
-        # list here as well as a string.
+        # Qualifications first: the scorer truncates the body (max_description_chars) and
+        # the degree requirement must survive. schema.org allows a list as well as a string.
         parts = []
         for key in ("qualifications", "description", "responsibilities"):
             value = posting.get(key)
