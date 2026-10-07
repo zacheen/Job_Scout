@@ -15,7 +15,7 @@ from .coverage import SourceStreaks, attach_catchup_annotations, attach_catchup_
 from .fetchers import (AppOneJdSource, AshbyJdSource, AtsFetcher, AvatureJdSource,
                        BambooHrJdSource, ChainedEnricher, DispatchingEnricher, FetcherFactory,
                        GreenhouseJdSource, HttpClient, IcimsJdSource, JdUrlEnricher, JibeJdSource,
-                       ParallelFetcher, RadancyJdSource, SuccessFactorsJdSource,
+                       MetaJdSource, ParallelFetcher, RadancyJdSource, SuccessFactorsJdSource,
                        WorkdayJdSource, host_pacer)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
@@ -119,7 +119,8 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
                            SuccessFactorsJdSource(jd_http), RadancyJdSource(jd_http),
                            AshbyJdSource(jd_http), IcimsJdSource(jd_http),
                            JibeJdSource(jd_http), GreenhouseJdSource(jd_http),
-                           AppOneJdSource(jd_http), AvatureJdSource(jd_http)],
+                           AppOneJdSource(jd_http), AvatureJdSource(jd_http),
+                           MetaJdSource(jd_http)],
                           settings.description_policy),
         ]),
         annotator=DescriptionFlagger(

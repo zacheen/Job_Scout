@@ -859,7 +859,8 @@ class WorkdayFetcher(EarlyStopPaginatedFetcher):
                 title=item.get("title", ""),
                 location=location,
                 location_display=location_display,
-                # externalPath alone 404s — the JD page only exists under /en-US/{site}.
+                # externalPath alone 404s, the page needs the site segment. The locale is
+                # optional, and Job shortens this link anyway (urls.workday_short_url).
                 url=f"https://{host}/en-US/{site}{item['externalPath']}",
                 # Workday listing API omits the body (per-role fetch for every LISTED
                 # job would be too costly). WorkdayJdSource backfills it later, but
@@ -2955,11 +2956,17 @@ class SimplifyFetcher(GithubRepoFetcher):
         for item in data:
             if not (item.get("active") and item.get("is_visible") and item.get("id")):
                 continue
+            title = item.get("title", "")
+            # Simplify drops "(PhD)" from some titles while listing PhD as the only degree.
+            # Restoring it lets exclude_terms decide, as for every other source. An empty
+            # list means Simplify did not say, so the title is left alone.
+            if set(item.get("degrees") or ()) == {"PhD"} and not re.search(r"ph\.?d", title, re.I):
+                title = f"{title} (PhD)"
             jobs.append(
                 Job(
                     job_uid=self._uid(_native_job_id(item.get("url", "")) or item["id"]),
                     company=canonical_company(item.get("company_name", "")),
-                    title=item.get("title", ""),
+                    title=title,
                     location="; ".join(item.get("locations") or []),
                     url=item.get("url", ""),
                     description="",  # listings.json carries no description; matched on title
@@ -3647,8 +3654,12 @@ class LdJsonJdSource(JdSource):
                 # malformed block ahead of it.
                 continue
             if isinstance(data, dict) and data.get("@type") == "JobPosting":
-                return data.get("description") or ""
+                return self._posting_text(data)
         return ""
+
+    def _posting_text(self, posting: dict) -> str:
+        """Body of one JobPosting block. Override when requirements sit outside `description`."""
+        return posting.get("description") or ""
 
 
 class RadancyJdSource(LdJsonJdSource):
@@ -3671,6 +3682,35 @@ class RadancyJdSource(LdJsonJdSource):
 
     def detail_url(self, jd_url: str) -> str:
         return self._passthrough(jd_url, self._JD_URL_RE)
+
+
+class MetaJdSource(LdJsonJdSource):
+    """Meta's per-posting pages (metacareers.com/jobs/{id}), reached only from aggregator
+    rows since Meta has no native fetcher. The search page is a client-rendered shell, but
+    each posting page server-renders a JobPosting block.
+
+    The body joins `qualifications`, `description` and `responsibilities` because Meta
+    states degree requirements in `qualifications`, the only place left to flag a PhD-only
+    role once Simplify drops the "(PhD)" title marker.
+    """
+
+    _JD_URL_RE = re.compile(r"^https://(?:www\.)?metacareers\.com/(?:v2/)?jobs/\d+/?(?:\?[^#]*)?$",
+                            re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        return self._passthrough(jd_url, self._JD_URL_RE)
+
+    def _posting_text(self, posting: dict) -> str:
+        # Qualifications first: the scorer truncates the body (max_description_chars) and
+        # the degree requirement must survive. schema.org allows a list as well as a string.
+        parts = []
+        for key in ("qualifications", "description", "responsibilities"):
+            value = posting.get(key)
+            if isinstance(value, list):
+                value = " ".join(v for v in value if isinstance(v, str))
+            if isinstance(value, str) and value.strip():
+                parts.append(value)
+        return "\n\n".join(parts)
 
 
 class AshbyJdSource(LdJsonJdSource):

@@ -3,6 +3,8 @@
 canon_url produces the DEDUP KEY for "do these two links point at the same
 posting?" — used by the ledger's URL index and the pipeline's email dedup.
 Stored/emailed URLs keep their original strings; only comparisons go through here.
+The one exception is a Workday job link, which models.Job shortens via workday_short_url,
+so new rows store and email the short form.
 """
 from __future__ import annotations
 
@@ -37,6 +39,43 @@ _FORM_SUFFIXES = {"jobs.lever.co": "/apply", "jobs.ashbyhq.com": "/application"}
 _UUID_TAIL_RE = re.compile(
     r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
+# Workday job page path: [/{locale}]/{site}/job/[{location}/]{Title_ReqId}. One posting
+# varies by source in locale, site case and location segment (WorkdayFetcher builds
+# /en-US/{Site}/job/{location}/..., Simplify links /{site}/job/{location}/...), so only the
+# site and the last segment identify it.
+# Requiring the literal /job/ is what makes the optional group take the locale rather than
+# the site.
+_WORKDAY_HOST_SUFFIX = ".myworkdayjobs.com"
+_WORKDAY_JOB_RE = re.compile(
+    r"^(?:/[a-z]{2}-[a-z]{2})?/(?P<site>[^/]+)/job/(?:[^/]+/)?(?P<slug>[^/]+)$", re.IGNORECASE)
+
+
+def _workday_site_slug(host: str, path: str) -> tuple[str, str] | None:
+    """(site, Title_ReqId) of a Workday job page, or None for any other link. `host`
+    must already be lowercased and `path` stripped of its trailing slash."""
+    if not host.endswith(_WORKDAY_HOST_SUFFIX):
+        return None
+    match = _WORKDAY_JOB_RE.match(path)
+    return (match["site"], match["slug"]) if match else None
+
+
+def workday_short_url(url: str) -> str:
+    """A Workday job link as https://{host}/{site lowercased}/job/{Title_ReqId}, dropping
+    the locale and location segments. Any other link is returned unchanged.
+
+    Safe to store and email: probed on 2026-10-07 with one open posting from each of 360
+    ledger tenants, the public page and the CXS detail API that WorkdayJdSource reads both
+    served the same posting under the short form, while a wrong ReqId or title slug served
+    none. Idempotent, since a short form matches with no location segment."""
+    parts = urlsplit(url.strip())
+    host = parts.netloc.lower()
+    found = _workday_site_slug(host, parts.path.rstrip("/"))
+    if found is None:
+        return url
+    site, slug = found
+    return urlunsplit((parts.scheme, host, f"/{site.lower()}/job/{slug}",
+                       parts.query, parts.fragment))
+
 
 def canon_url(url: str) -> str:
     """Conservative canonical form, validated against the real ledger (2026-07-11: 21
@@ -45,10 +84,20 @@ def canon_url(url: str) -> str:
     form-suffix folding: 298 ledger URLs folded, every merged group shares one posting
     UUID; 2026-09-16 embed= dropping: 300624 ledger URLs checked, 514 keys changed, 60
     groups merged, none spanning two posting UUIDs). Boards like Agility's, where gh_jid
-    is the only distinguisher, stay distinct as {id}-suffixed paths."""
+    is the only distinguisher, stay distinct as {id}-suffixed paths.
+
+    Workday links fold to their casefolded site and Title_ReqId, so long-form keys already
+    in older ledger rows equal the short form models.Job now stores. Loading one cloud
+    ledger of 365294 rows under this fold merged away 3514 duplicates, lost no source uid
+    or emailed flag, and changed no non-Workday key."""
     parts = urlsplit(url.strip())
     host = parts.netloc.lower()
     path = parts.path.rstrip("/")
+
+    workday = _workday_site_slug(host, path)
+    if workday is not None:
+        site, slug = workday
+        path = f"/{site.casefold()}/job/{slug.casefold()}"
 
     if host.removeprefix("www.") in _ATSX_HOSTS:
         job_id = path.rsplit("/", 1)[-1]
