@@ -13,7 +13,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import NamedTuple
 
-from .dates import posted_iso
+from .dates import display_date, posted_iso
 from .urls import workday_short_url
 
 
@@ -53,6 +53,13 @@ class Job:
         """`location` for humans (email) and the LLM prompt. Presentation only — never feed this
         to PreFilter, whose state-code rule needs the raw separator ("McLean-VA")."""
         return self.location_display or self.location
+
+    @property
+    def display_posted(self) -> str:
+        """`date_posted` for the email. Presentation only, like `display_location`: the
+        ledger stores the raw string and `posted_iso` derives from it, so nothing upstream
+        should read this."""
+        return display_date(self.date_posted)
 
 
 @dataclass(frozen=True)

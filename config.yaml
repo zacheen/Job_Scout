@@ -652,6 +652,15 @@ warn_description_patterns:
   # US-person requirement, not reliably one. The leading verb keeps this off the unrelated
   # "build public trust in AI" sense that turns up in policy and ethics postings.
   - '\b(?:obtain|maintain|active) ?[^.!?]{0,25}public trust'
+  # Roblox's hedge "the Company may not be able to employ candidates who have United States
+  # work authorization related to certain U.S. [...] categories, or support future [...]
+  # sponsorship at this time" matched neither tier: the exclude rule on "not ... employ ...
+  # requir... sponsorship" needs a "requir" this sentence never has. Warn, not exclude: the
+  # employer wrote "may", and the sentence sits on all 261 postings of a live pull of that
+  # board, so an exclude would drop the whole board. The "who have ... work authorization"
+  # anchor keeps out clauses such as "not be able to employ candidates who have not passed a
+  # background check".
+  - '\bnot be able to (?:employ|hire) (?:[^\s.,;:!?]+ ){0,4}who have (?:[^\s.,;:!?]+ ){0,3}work authorization'
 
 # The candidate's real technical skills, used ONLY by the keyword-only scorer (the
 # fallback when no OpenAI key / GPT CLI is available — e.g. cloud runs). Scores DISTINCT

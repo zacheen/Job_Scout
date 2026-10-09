@@ -68,6 +68,11 @@ def _parse(text: str, today: date) -> str:
     if match := _M_D_Y_RE.match(text):
         month, day, year = match.groups()
         return _to_iso(year, month, day)
+    return _epoch_iso(text)
+
+
+def _epoch_iso(text: str) -> str:
+    """Epoch seconds or milliseconds -> UTC ISO date; "" for any other shape."""
     if match := _EPOCH_RE.match(text):
         try:
             return datetime.fromtimestamp(int(match.group(1)), timezone.utc).date().isoformat()
@@ -155,3 +160,11 @@ def posted_iso(raw: str, *, today: date | None = None) -> str:
         _warn_implausible(text, iso)
         return ""
     return iso
+
+
+def display_date(raw: str) -> str:
+    """`raw` as the digest prints it: an epoch value becomes its UTC ISO date, anything else
+    stays as the board wrote it. "Posted Today" and a full timestamp already read fine, and
+    resolving relative wording here would only restate it."""
+    text = (raw or "").strip()
+    return _epoch_iso(text) or text
