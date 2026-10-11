@@ -743,14 +743,26 @@ class LeverFetcher(AtsFetcher):
                     title=item.get("text", ""),
                     location=categories.get("location", ""),
                     url=item.get("hostedUrl", ""),
-                    description=strip_html(
-                        item.get("descriptionPlain") or item.get("description") or ""
-                    ),
+                    description=self._body(item),
                     department=categories.get("team", ""),
                     date_posted=str(item.get("createdAt", "")),
                 )
             )
         return jobs
+
+    @staticmethod
+    def _body(item: dict) -> str:
+        """Full posting text. `descriptionPlain` is only the opening blurb, but eligibility
+        bars can sit in `lists` (headed sections) or `additional` (closing notes). A Shield AI
+        posting stated "U.S. citizenship is required" only under "Required qualifications",
+        which `descriptionPlain` alone hides from PreFilter and the scorer. List headings are
+        kept so the scorer can tell a required qualification from a preferred one."""
+        parts = [strip_html(item.get("descriptionPlain") or item.get("description") or "")]
+        for section in item.get("lists") or []:
+            parts.append(strip_html(section.get("text", "")))
+            parts.append(strip_html(section.get("content", "")))
+        parts.append(strip_html(item.get("additionalPlain") or item.get("additional") or ""))
+        return "\n".join(part for part in parts if part)
 
 
 class AshbyFetcher(AtsFetcher):
