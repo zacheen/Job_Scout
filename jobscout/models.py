@@ -28,8 +28,8 @@ class Job:
     description: str
     department: str = ""
     date_posted: str = ""
-    # Caveat set by the Annotator and shown in the email (e.g. "possibly no employer
-    # sponsorship"); never persisted (CsvStore's fixed _FIELDS ignore it). Not display-only,
+    # Caveat set by the Annotator and shown in the email (e.g. "possible work-authorization
+    # bar"); never persisted (CsvStore's fixed _FIELDS ignore it). Not display-only,
     # since Pipeline reads a non-empty note as a work-auth warn match (`_confirmed_bar`).
     note: str = ""
     # Readable stand-in for `location`, populated only by WorkdayFetcher's multi-site
