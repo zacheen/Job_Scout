@@ -525,8 +525,10 @@ class AtsFetcher(ABC):
 
     @abstractmethod
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
-        """Return current postings. `seen` is a pagination-efficiency hint only:
-        date-ordered sources page down to the company's watermark; others ignore it.
+        """Return current postings. `seen` is an efficiency hint that can change how deep a
+        source pages (date-ordered sources stop at the company's watermark) and a returned
+        job's `url` (aggregator sources skip the per-row link lookup for a row already
+        recorded, leaving its link as listed). Other sources ignore it.
         Dedup is the caller's responsibility — implementations must never filter
         return values through `seen`."""
         ...
@@ -974,15 +976,31 @@ class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
     ats_name = "smartrecruiters"
     empty_is_confirmed = True
     _PAGE = 100  # API max page size
+    # NOTE: urls._SMARTRECRUITERS_HOST holds the same host for canon_url's slug fold, kept
+    # separate because urls stays a leaf module.
+    PUBLIC_HOST = "jobs.smartrecruiters.com"
+    _API_HOST = "api.smartrecruiters.com"
 
     @property
     def host(self) -> str:
-        return "api.smartrecruiters.com"
+        return self._API_HOST
+
+    @classmethod
+    def postings_api_url(cls, company_id: str) -> str:
+        """The postings collection. Appending `/{posting}` reads one posting, and that
+        segment may be either its numeric id or its UUID."""
+        return f"https://{cls._API_HOST}/v1/companies/{company_id}/postings"
+
+    @classmethod
+    def posting_url(cls, company_id: str, posting_id: str) -> str:
+        """The public link this fetcher stores. An aggregator row rewritten to it shares one
+        canon_url with the native row."""
+        return f"https://{cls.PUBLIC_HOST}/{company_id}/{posting_id}"
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         company_id = self._param("company")
         data = self._http.get_json(
-            f"https://api.smartrecruiters.com/v1/companies/{company_id}/postings",
+            self.postings_api_url(company_id),
             params={"limit": self._PAGE, "offset": index * self._PAGE},
         )
         jobs = [
@@ -991,7 +1009,7 @@ class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
                 company=self._company.name,
                 title=item.get("name", ""),
                 location=self._location(item.get("location") or {}),
-                url=f"https://jobs.smartrecruiters.com/{company_id}/{item['id']}",
+                url=self.posting_url(company_id, item["id"]),
                 description="",  # listing omits the job-ad body; matched on title only
                 department=self._label(item.get("department")) or self._label(item.get("function")),
                 date_posted=item.get("releasedDate", ""),
@@ -2921,6 +2939,35 @@ def _native_job_id(url: str) -> str:
     return ""
 
 
+# A SmartRecruiters page addressed by posting UUID answers 200 under that UUID, with no
+# redirect, so the numeric id the native fetcher stores takes a posting-API lookup.
+_SMARTRECRUITERS_UUID_PATH_RE = re.compile(rf"^/([^/]+)/({_UUID_RE})/?$")
+
+
+def _smartrecruiters_numeric_url(http: HttpClient, url: str) -> str:
+    """`url` rewritten to SmartRecruitersFetcher.posting_url when it names a SmartRecruiters
+    posting by UUID, else `url` unchanged. Costs one posting-API request per UUID link and
+    fails open to the original link on any error, so a lookup can only cost dedup, never
+    the row."""
+    parts = urlparse(url.strip())
+    if parts.netloc.lower().removeprefix("www.") != SmartRecruitersFetcher.PUBLIC_HOST:
+        return url
+    match = _SMARTRECRUITERS_UUID_PATH_RE.match(parts.path)
+    if not match:
+        return url
+    company_id, posting_uuid = match.groups()
+    try:
+        data = http.get_json(f"{SmartRecruitersFetcher.postings_api_url(company_id)}/{posting_uuid}")
+        posting_id = str(data.get("id") or "")
+    except Exception as exc:
+        log.warning("smartrecruiters: could not resolve %s to a posting id: %s", url, exc)
+        return url
+    if not posting_id.isdigit():
+        log.warning("smartrecruiters: %s resolved to non-numeric posting id %r", url, posting_id)
+        return url
+    return SmartRecruitersFetcher.posting_url(company_id, posting_id)
+
+
 class GithubRepoFetcher(AtsFetcher):
     """Base for aggregator sources whose postings live in a GitHub repo, read from
     raw.githubusercontent.com. All subclasses share that host, so ParallelFetcher runs
@@ -2931,7 +2978,11 @@ class GithubRepoFetcher(AtsFetcher):
     so referral grouping and job_keys line up with the native fetchers' spelling),
     while the uid stays namespaced by the repo entry (a subclass may swap the entry id for
     the employer's real ATS job id when the apply URL exposes one — see _native_job_id) —
-    cross-source dedup otherwise falls to URL."""
+    cross-source dedup otherwise falls to URL.
+
+    `host` names only the repo host. _resolve_links also sends requests to
+    api.smartrecruiters.com from this thread, concurrently with the native SmartRecruiters
+    group, and the process-wide pacer still admits one request to that host at a time."""
 
     _RAW_HOST = "raw.githubusercontent.com"
     _DEFAULT_BRANCH = "main"
@@ -2944,6 +2995,24 @@ class GithubRepoFetcher(AtsFetcher):
         repo = self._param("repo")
         branch = self._company.params.get("branch", self._DEFAULT_BRANCH)
         return f"https://{self._RAW_HOST}/{repo}/{branch}/{path.strip()}"
+
+    def _resolve_links(self, jobs: list[Job], seen: SeenLedger) -> list[Job]:
+        """`jobs` with each unseen row's SmartRecruiters UUID link rewritten to the numeric
+        form, so it meets the native row in URL dedup. Every subclass must return its fetch
+        through this, a convention nothing enforces.
+
+        Looked up only while the uid is unseen. Aggregators relist every open row on every
+        run, and a seen row's link decides nothing, because its uid already keeps it out of
+        the new candidates. The same rule makes a failed lookup permanent for that row, as
+        no later run asks again."""
+        resolved = []
+        for job in jobs:
+            if job.job_uid not in seen.uids:
+                url = _smartrecruiters_numeric_url(self._http, job.url)
+                if url != job.url:
+                    job = replace(job, url=url)
+            resolved.append(job)
+        return resolved
 
 
 class SimplifyFetcher(GithubRepoFetcher):
@@ -2986,7 +3055,7 @@ class SimplifyFetcher(GithubRepoFetcher):
                     date_posted=_unix_to_date(item.get("date_posted")),
                 )
             )
-        return jobs
+        return self._resolve_links(jobs, seen)
 
 
 class SpeedyApplyFetcher(GithubRepoFetcher):
@@ -3012,7 +3081,7 @@ class SpeedyApplyFetcher(GithubRepoFetcher):
         jobs: list[Job] = []
         for path in files:
             jobs.extend(self._parse_table(self._http.get_text(self._raw_url(path))))
-        return jobs
+        return self._resolve_links(jobs, seen)
 
     def _parse_table(self, markdown: str) -> list[Job]:
         jobs: list[Job] = []
