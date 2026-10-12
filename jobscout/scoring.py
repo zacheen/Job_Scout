@@ -158,9 +158,9 @@ class _LlmScorer(ABC):
 
     scale = ScoreScale.LLM
 
-    # Total parse-attempts. Failing them all costs the role permanently: add_seen
-    # records every fetched uid BEFORE scoring, so a job that never parses is
-    # already "seen" next run and never becomes a candidate again.
+    # Total parse-attempts. Failing them all costs the role this run's digest, since
+    # add_seen recorded its uid BEFORE scoring and only the retry queue brings it back
+    # (Pipeline._settle_scoring), until JdRetryPolicy gives up.
     _PARSE_ATTEMPTS = 2
 
     def __init__(self, resume_text: str, max_description_chars: int):
@@ -372,9 +372,13 @@ class CliScorer(_LlmScorer):
         )
         if result.returncode != 0:
             # codex prefixes stderr with a ~200-char startup banner (version/workdir/model/...);
-            # the head never has the actual error, hence taking the tail.
+            # the head never has the actual error, hence taking the tail. stdout goes in too:
+            # claude can fill stderr with a warning it prints even on success (an untrusted
+            # workspace ignoring project permissions) while the real error sits elsewhere, as
+            # in one run where 79 failures logged nothing but that warning.
             raise RuntimeError(
-                f"{' '.join(self._command)} exited {result.returncode}: {result.stderr[-300:]}"
+                f"{' '.join(self._command)} exited {result.returncode}: "
+                f"stderr tail {result.stderr[-300:]!r}; stdout tail {result.stdout[-300:]!r}"
             )
         return result.stdout
 

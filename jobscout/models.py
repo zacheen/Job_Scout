@@ -270,12 +270,18 @@ class EnrichResult(NamedTuple):
 
 
 class PendingJd(NamedTuple):
-    """A ledger row still waiting for its job description (CsvStore.pending_jds)."""
+    """A ledger row on the retry queue (CsvStore.pending_jds): still waiting for its job
+    description, or for the score its first scoring attempt failed to produce."""
 
     job: Job                 # rebuilt from the row; description is always ""
-    attempts: int            # failed JD fetches so far, the first one included
+    attempts: int            # failed attempts so far, the first one included
     first_failed: datetime   # timezone-aware UTC
     last_attempt: datetime   # timezone-aware UTC
+    # False when the row was never scored: the scorer failed on it, or it routed to no
+    # track on its title. Such a row is scored on its next retry even if no JD arrives,
+    # unless its JD fetch failed again, unlike a scored row, whose retry is worth scoring
+    # only with new text (Pipeline._enrich_and_refilter).
+    scored: bool
 
 
 @dataclass(frozen=True)

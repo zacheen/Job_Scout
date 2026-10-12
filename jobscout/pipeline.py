@@ -94,11 +94,13 @@ class Pipeline:
         return value
 
     def run(self) -> bool:
-        """Returns True once this run's findings are durably saved to the ledger.
-        False only on the email-send failure path, where the ledger is
-        deliberately left unsaved so unemailed roles retry next run — callers
-        gating side effects on "did local_data catch up" (local_run.py's digest
-        checkpoint) must treat False as "it did not"."""
+        """Returns True when this run caught up: its findings are durably saved and the
+        scorer did not fail on any role still owed a score. False when the email send
+        failed (the ledger is deliberately left unsaved, so unemailed roles retry next
+        run) and when the scorer failed (the ledger IS saved, but the role waits
+        unemailed on the retry queue, or is lost if retry is disabled). Callers gating
+        side effects on "did local_data catch up" (local_run.py's digest checkpoint)
+        must treat False as "it did not"."""
         # One ledger snapshot serves both jobs: it bounds each company's pagination and
         # is the dedupe baseline. Taken BEFORE add_seen, so this run's own jobs don't dedup
         # themselves — and so no company's watermark has advanced to today yet.
@@ -136,7 +138,7 @@ class Pipeline:
             # Stored JD timestamps are aware, and comparing them with a naive clock raises
             # TypeError mid-run rather than here.
             raise ValueError("Pipeline clock must return a timezone-aware datetime")
-        retries = self._due_jd_retries(now)
+        retries = self._due_jd_retries(now, {j.job_uid: j for j in all_jobs})
         emailable = self._new_emailable(new_candidates, known_urls) if new_candidates else []
         if not new_candidates:
             log.info("no new roles this run")
@@ -156,14 +158,14 @@ class Pipeline:
             return True
 
         by_track, unscored = self._score_by_track(scorable)
-        self._settle_scored_retries(scorable, unscored, retries, now)
+        caught_up = self._settle_scoring(scorable, unscored, retries, now) == 0
         by_track = self._withhold_confirmed_bars(self._unemailed(by_track, retries))
         if not by_track:
             self._store.save()
             log.info("%d scorable (of %d new), but none left to email after the track "
                      "thresholds",
                      len(scorable), len(new_candidates))
-            return True
+            return caught_up
 
         digest = self._build_digest(by_track)
         total = sum(len(items) for _, sections in digest for _, items in sections)
@@ -189,7 +191,7 @@ class Pipeline:
         self._store.mark_emailed(emailed)
         self._store.save()
         log.info("emailed %d roles (%d %s) across %d groups", total, top_count, top_group.lower(), len(digest))
-        return True
+        return caught_up
 
     def _new_emailable(self, new_candidates: list[Job], known_urls: set[str]) -> list[Job]:
         """The new candidates still worth enriching and scoring: not already in the ledger
@@ -248,13 +250,25 @@ class Pipeline:
     def _annotate(self, job: Job) -> Job:
         return self._same_identity(self._annotator.annotate(job), job, "annotator")
 
-    def _due_jd_retries(self, now: datetime) -> dict[str, PendingJd]:
-        """Pending rows whose next JD attempt is due, keyed by the uid their rebuilt Job
-        carries. Empty when retry is disabled."""
+    def _due_jd_retries(self, now: datetime, fetched: Mapping[str, Job]) -> dict[str, PendingJd]:
+        """Pending rows whose next attempt is due, keyed by the uid their Job carries.
+        Empty when retry is disabled.
+
+        An unscored row takes this run's fetched copy of its posting when there is one: the
+        ledger keeps no description, so the rebuilt Job would be routed and scored on its
+        title alone, and a role that routed on its body could then route to no track and be
+        settled unscored. A scored row keeps the rebuilt Job, because its retry exists only
+        to detect a JD arriving through the enrich stage."""
         if self._jd_retry is None:
             return {}
         pending = self._store.pending_jds()
-        due = {p.job.job_uid: p for p in pending if self._jd_retry.is_due(p, now)}
+        due = {}
+        for p in pending:
+            if not self._jd_retry.is_due(p, now):
+                continue
+            if not p.scored and p.job.job_uid in fetched:
+                p = p._replace(job=fetched[p.job.job_uid])
+            due[p.job.job_uid] = p
         if pending:
             log.info("jd retry: %d role(s) pending, %d due this run", len(pending), len(due))
         return due
@@ -266,24 +280,33 @@ class Pipeline:
 
         A new job is always returned (minus re-filter drops), pending or not, so a role
         whose JD is down still gets its title-only score and email on first sight, as it
-        did before the retry existed. A retry is returned only when its JD actually arrived:
-        it was already scored on its title when first seen, so scoring it again without new
-        text would only repeat that answer."""
+        did before the retry existed. A scored retry is returned only when its JD actually
+        arrived: it was already scored on its title when first seen, so scoring it again
+        without new text would only repeat that answer. An unscored retry has no answer to
+        repeat, so it is returned without new text too, unless its JD fetch failed again
+        this run: it then keeps waiting, so a role that routed to no track on its title is
+        not settled before its JD arrives."""
         jobs = new_jobs + [p.job for p in retries.values()]
         results = self._enrich_all(jobs)
         self._settle_jds(results, retries, now)
         scorable = []
         for job, result in zip(jobs, results):
+            retry = retries.get(job.job_uid)
             if result.job is job:
-                if job.job_uid not in retries:
+                if retry is None:
                     scorable.append(job)
-                continue
+                    continue
+                if retry.scored or result.jd_pending:
+                    continue
+                # An unscored retry can carry this run's fetched text (_due_jd_retries),
+                # and run() applied PreFilter's verdict to new candidates only, so it takes
+                # the re-filter below.
             # Re-filtering stays on this thread: PreFilter is shared and makes no
             # concurrency promise, and judging in input order is what keeps the drop log
             # ordered independently of completion order.
             if not self._prefilter.keep(result.job):
                 log.info("dropped on detail-fetched text: %s (%s)", job.job_uid, job.title)
-                if job.job_uid in retries:
+                if retry is not None:
                     self._store.resolve_jd(job.job_uid)
                 continue
             scorable.append(result.job)
@@ -292,13 +315,16 @@ class Pipeline:
     def _settle_jds(self, results: list[EnrichResult], retries: Mapping[str, PendingJd],
                     now: datetime) -> None:
         """Write each job's JD outcome to the store: a retryable failure counts one more
-        attempt, and a final error or a URL no source serves ends a retry. A retry whose JD
-        ARRIVED is left pending here on purpose: the text lives only in memory, so the row
-        resolves once that text has been judged (_enrich_and_refilter, or
-        _settle_scored_retries after scoring), never before."""
+        attempt, and a final error or a URL no source serves ends a scored retry. A retry
+        whose JD ARRIVED is left pending here on purpose: the text lives only in memory, so
+        the row resolves once that text has been judged (_enrich_and_refilter, or
+        _settle_scoring after scoring), never before. An unscored retry is left pending
+        too, JD or not, because it still owes a score and _settle_scoring settles it."""
         if self._jd_retry is None:
             return
-        newly, recovered, still, gave_up = 0, 0, 0, 0
+        # `rescore` counts unscored retries apart from `recovered`, which stays "a JD that
+        # had failed arrived": an unscored row's JD may never have failed at all.
+        newly, recovered, rescore, still, gave_up = 0, 0, 0, 0, 0
         for result in results:
             uid = result.job.job_uid
             retry = retries.get(uid)
@@ -311,13 +337,15 @@ class Pipeline:
                 else:
                     still += 1
             elif retry is not None:
-                if result.job.description:
+                if not retry.scored:
+                    rescore += 1
+                elif result.job.description:
                     recovered += 1
                 else:
                     self._store.resolve_jd(uid)
         if newly or retries:
-            log.info("jd retry: %d new pending, %d recovered, %d still pending, %d given up",
-                     newly, recovered, still, gave_up)
+            log.info("jd retry: %d new pending, %d recovered, %d to re-score, %d still pending, "
+                     "%d given up", newly, recovered, rescore, still, gave_up)
 
     def _count_retry_failure(self, retry: PendingJd, now: datetime) -> bool:
         """Record one more failed attempt for a retry; True when that ends retrying."""
@@ -325,22 +353,46 @@ class Pipeline:
         self._store.record_jd_failure(uid, now)
         if self._jd_retry.gives_up(retry, now):
             self._store.resolve_jd(uid)
+            if not retry.scored:
+                # The only line marking this loss: the row is retired here and nothing
+                # re-scores a scored=false row. The policy's min_age was tuned for JD
+                # outages, and a scorer outage (auth, quota) can outlast it.
+                log.warning("gave up on %s after %d attempts without ever scoring it; the role "
+                            "is lost", uid, retry.attempts + 1)
             return True
         return False
 
-    def _settle_scored_retries(self, scorable: list[Job], unscored: set[str],
-                               retries: Mapping[str, PendingJd], now: datetime) -> None:
-        """Resolve each retry whose recovered JD was judged by the scorer (or routed to no
-        track, which is just as final). A scoring failure instead counts as one more failed
-        attempt, so the row comes back on a later run and JdRetryPolicy still bounds it."""
+    def _settle_scoring(self, scorable: list[Job], unscored: set[str],
+                        retries: Mapping[str, PendingJd], now: datetime) -> int:
+        """Settle the retry queue after scoring, and return how many roles the scorer failed
+        on that still owed a score (new roles and unscored retries alike).
+
+        A retry judged by the scorer (or routed to no track, which is just as final)
+        resolves. A scoring failure counts one more failed attempt, so the row comes back on
+        a later run and JdRetryPolicy still bounds it. A new role the scorer failed on joins
+        the queue the same way: add_seen already recorded its uid, so without the queue
+        nothing would ever score it and it would be lost for good, as 79 roles were when the
+        CLI kept exiting 1 in one run. With retry disabled it is still lost, and the count
+        still reports it. A scored retry failing again owes nothing and is not counted."""
+        failed = 0
         for job in scorable:
             retry = retries.get(job.job_uid)
-            if retry is None:
-                continue
-            if job.job_uid in unscored:
-                self._count_retry_failure(retry, now)
+            if job.job_uid not in unscored:
+                if retry is not None:
+                    self._store.resolve_jd(job.job_uid)
+            elif retry is None:
+                failed += 1
+                if self._jd_retry is not None:
+                    self._store.record_jd_failure(job.job_uid, now)
             else:
-                self._store.resolve_jd(job.job_uid)
+                self._count_retry_failure(retry, now)
+                failed += not retry.scored
+        if failed:
+            log.warning("the scorer failed on %d role(s) still owed a score; %s, and this run "
+                        "does not count as caught up", failed,
+                        "they wait on the retry queue unemailed" if self._jd_retry is not None
+                        else "retry is disabled, so the new ones are lost")
+        return failed
 
     def _enrich_all(self, jobs: list[Job]) -> list[EnrichResult]:
         """Fill each job's costly-to-fetch fields from its source's per-job detail endpoint
@@ -539,11 +591,9 @@ class Pipeline:
         try:
             return _ScoreAttempt(job, track, scorer.score(job), scorer.method_label)
         except Exception as exc:
-            # WARNING, not INFO: this loses the role for good. run() already recorded every
-            # fetched uid via add_seen above, so next run reads it as seen, it never returns
-            # to new_candidates, and nothing anywhere re-scores a scored="false" row (that
-            # column is read only by store._score_rank, to settle merges). _LlmScorer
-            # retries an unparseable answer itself precisely because reaching here is final.
+            # WARNING, not INFO: the role misses this run's digest. run() already recorded
+            # its uid via add_seen, so it never returns to new_candidates, and only the
+            # retry queue (_settle_scoring) brings it back to be scored.
             log.warning("could not score %s: %s", job.job_uid, exc)
             return _ScoreAttempt(job, track, None, scorer.method_label)
 
