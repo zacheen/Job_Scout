@@ -216,14 +216,18 @@ tracks:
     min_hits: 1
     keywords:
       - "computer vision"
-      - "image"
-      - "video"
       - "segmentation"
       - "object detection"
       - "perception"
       - "slam"
       - "point cloud"
       - "ocr"
+    # Title-only, because as body substrings these four admitted pharmacy and driver ads
+    # through "close visual acuity" and "done via video conference", and "visual" also hit
+    # "data visualization". Computer Vision sits first, so each such hit also routed the role.
+    word_keywords:
+      - "image"
+      - "video"
       - "3d"
       - "visual"
   # AI/ML before Software Engineering: a role matching both lands in the AI/ML email.
@@ -239,7 +243,6 @@ tracks:
       - "ai engineer"
       - "genai"
       - "generative ai"
-      - "llm"
       - "nlp"
       - "neural network"
       - "mlops"
@@ -249,6 +252,7 @@ tracks:
       - "data science" # NOT covered by "data scientist" (scienti- vs science): "Data Science Intern" titles
     word_keywords:
       - "ai" # whole-word + title-only: substring would hit "email"/"training"
+      - "llm" # a body substring would hit "fulfillment" and "enrollment"
   - name: "Software Engineering"
     llm_threshold: 50
     keyword_threshold: 50
@@ -516,7 +520,11 @@ exclude_description_patterns:
   # PREFIX rather than admitting it to the gap: pinned right after "for" it cannot be a
   # sentence end, where a general gap token could be. The other two patterns below share the
   # blind spot; no live wording has needed it there yet.
-  - '\b(?:not eligible|ineligible) for (?:u\.?s\.? )?(?:[^\s.,;:!?]+ ){0,3}sponsorship'
+  # The lookbehind skips eBay's "Remote roles are not eligible for U.S. ... sponsorship",
+  # which eBay stamps on its hybrid and onsite US reqs too, where it bars nothing. A truly
+  # remote eBay role then passes with no caveat, which is the accepted price. The space
+  # before "remote" keeps "non-remote roles are not eligible", a real bar, matching.
+  - '(?<! remote roles are )\b(?:not eligible|ineligible) for (?:u\.?s\.? )?(?:[^\s.,;:!?]+ ){0,3}sponsorship'
   # "<EMPLOYER> is not offering current or future visa sponsorship" (SAP's wording on every
   # US intern req). No fixed substring reaches it: the words before "sponsorship" vary per
   # employer, and "not offering" isn't a substring of the "not offer sponsorship" rows above.
