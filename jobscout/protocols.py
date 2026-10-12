@@ -48,15 +48,18 @@ class JobStore(Protocol):
     def is_emailed(self, job_uid: str) -> bool: ...
 
     def pending_jds(self) -> list[PendingJd]:
-        """Every row still waiting for its job description, due or not."""
+        """Every row on the retry queue, due or not."""
         ...
 
     def record_jd_failure(self, job_uid: str, now: datetime) -> None:
-        """Count one more retryable JD fetch failure, making the row pending if it was not."""
+        """Count one more retryable failure, a JD fetch or a scoring attempt, making the row
+        pending if it was not. Counts at most once per `now`, so both failing in one run is
+        one attempt."""
         ...
 
     def resolve_jd(self, job_uid: str) -> None:
-        """Stop retrying this row's JD, whether it arrived, failed for good or was given up."""
+        """Stop retrying this row, whether its JD arrived, it was scored, it failed for good or
+        it was given up."""
         ...
 
     def save(self) -> None: ...
@@ -69,7 +72,9 @@ class JobFilter(Protocol):
 class Annotator(Protocol):
     def annotate(self, job: Job) -> Job:
         """Return the job, or a copy with derived presentation fields (e.g. `note`) set.
-        Must not change identity fields (job_uid/url) — dedup keys on them."""
+        Must not change identity fields (job_uid/url) — dedup keys on them.
+        Pipeline also reads a non-empty `note` as "this ad matched the work-auth warn tier"
+        (email_confirmed_work_auth_bars), so set `note` for that reason only."""
         ...
 
 

@@ -39,6 +39,16 @@ _FORM_SUFFIXES = {"jobs.lever.co": "/apply", "jobs.ashbyhq.com": "/application"}
 _UUID_TAIL_RE = re.compile(
     r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
+# SmartRecruiters serves one posting at /{company}/{id} (the listing API's link, which
+# SmartRecruitersFetcher and Simplify carry) and at /{company}/{id}-{title-slug}?oga=true
+# (the posting's applyUrl, which SpeedyApply carries). The slug only follows the title and
+# oga= only opens the apply form, so dropping both never changes which posting opens.
+# A path ending in a posting UUID is skipped, since a UUID whose first group is all digits
+# would match the slug regex and be cut down to that group.
+_SMARTRECRUITERS_HOST = "jobs.smartrecruiters.com"
+_SMARTRECRUITERS_SLUG_RE = re.compile(r"^(/[^/]+/\d+)-[^/]*$")
+_SMARTRECRUITERS_APPLY_PARAM = "oga"
+
 # Workday job page path: [/{locale}]/{site}/job/[{location}/]{Title_ReqId}. One posting
 # varies by source in locale, site case and location segment (WorkdayFetcher builds
 # /en-US/{Site}/job/{location}/..., Simplify links /{site}/job/{location}/...), so only the
@@ -110,11 +120,17 @@ def canon_url(url: str) -> str:
         if _UUID_TAIL_RE.search(head):
             path = head
 
+    smartrecruiters = host.removeprefix("www.") == _SMARTRECRUITERS_HOST
+    if smartrecruiters and not _UUID_TAIL_RE.search(path):
+        path = _SMARTRECRUITERS_SLUG_RE.sub(r"\1", path)
+
     kept = []
     gh_jid = ""
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
         k = key.lower()
         if k.startswith("utm_") or k in _TRACKING_PARAMS:
+            continue
+        if smartrecruiters and k == _SMARTRECRUITERS_APPLY_PARAM:
             continue
         if k == "gh_jid" and value:
             gh_jid = value  # folded into the path below, never kept as a query param

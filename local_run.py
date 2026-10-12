@@ -55,8 +55,8 @@ log = logging.getLogger("local_run")
 
 def _read_checkpoint() -> datetime | None:
     """The digest footer's deletable-window lower bound: the last moment
-    local_data caught up with cloud-emailed roles — a local scan whose ledger
-    was saved (stamped in main()) or a manual cloud->local fold (stamped by
+    local_data caught up with cloud-emailed roles — a local scan that caught
+    up (stamped in main(), see Pipeline.run) or a manual cloud->local fold (stamped by
     merge_seen_jobs.py). Cloud digests at or before it never re-surface in
     local digests, so the footer flags them "review before deleting".
     Missing/corrupt stamp -> None: the footer then claims every earlier digest
@@ -130,17 +130,18 @@ def main() -> None:
     start = datetime.now(DIGEST_TZ)
 
     from jobscout.__main__ import main as run_scan  # same entry as run.py
-    # Only an uncaught exception here skips the push — the handled saved=False
+    # Only an uncaught exception here skips the push — the handled caught_up=False
     # case below still pushes, just without advancing the checkpoint.
     # subject_time=start: the subject timestamp IS the deletable-window end, so
     # "delete every cloud digest older than this subject" needs no footer math.
-    saved = run_scan(digest_footer=_digest_footer(_read_checkpoint(), start),
-                     subject_time=start)
-    if saved:
-        _write_checkpoint(start)  # ledger saved: the next window starts where this scan began
+    caught_up = run_scan(digest_footer=_digest_footer(_read_checkpoint(), start),
+                         subject_time=start)
+    if caught_up:
+        _write_checkpoint(start)  # the next window starts where this scan began
     else:
-        log.warning("digest email failed; ledger unsaved, checkpoint not advanced "
-                    "(unemailed roles retry next run)")
+        log.warning("run did not catch up (the digest email failed, or the scorer failed on "
+                    "new roles); checkpoint not advanced, so the next footer still covers "
+                    "this window and the affected roles retry next run")
 
     _sync_with_remote(settings)  # post-scan: re-align with the remote tip, fold scan finds into cloud_data
     gitledger.commit_and_push(ROOT, _ledger_dirs(settings), "update job ledger (local run)",

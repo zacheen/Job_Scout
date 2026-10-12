@@ -195,13 +195,14 @@ class DescriptionFlagger:
     Companion to PreFilter's exclude_description_terms: that list is for phrasings that
     unambiguously mean "we don't sponsor"; this one is for AMBIGUOUS boilerplate like
     "authorized to work without sponsorship", which usually implies no sponsorship but
-    sometimes just describes the candidate pool — so the role is still emailed, flagged.
+    sometimes just describes the candidate pool — so the role is still emailed, flagged,
+    unless the LLM scorer also reads a bar and email_confirmed_work_auth_bars is off.
     Split into the same two lists as PreFilter's description scan: normalized substrings,
     plus raw regexes for boilerplate whose middle words vary per employer.
     """
 
     def __init__(self, *, warn_description_terms: list[str], warn_description_patterns: list[str],
-                 note: str = "possibly NO employer sponsorship — description says {term!r}"):
+                 note: str = "possible work-authorization bar — description says {term!r}"):
         self._terms = [_normalize_prose(t) for t in warn_description_terms if t.strip()]
         self._warn_description_re = _raw_re(warn_description_patterns)
         self._note = note

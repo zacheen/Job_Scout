@@ -441,7 +441,8 @@ class CsvStore:
             try:
                 entry = PendingJd(self._job_from_row(row), int(row["jd_attempts"]),
                                   datetime.fromisoformat(row["jd_first_failed"]),
-                                  datetime.fromisoformat(row["jd_last_attempt"]))
+                                  datetime.fromisoformat(row["jd_last_attempt"]),
+                                  scored=row["scored"] == "true")
             except ValueError:
                 # Only a hand edit gets here. Resolving leaves the row exactly as the
                 # pre-retry design would have, scored on whatever it had, and warns once
@@ -455,6 +456,10 @@ class CsvStore:
     def record_jd_failure(self, job_uid: str, now: datetime) -> None:
         row = self._by_uid[job_uid]
         stamp = now.isoformat(timespec="seconds")
+        if row["jd_last_attempt"] == stamp:
+            # Already counted this run (one `now` per run): a new role whose JD fetch failed
+            # and whose scoring then failed too is one attempt, not two.
+            return
         row["jd_state"] = _JD_PENDING
         row["jd_attempts"] = str(int(row["jd_attempts"] or 0) + 1)
         row["jd_first_failed"] = row["jd_first_failed"] or stamp
@@ -695,8 +700,9 @@ class CsvStore:
     def _job_from_row(row: dict) -> Job:
         """A Job good enough to enrich, route and score a stored row again. Its uid is the
         row's first source uid and its url the newest one; any uid of the row addresses the
-        same row in set_score and mark_emailed, and description is always empty because a
-        pending row is by definition one whose description never arrived."""
+        same row in set_score and mark_emailed. description is always empty because the
+        ledger keeps none, which for a row the scorer failed on drops a body it had at first
+        sight; Pipeline._due_jd_retries swaps in this run's fetched copy when there is one."""
         uids, urls = _split_multi(row["source_uids"]), _split_multi(row["urls"])
         return Job(job_uid=uids[0] if uids else row["job_key"], company=row["company"],
                    title=row["title"], location=row["location"],

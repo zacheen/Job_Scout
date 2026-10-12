@@ -28,8 +28,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
     """`digest_footer` is appended to the digest email body and `subject_time`
     stamps the subject line; local_run.py passes a safe-to-delete-window summary
     plus its scan-start time (so subject == window end), cloud runs (run.py)
-    leave both unset. Returns whether the run's ledger was saved (see
-    Pipeline.run)."""
+    leave both unset. Returns whether the run caught up (see Pipeline.run)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root = Path(__file__).resolve().parent.parent
     attach_catchup_log(root / CATCHUP_LOG_FILENAME)
@@ -144,6 +143,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         suppressed_groups={leveler.senior_group},
         subject_time=subject_time,
         jd_retry=settings.jd_retry_policy,
+        email_confirmed_work_auth_bars=settings.email_confirmed_work_auth_bars,
     )
     return pipeline.run()
 

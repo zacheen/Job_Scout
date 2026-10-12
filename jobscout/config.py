@@ -132,6 +132,7 @@ class Settings:
     exempt_role_phrases: list[str]
     warn_description_terms: list[str]
     warn_description_patterns: list[str]
+    email_confirmed_work_auth_bars: bool
     skill_keywords: list[str]
     title_keywords: list[str]
     level_title_terms: list[str]
@@ -208,6 +209,9 @@ class Settings:
             exempt_role_phrases=cfg.get("exempt_role_phrases", []),
             warn_description_terms=cfg.get("warn_description_terms", []),
             warn_description_patterns=cfg.get("warn_description_patterns", []),
+            # Missing key keeps the behaviour from before the key existed.
+            email_confirmed_work_auth_bars=cls._strict_bool(
+                cfg, "email_confirmed_work_auth_bars", True),
             skill_keywords=[k.lower() for k in cfg.get("skill_keywords", [])],
             title_keywords=[k.lower() for k in cfg.get("title_keywords", [])],
             level_title_terms=[k.lower() for k in cfg.get("level_title_terms", [])],
@@ -243,6 +247,15 @@ class Settings:
             gmail_app_password=os.getenv("GMAIL_APP_PASSWORD", ""),
             mail_to=os.getenv("MAIL_TO", ""),
         )
+
+    @staticmethod
+    def _strict_bool(cfg: dict, key: str, default: bool) -> bool:
+        """A YAML boolean or a raise. `_as_bool` reads an empty value or a typo as False,
+        which is wrong for a key whose False is the setting that withholds roles."""
+        value = cfg.get(key, default)
+        if not isinstance(value, bool):
+            raise ValueError(f"config.yaml {key!r} must be true or false, got {value!r}")
+        return value
 
     @staticmethod
     def _to_company(entry: dict) -> Company:

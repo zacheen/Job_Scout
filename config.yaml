@@ -453,7 +453,7 @@ exclude_word_terms:
 # roles can't be caught here (the LLM sees the same text, so it couldn't either). EXCEPTION:
 # a NEW PreFilter survivor whose JD URL JdUrlEnricher can resolve gets re-checked against
 # these terms with its real description (see pipeline._enrich_and_refilter) — that second
-# pass is what makes the citizenship/clearance rows below reach defense-prime Workday JDs.
+# pass is what makes the citizenship rows below reach defense-prime Workday JDs.
 # Substring redundancy is deliberate: "does not offer VISA sponsorship"
 # does NOT contain "not offer sponsorship", so the visa/immigration middles get their own rows.
 exclude_description_terms:
@@ -482,16 +482,15 @@ exclude_description_terms:
   # here are now a single row in exclude_description_patterns below.
   # "(not eligible|ineligible) for … sponsorship" moved to exclude_description_patterns
   # below (needs a regex wildcard for employers naming themselves mid-phrase).
-  # Citizenship / clearance requirements, stated as a hard qualification rather than a preference
-  - "security clearance"
-  - "ts/sci"            # postings that write "TS/SCI clearance" without the word "security"
-  - "secret clearance"  # the plain-Secret tier, written without "security" ("hold a position of SECRET clearance level")
+  # Citizenship requirements, stated as a hard qualification rather than a preference.
+  # The "security clearance", "ts/sci" and "secret clearance" rows that used to sit here are
+  # now in warn_description_terms below.
   # The "be a us citizen" / "be a u.s. citizen" spellings that used to sit here are now a
   # single row in exclude_description_patterns below, which also admits an adjective.
   # "U.S. person" is the export-control term of art for citizen-or-permanent-resident, and
   # Motorola Solutions states the bar only that way ("must be a U.S. person (U.S. Citizen, or
-  # U.S. Permanent Resident) due to clients under U.S. federal contracts") — the rows above
-  # all need the word "citizen" and so miss it.
+  # U.S. Permanent Resident) due to clients under U.S. federal contracts") — the citizenship
+  # patterns below all need the word "citizen" and so miss it.
   - "be a us person"
   - "be a u.s. person"
   # Argonne writes "must provide proof of U.S. citizenship, which is required to comply with
@@ -571,7 +570,14 @@ exclude_description_patterns:
   # Anchored on the requirement's VALUE, never on RTX's section header "U.S. Citizen, U.S.
   # Person, or Immigration Status Requirements:" -- that header is stamped into EVERY RTX
   # posting, including ones whose value is "None", so matching it would drop the whole board.
-  - 'u\.?s\.? citizenship (?:is )?(?:a )?(?:required|requirement)'
+  # Also matches "citizen" for "citizenship" (Anduril, "U.S. citizen required"), a comma before
+  # "required" (Zscaler, "U.S. citizenship, required") and "status" (JHU APL, "U.S. citizenship
+  # status is required"). "status" only before "is", since "citizenship status requirements" is
+  # header-shaped, per the RTX note above.
+  # Both ends stay adjacent. "U.S." right before keeps out "citizen onboarding" and "there is no
+  # citizenship requirement", and no gap before "required" keeps out SpaceX's list that admits
+  # permanent residents and EEO lines ending in "consistent with legal requirements".
+  - 'u\.?s\.? citizen(?:ship)?,? (?:status (?=is ))?(?:is )?(?:a )?(?:required|requirement)'
   - 'only u\.?s\.? citizens'
   # Peraton states the bar as a requirements-list VALUE ("Required Qualifications: U.S.
   # Citizenship."), where the pattern above finds no "required" AFTER the word citizenship.
@@ -590,9 +596,9 @@ exclude_description_patterns:
   - '\bunable to [^.!?]{0,40}requir(?:e|es|ed) (?:[^\s.,;:!?]+ ){0,2}sponsorship'
 
 # AMBIGUOUS eligibility wording: usually restrictive, but NOT a guaranteed disqualifier — so a
-# match does NOT drop the job; it is still scored and emailed with a "possibly NO employer sponsorship
-# — description says <term>" caveat line. Same matching semantics as exclude_description_terms
-# above. Two families:
+# match does NOT drop the job; it is still scored and emailed with a "possible work-authorization
+# bar — description says <term>" caveat line (see email_confirmed_work_auth_bars below). Same
+# matching semantics as exclude_description_terms above. Three families:
 #  (1) sponsorship phrasing that describes the CANDIDATE ("must not require sponsorship",
 #      "authorized to work without sponsorship") rather than stating outright "we don't sponsor";
 #  (2) ITAR / export-control mentions (SpaceX, Anduril, defense primes): often — but NOT always —
@@ -600,6 +606,7 @@ exclude_description_patterns:
 #      export license, may still hire without that status. NOTE: bare "itar" is intentionally omitted —
 #      as a substring it hits "military" (mil-ITAR-y), common in these very defense JDs; anchor on
 #      the surrounding phrases instead.
+#  (3) security clearance mentions, which a bare term cannot sort into requirement or preference.
 warn_description_terms:
   # The "not require sponsorship" row that used to sit here is now a single row in
   # warn_description_patterns below.
@@ -617,8 +624,17 @@ warn_description_terms:
   # permanent residents "may have to go through an export licensing review process". Warn,
   # not exclude, precisely because the employer wrote "may" — a granted licence still hires.
   - "export licensing"
+  # Family (3). Warn, not exclude: a named clearance can be only preferred. Palantir new-grad
+  # and intern roles list "active US security clearance, or eligibility and willingness to
+  # obtain" under the nice-to-have heading "What We Value", and a Pivotal computer-vision role's
+  # preferred qualifications ask only for familiarity with clearance processes. The same words
+  # under required qualifications are a hard bar, so the reader judges each hit. An ad that also
+  # states the citizenship requirement outright is still dropped by the exclude citizenship rows.
+  - "security clearance"
+  - "ts/sci"            # postings that write "TS/SCI clearance" without the word "security"
+  - "secret clearance"  # the plain-Secret tier, written without "security" ("hold a position of SECRET clearance level")
 
-# Raw-regex counterpart of warn_description_terms: same haystack, same annotate-never-drop
+# Raw-regex counterpart of warn_description_terms: same haystack, same annotate-not-drop
 # outcome, for wildcard cases no fixed substring reaches. The caveat line quotes the TEXT that
 # matched rather than the fragment, so a regex never reaches the digest.
 warn_description_patterns:
@@ -647,7 +663,7 @@ warn_description_patterns:
   # commas fall inside the span that must match, so only a sentence end, not a comma, stops it.
   - '\bnot\b[^.!?]{0,80}\b(?:requir(?:e|es|ed)|need(?:s|ed)?)\b[^.!?]{0,60}sponsorship'
   # Federal "Public Trust" suitability, which in practice gates on citizenship but is not a
-  # security clearance, so the exclude rows miss it (Guidehouse: "Clearance Required: Ability
+  # security clearance, so the clearance rows above miss it (Guidehouse: "Clearance Required: Ability
   # to Obtain Public Trust"). Warn, not exclude, for the same reason as ITAR above: usually a
   # US-person requirement, not reliably one. The leading verb keeps this off the unrelated
   # "build public trust in AI" sense that turns up in policy and ethics postings.
@@ -661,6 +677,21 @@ warn_description_patterns:
   # anchor keeps out clauses such as "not be able to employ candidates who have not passed a
   # background check".
   - '\bnot be able to (?:employ|hire) (?:[^\s.,;:!?]+ ){0,4}who have (?:[^\s.,;:!?]+ ){0,3}work authorization'
+
+# Whether a role that clears its track threshold is still emailed when BOTH readers say its ad
+# bars the candidate, meaning a warn term above matched AND the LLM scorer returned
+# work_auth_barrier. false withholds it from the digest. true emails it with both caveat lines.
+# On because the warn tier is a keyword list whose every hit the reader judges by hand, so no
+# LLM verdict should decide whether such a role is emailed (the scorer sometimes flags an ad
+# that says nothing about eligibility).
+# WARNING: with the clearance rows in the warn tier, setting this back to false lets the scorer
+# alone withhold any role whose ad mentions a clearance, even a preferred one, because the warn
+# half of the agreement is always met. A withheld role is already recorded as seen, so it never
+# returns as a candidate, even if the flag is set to true again. The INFO line naming it is the
+# only record of why, since work_auth_barrier is not persisted.
+# KeywordScorer never sets work_auth_barrier, so a run on the keyword fallback, such as a cloud
+# run with no OPENAI_API_KEY, withholds nothing.
+email_confirmed_work_auth_bars: true
 
 # The candidate's real technical skills, used ONLY by the keyword-only scorer (the
 # fallback when no OpenAI key / GPT CLI is available — e.g. cloud runs). Scores DISTINCT
