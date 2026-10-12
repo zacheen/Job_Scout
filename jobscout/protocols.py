@@ -69,7 +69,9 @@ class JobFilter(Protocol):
 class Annotator(Protocol):
     def annotate(self, job: Job) -> Job:
         """Return the job, or a copy with derived presentation fields (e.g. `note`) set.
-        Must not change identity fields (job_uid/url) — dedup keys on them."""
+        Must not change identity fields (job_uid/url) — dedup keys on them.
+        Pipeline also reads a non-empty `note` as "this ad matched the work-auth warn tier"
+        (email_confirmed_work_auth_bars), so set `note` for that reason only."""
         ...
 
 

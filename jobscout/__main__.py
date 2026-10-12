@@ -144,6 +144,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         suppressed_groups={leveler.senior_group},
         subject_time=subject_time,
         jd_retry=settings.jd_retry_policy,
+        email_confirmed_work_auth_bars=settings.email_confirmed_work_auth_bars,
     )
     return pipeline.run()
 

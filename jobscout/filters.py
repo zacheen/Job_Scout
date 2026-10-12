@@ -195,7 +195,8 @@ class DescriptionFlagger:
     Companion to PreFilter's exclude_description_terms: that list is for phrasings that
     unambiguously mean "we don't sponsor"; this one is for AMBIGUOUS boilerplate like
     "authorized to work without sponsorship", which usually implies no sponsorship but
-    sometimes just describes the candidate pool — so the role is still emailed, flagged.
+    sometimes just describes the candidate pool — so the role is still emailed, flagged,
+    unless the LLM scorer also reads a bar and email_confirmed_work_auth_bars is off.
     Split into the same two lists as PreFilter's description scan: normalized substrings,
     plus raw regexes for boilerplate whose middle words vary per employer.
     """

@@ -47,6 +47,7 @@ class Pipeline:
         suppressed_groups: Collection[str] = (),
         subject_time: datetime | None = None,
         jd_retry: JdRetryPolicy | None = None,
+        email_confirmed_work_auth_bars: bool = True,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
         self._score_workers = self._require_positive("score_workers", score_workers)
@@ -80,6 +81,7 @@ class Pipeline:
         # None = no JD retry: a retryable JD failure is neither recorded nor retried, which
         # is exactly the behaviour from before the retry existed.
         self._jd_retry = jd_retry
+        self._email_confirmed_work_auth_bars = email_confirmed_work_auth_bars
         self._clock = clock
 
     @staticmethod
@@ -155,10 +157,11 @@ class Pipeline:
 
         by_track, unscored = self._score_by_track(scorable)
         self._settle_scored_retries(scorable, unscored, retries, now)
-        by_track = self._unemailed(by_track, retries)
+        by_track = self._withhold_confirmed_bars(self._unemailed(by_track, retries))
         if not by_track:
             self._store.save()
-            log.info("%d scorable (of %d new), but none passed a track threshold",
+            log.info("%d scorable (of %d new), but none left to email after the track "
+                     "thresholds",
                      len(scorable), len(new_candidates))
             return True
 
@@ -490,6 +493,32 @@ class Pipeline:
                 if attempt.score.experience_score > attempt.track.threshold_for(attempt.score.scale):
                     by_track.setdefault(attempt.track.name, []).append((attempt.job, attempt.score))
         return by_track, unscored
+
+    def _withhold_confirmed_bars(self, by_track: dict[str, list[tuple[Job, Score]]]
+                                 ) -> dict[str, list[tuple[Job, Score]]]:
+        """Drop passing roles that `_confirmed_bar` matches, unless
+        email_confirmed_work_auth_bars is on. `_score_by_track` has already written their
+        scores to the ledger, so only the email is skipped."""
+        if self._email_confirmed_work_auth_bars:
+            return by_track
+        kept: dict[str, list[tuple[Job, Score]]] = {}
+        for track, items in by_track.items():
+            for job, score in items:
+                if not self._confirmed_bar(job, score):
+                    kept.setdefault(track, []).append((job, score))
+                    continue
+                # INFO because this line is the only record of why the row went unemailed:
+                # work_auth_barrier is not persisted.
+                log.info("withheld at %d, warn tier and scorer both read a work-auth bar: "
+                         "%s (%s)", score.experience_score, job.title, job.url)
+        return kept
+
+    @staticmethod
+    def _confirmed_bar(job: Job, score: Score) -> bool:
+        """Both readers say the ad bars the candidate. `Job.note` is set only by the warn
+        tier (DescriptionFlagger) and `work_auth_barrier` only by an LLM scorer, so a
+        keyword-scored role never qualifies."""
+        return bool(job.note) and score.work_auth_barrier
 
     def _unemailed(self, by_track: dict[str, list[tuple[Job, Score]]],
                    retries: Collection[str]) -> dict[str, list[tuple[Job, Score]]]:

@@ -28,12 +28,13 @@ class Job:
     description: str
     department: str = ""
     date_posted: str = ""
-    # Pipeline-derived caveat shown in the email (e.g. "possibly no employer sponsorship");
-    # never persisted (CsvStore's fixed _FIELDS ignore it).
+    # Caveat set by the Annotator and shown in the email (e.g. "possibly no employer
+    # sponsorship"); never persisted (CsvStore's fixed _FIELDS ignore it). Not display-only,
+    # since Pipeline reads a non-empty note as a work-auth warn match (`_confirmed_bar`).
     note: str = ""
     # Readable stand-in for `location`, populated only by WorkdayFetcher's multi-site
-    # fallback when the raw value is a URL slug. Same display-only contract as `note`
-    # (not persisted); read via `display_location`, never directly.
+    # fallback when the raw value is a URL slug. Display-only and, like `note`, not
+    # persisted; read via `display_location`, never directly.
     location_display: str = ""
 
     def __post_init__(self):
@@ -237,8 +238,9 @@ class Score:
     title_match_counts: tuple[tuple[str, int], ...] | None = None
     # The LLM read a hard work-authorization bar in the description (sponsorship refused,
     # US citizenship, security clearance). A BACKSTOP for phrasings PreFilter's
-    # exclude_description_terms miss, so it only annotates the digest and deliberately
-    # does NOT move experience_score — folding it in would make "strong fit but
+    # exclude_description_terms miss, so on its own it only annotates the digest (Pipeline
+    # withholds only when `Job.note` agrees, see email_confirmed_work_auth_bars) and it
+    # deliberately does NOT move experience_score — folding it in makes "strong fit but
     # ineligible" indistinguishable from "bad fit". Unlike the fields above it therefore
     # explains nothing about how experience_score was reached; it rides along on the same
     # LLM call as an eligibility caveat. Always False from KeywordScorer, which matches

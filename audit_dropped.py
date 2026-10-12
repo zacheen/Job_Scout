@@ -5,7 +5,8 @@ the ledger shards — including PreFilter rejects — so this script only projec
 existing CSVs (default cloud_data/, the cloud-committed record) into a plain-text
 file, one role per line, split into two sections:
 
-  scored below threshold  -> scored=true,  emailed=false  (keyword/LLM gate said no)
+  scored below threshold  -> scored=true,  emailed=false  (keyword/LLM gate said no, or
+                             it passed but email_confirmed_work_auth_bars withheld it)
   dropped before scoring  -> scored=false, emailed=false  (prefiltered, no track hit,
                              URL-deduped, senior-suppressed, or seed-only backlog)
 
