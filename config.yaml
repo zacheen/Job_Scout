@@ -571,7 +571,14 @@ exclude_description_patterns:
   # Anchored on the requirement's VALUE, never on RTX's section header "U.S. Citizen, U.S.
   # Person, or Immigration Status Requirements:" -- that header is stamped into EVERY RTX
   # posting, including ones whose value is "None", so matching it would drop the whole board.
-  - 'u\.?s\.? citizenship (?:is )?(?:a )?(?:required|requirement)'
+  # Also matches "citizen" for "citizenship" (Anduril, "U.S. citizen required"), a comma before
+  # "required" (Zscaler, "U.S. citizenship, required") and "status" (JHU APL, "U.S. citizenship
+  # status is required"). "status" only before "is", since "citizenship status requirements" is
+  # header-shaped, per the RTX note above.
+  # Both ends stay adjacent. "U.S." right before keeps out "citizen onboarding" and "there is no
+  # citizenship requirement", and no gap before "required" keeps out SpaceX's list that admits
+  # permanent residents and EEO lines ending in "consistent with legal requirements".
+  - 'u\.?s\.? citizen(?:ship)?,? (?:status (?=is ))?(?:is )?(?:a )?(?:required|requirement)'
   - 'only u\.?s\.? citizens'
   # Peraton states the bar as a requirements-list VALUE ("Required Qualifications: U.S.
   # Citizenship."), where the pattern above finds no "required" AFTER the word citizenship.
