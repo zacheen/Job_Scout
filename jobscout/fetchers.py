@@ -17,7 +17,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import NamedTuple
-from urllib.parse import parse_qsl, urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 
 import requests
 
@@ -729,11 +729,16 @@ class LeverFetcher(AtsFetcher):
     def host(self) -> str:
         return self._REGION_HOSTS[self._region]
 
+    @classmethod
+    def postings_api_url(cls, region: str, org: str) -> str:
+        """The postings collection. Appending `/{posting id}` reads one posting."""
+        return f"https://{cls._REGION_HOSTS[region]}/v0/postings/{org}"
+
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         org = self._param("org")
         # Lever returns a bare JSON array (no wrapper object, unlike other ATSes).
         data = self._http.get_json(
-            f"https://{self.host}/v0/postings/{org}", params={"mode": "json"}
+            self.postings_api_url(self._region, org), params={"mode": "json"}
         )
         jobs = []
         for item in self._listing(data):
@@ -745,7 +750,7 @@ class LeverFetcher(AtsFetcher):
                     title=item.get("text", ""),
                     location=categories.get("location", ""),
                     url=item.get("hostedUrl", ""),
-                    description=self._body(item),
+                    description=self.posting_text(item),
                     department=categories.get("team", ""),
                     date_posted=str(item.get("createdAt", "")),
                 )
@@ -753,9 +758,11 @@ class LeverFetcher(AtsFetcher):
         return jobs
 
     @staticmethod
-    def _body(item: dict) -> str:
-        """Full posting text. `descriptionPlain` is only the opening blurb, but eligibility
-        bars can sit in `lists` (headed sections) or `additional` (closing notes). A Shield AI
+    def posting_text(item: dict) -> str:
+        """Full posting text, public so LeverJdSource reads a posting the same way.
+
+        `descriptionPlain` is only the opening blurb, but eligibility bars can sit in
+        `lists` (headed sections) or `additional` (closing notes). A Shield AI
         posting stated "U.S. citizenship is required" only under "Required qualifications",
         which `descriptionPlain` alone hides from PreFilter and the scorer. List headings are
         kept so the scorer can tell a required qualification from a preferred one."""
@@ -907,10 +914,26 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
     def host(self) -> str:
         return self._param("host")
 
-    def _extract_description(self, item: dict) -> str:
+    @classmethod
+    def _extract_description(cls, item: dict) -> str:
         """One plain-text description out of an item's _DESC_FIELDS (listing and detail
         payloads share the field names)."""
-        return strip_html(" ".join(s for f in self._DESC_FIELDS if (s := item.get(f))))
+        return strip_html(" ".join(s for f in cls._DESC_FIELDS if (s := item.get(f))))
+
+    @staticmethod
+    def detail_api_url(host: str, site: str, req_id: str) -> str:
+        """The per-req detail endpoint, `recruitingCEJobRequisitionDetails?finder=ById`."""
+        query = urlencode({"onlyData": "true", "expand": "all",
+                           "finder": f'ById;siteNumber={site},Id="{req_id}"'})
+        return (f"https://{host}/hcmRestApi/resources/latest/"
+                f"recruitingCEJobRequisitionDetails?{query}")
+
+    @classmethod
+    def detail_description(cls, data: dict) -> str:
+        """The description inside a detail payload, or "" for a delisted req."""
+        # A just-delisted req can come back as items=[] or items=[null].
+        item = (data.get("items") or [{}])[0] or {}
+        return cls._extract_description(item)
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         host, site = self._param("host"), self._param("site")
@@ -949,17 +972,9 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
             return job
         req_id = job.job_uid.removeprefix(self.own_uid_prefix)
         host, site = self._param("host"), self._param("site")
-        url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails"
         try:
-            data = self._http.get_json(
-                url,
-                params={"onlyData": "true", "expand": "all",
-                        "finder": f'ById;siteNumber={site},Id="{req_id}"'},
-            )
-            # A just-delisted req can come back as items=[] or items=[null]; normalize
-            # both to {} so extraction below stays inside this fail-open block.
-            item = (data.get("items") or [{}])[0] or {}
-            description = self._extract_description(item)
+            data = self._http.get_json(self.detail_api_url(host, site, req_id))
+            description = self.detail_description(data)
         except Exception as exc:  # fail open — the blurb-only job is still usable
             log.warning("%s: detail fetch failed for %s: %s", self.ats_name, job.job_uid, exc)
             return job
@@ -969,8 +984,9 @@ class OracleFetcher(EarlyStopPaginatedFetcher):
 class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
     """SmartRecruiters public postings API. `companies/{id}/postings` returns content[]
     ordered by releasedDate descending (verified across pages), so the seen-based
-    early-stop applies. The listing carries no job-ad body, so roles match on title
-    only — a per-posting detail fetch across 500-5000 roles is too costly. `company`
+    early-stop applies. The listing carries no job-ad body. A per-posting detail fetch
+    across 500-5000 roles is too costly here, so SmartRecruitersJdSource backfills it for
+    new PreFilter survivors only. `company`
     is the SmartRecruiters companyId (jobs.smartrecruiters.com/{company})."""
 
     ats_name = "smartrecruiters"
@@ -1010,7 +1026,7 @@ class SmartRecruitersFetcher(EarlyStopPaginatedFetcher):
                 title=item.get("name", ""),
                 location=self._location(item.get("location") or {}),
                 url=self.posting_url(company_id, item["id"]),
-                description="",  # listing omits the job-ad body; matched on title only
+                description="",  # no job-ad body in the listing; SmartRecruitersJdSource fills it
                 department=self._label(item.get("department")) or self._label(item.get("function")),
                 date_posted=item.get("releasedDate", ""),
             )
@@ -1501,14 +1517,18 @@ class AmazonFetcher(EarlyStopPaginatedFetcher):
     def host(self) -> str:
         return "www.amazon.jobs"
 
-    def _extract_description(self, item: dict) -> str:
-        return "\n".join(text for f in self._BODY_FIELDS
+    SEARCH_API = "https://www.amazon.jobs/en/search.json"
+
+    @classmethod
+    def posting_text(cls, item: dict) -> str:
+        """Body of one search.json job, public so AmazonJdSource reads a posting the same way."""
+        return "\n".join(text for f in cls._BODY_FIELDS
                          if (text := strip_html(item.get(f) or "")))
 
     def _fetch_page(self, index: int) -> tuple[list[Job], int | None]:
         query = self._company.params.get("query", "")
         data = self._http.get_json(
-            "https://www.amazon.jobs/en/search.json",
+            self.SEARCH_API,
             params={"base_query": query, "result_limit": self._PAGE,
                     "offset": index * self._PAGE, "sort": "recent",
                     "normalized_country_code[]": "USA"},
@@ -1520,7 +1540,7 @@ class AmazonFetcher(EarlyStopPaginatedFetcher):
                 title=item.get("title", ""),
                 location=item.get("location", ""),
                 url="https://www.amazon.jobs" + (item.get("job_path") or ""),
-                description=self._extract_description(item),
+                description=self.posting_text(item),
                 department=item.get("job_category", ""),
                 date_posted=item.get("posted_date", ""),
             )
@@ -1847,7 +1867,7 @@ class RipplingFetcher(AtsFetcher):
     one anonymous GET returns the whole board as a BARE array (like Lever). The API emits one
     row PER LOCATION with the same uuid, so rows are merged here (locations joined) — without
     the merge one posting would become several ledger entries. No dates and no descriptions
-    -> single-shot board, roles match on title only."""
+    -> single-shot board, and RipplingJdSource backfills the body for new survivors."""
 
     ats_name = "rippling"
     empty_is_confirmed = True
@@ -1856,11 +1876,14 @@ class RipplingFetcher(AtsFetcher):
     def host(self) -> str:
         return "api.rippling.com"
 
+    @staticmethod
+    def jobs_api_url(board: str) -> str:
+        """The board's job collection. Appending `/{uuid}` reads one posting with its body."""
+        return f"https://api.rippling.com/platform/api/ats/v1/board/{board}/jobs"
+
     def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
         board = self._param("board")
-        data = self._http.get_json(
-            f"https://api.rippling.com/platform/api/ats/v1/board/{board}/jobs"
-        )
+        data = self._http.get_json(self.jobs_api_url(board))
         merged = self._merge_by_uuid(data)
         return [
             Job(
@@ -3550,7 +3573,12 @@ class JdSource(ABC):
             # Expected, not exceptional: a delisted or re-posted requisition 403s/404s on
             # its old URL, and the caller's fallback (title-only matching) is unchanged.
             log.info("%s: JD fetch failed for %s: %s", type(self).__name__, jd_url, exc)
-            return JdFetch("", retryable=_jd_retryable(exc))
+            return JdFetch("", retryable=self._retryable(exc))
+
+    def _retryable(self, exc: Exception) -> bool:
+        """Is this failure worth another try on a later run? Runs inside `fetch`'s except,
+        so an override must never raise."""
+        return _jd_retryable(exc)
 
 
 class WorkdayJdSource(JdSource):
@@ -3945,6 +3973,200 @@ class GreenhouseJdSource(JdSource):
         return payload.get("content", "") if isinstance(payload, dict) else ""
 
 
+class LeverJdSource(JdSource):
+    """Lever per-posting detail from the postings API LeverFetcher reads, one posting at a
+    time. Only aggregator rows reach it, since LeverFetcher's listing already carries the
+    body. The text is assembled by LeverFetcher.posting_text, so both routes see the same
+    `lists` sections where Lever ads state their eligibility bars.
+
+    Aggregators link the apply form (/{id}/apply) as often as the ad, and jobs.eu.lever.co
+    postings resolve only on the EU API host.
+    """
+
+    _JD_URL_RE = re.compile(
+        rf"^https://jobs\.(?P<eu>eu\.)?lever\.co/(?P<org>[^/?#]+)/(?P<id>{_UUID_RE})"
+        r"(?:/apply)?/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        region = "eu" if match.group("eu") else "us"
+        api = LeverFetcher.postings_api_url(region, match.group("org"))
+        return f"{api}/{match.group('id')}?mode=json"
+
+    def _body(self, payload) -> str:
+        return LeverFetcher.posting_text(payload) if isinstance(payload, dict) else ""
+
+
+class OracleJdSource(JdSource):
+    """Oracle Recruiting (Fusion HCM) per-req detail, the endpoint OracleFetcher.enrich
+    reads, addressed from the Candidate Experience link alone. Host and siteNumber both sit
+    in that link, so no companies.yaml entry is needed.
+
+    Covers the tenants with no native fetcher, whose links reach the scorer otherwise on the
+    title alone. A native Oracle row is already backfilled by OracleFetcher.enrich first.
+    """
+
+    _JD_URL_RE = re.compile(
+        r"^https://(?P<host>[\w.-]+\.oraclecloud\.com)/hcmUI/CandidateExperience/[\w-]+/"
+        r"sites/(?P<site>[^/?#]+)/job/(?P<id>\d+)/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        return OracleFetcher.detail_api_url(match.group("host"), match.group("site"),
+                                            match.group("id"))
+
+    def _body(self, payload) -> str:
+        return OracleFetcher.detail_description(payload) if isinstance(payload, dict) else ""
+
+
+class SmartRecruitersJdSource(JdSource):
+    """SmartRecruiters per-posting detail (`companies/{id}/postings/{posting}`).
+
+    Reaches native rows as well as aggregator ones, because SmartRecruitersFetcher's listing
+    carries no body. Aggregator links may append a title slug to the numeric id
+    (/744000136210390-bios-software-engineer), and the posting segment may also be a UUID,
+    which the API accepts as well.
+
+    `companyDescription` is left out. It is the same employer blurb on every posting, and
+    it would spend the scorer's max_description_chars budget ahead of the qualifications.
+    """
+
+    _SECTIONS = ("jobDescription", "qualifications", "additionalInformation")
+    _JD_URL_RE = re.compile(
+        rf"^https://{re.escape(SmartRecruitersFetcher.PUBLIC_HOST)}/(?P<company>[^/?#]+)/"
+        rf"(?P<id>\d+|{_UUID_RE})(?:-[^/?#]*)?/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        return (f"{SmartRecruitersFetcher.postings_api_url(match.group('company'))}"
+                f"/{match.group('id')}")
+
+    def _body(self, payload) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        sections = (payload.get("jobAd") or {}).get("sections") or {}
+        return "\n".join(text for name in self._SECTIONS
+                         if (text := (sections.get(name) or {}).get("text") or ""))
+
+
+class AmazonJdSource(JdSource):
+    """amazon.jobs per-posting body, reached through the search.json AmazonFetcher pages.
+
+    amazon.jobs has no per-job JSON endpoint (/en/jobs/{id}.json redirects to the HTML page,
+    which carries no ld+json), but a search whose base_query is the job id returns that job.
+    `_payload` keeps only the result whose id_icims matches, so a search that matched the
+    number as free text in another posting cannot hand over the wrong body.
+    """
+
+    _JD_URL_RE = re.compile(
+        r"^https://(?:www\.)?amazon\.jobs/(?:[a-z]{2}(?:-[a-z]{2})?/)?jobs/(?P<id>\d+)"
+        r"(?:/[^?#]*)?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        query = urlencode({"base_query": match.group("id"), "result_limit": 10})
+        return f"{AmazonFetcher.SEARCH_API}?{query}"
+
+    def _payload(self, api: str) -> dict:
+        """The one search result whose id_icims is the requested id, or {}."""
+        job_id = dict(parse_qsl(urlparse(api).query)).get("base_query", "")
+        data = self._http.get_json(api)
+        jobs = (data.get("jobs") if isinstance(data, dict) else None) or []
+        return next((j for j in jobs if str(j.get("id_icims")) == job_id), {})
+
+    def _body(self, payload) -> str:
+        return AmazonFetcher.posting_text(payload) if isinstance(payload, dict) else ""
+
+
+class WorkableJdSource(JdSource):
+    """Workable per-posting detail (`apply.workable.com/api/v2/accounts/{account}/jobs/
+    {shortcode}`). Only aggregator rows reach it, since WorkableFetcher's v1 widget listing
+    already carries the body. The page itself is client-rendered with no ld+json.
+
+    The ad is split three ways and the eligibility wording usually sits in `requirements`,
+    so all three are joined.
+    """
+
+    _FIELDS = ("description", "requirements", "benefits")
+    _JD_URL_RE = re.compile(
+        r"^https://apply\.workable\.com/(?P<account>[^/?#]+)/j/(?P<code>[A-Za-z0-9]+)"
+        r"(?:/apply)?/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        return (f"https://apply.workable.com/api/v2/accounts/{match.group('account')}"
+                f"/jobs/{match.group('code')}")
+
+    def _body(self, payload) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        return "\n".join(text for f in self._FIELDS if (text := payload.get(f) or ""))
+
+
+class RipplingJdSource(JdSource):
+    """Rippling per-posting detail (the board API plus `/{uuid}`), whose `description`
+    splits into `company` and `role`. Only `role` is kept, for the same budget reason as
+    SmartRecruitersJdSource's employer blurb.
+
+    Reaches native rows as well as aggregator ones, because RipplingFetcher's board listing
+    carries no body. A delisted posting 404s here, while its ats.rippling.com page answers
+    200 by redirecting to the board root.
+    """
+
+    _JD_URL_RE = re.compile(
+        rf"^https://ats\.rippling\.com/(?P<board>[^/?#]+)/jobs/(?P<uuid>{_UUID_RE})"
+        r"/?(?:\?[^#]*)?$",
+        re.IGNORECASE)
+
+    def detail_url(self, jd_url: str) -> str:
+        match = self._JD_URL_RE.match((jd_url or "").strip())
+        if match is None:
+            return ""
+        return f"{RipplingFetcher.jobs_api_url(match.group('board'))}/{match.group('uuid')}"
+
+    def _body(self, payload) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        return (payload.get("description") or {}).get("role") or ""
+
+
+class AnyHostLdJsonJdSource(LdJsonJdSource):
+    """Last resort for a JD URL no dedicated source recognizes: fetch the page and read its
+    JobPosting ld+json, which many boards server-render for search engines.
+
+    A 2026-10-13 probe of recent links per host found a usable block on Lever, applytojob,
+    Eightfold, Pinpoint, Breezy and Paylocity pages for most live postings, and none on Oracle,
+    SmartRecruiters, Workable, Amazon or Rippling pages, which is why those have dedicated
+    sources ahead of this one.
+
+    Every failure is final. An unknown host that 403s is far more often a bot wall (Tesla,
+    Gusto) than throttling, and with no host to tell the two apart, retrying would only
+    spend a request per run until JdRetryPolicy gives up.
+    """
+
+    def detail_url(self, jd_url: str) -> str:
+        jd_url = (jd_url or "").strip()
+        return jd_url if urlparse(jd_url).scheme in ("http", "https") else ""
+
+    def _retryable(self, exc: Exception) -> bool:
+        return False
+
+
 class JdUrlEnricher:
     """Fills a still-empty description by fetching the job's own JD URL, dispatching on
     that URL instead of on which fetcher produced the job. Satisfies the `Enricher`
@@ -3971,19 +4193,30 @@ class JdUrlEnricher:
     PreFilter survivor — bounded by the same "new survivors only" rule as before.
     """
 
-    def __init__(self, sources: list[JdSource], description_policy: DescriptionPolicy):
+    def __init__(self, sources: list[JdSource], description_policy: DescriptionPolicy,
+                 fallback: JdSource | None = None):
         self._sources = tuple(sources)
         self._policy = description_policy
+        # Tried only for a URL none of `sources` claims. A claimed URL that failed is not
+        # retried here, because a dedicated source exists where the page markup is no use
+        # (Workday and Oracle pages are JS shells), so that request would be wasted.
+        self._fallback = fallback
 
     def enrich(self, job: Job) -> EnrichResult:
         if self._policy.is_usable(job.description) or not job.url:
             return EnrichResult(job)
-        retryable = False
+        retryable = claimed = False
         for source in self._sources:
+            claimed = claimed or bool(source.detail_url(job.url))
             fetched = source.fetch(job.url)
             if fetched.text:
                 return EnrichResult(replace(job, description=fetched.text))
             retryable = retryable or fetched.retryable
+        if not claimed and self._fallback is not None:
+            fetched = self._fallback.fetch(job.url)
+            if fetched.text:
+                return EnrichResult(replace(job, description=fetched.text))
+            retryable = fetched.retryable
         return EnrichResult(job, jd_pending=retryable)
 
 
