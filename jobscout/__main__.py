@@ -12,10 +12,12 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
 
 from .config import CATCHUP_LOG_FILENAME, SOURCE_STREAKS_FILENAME, Settings
 from .coverage import SourceStreaks, attach_catchup_annotations, attach_catchup_log
-from .fetchers import (AppOneJdSource, AshbyJdSource, AtsFetcher, AvatureJdSource,
-                       BambooHrJdSource, ChainedEnricher, DispatchingEnricher, FetcherFactory,
-                       GreenhouseJdSource, HttpClient, IcimsJdSource, JdUrlEnricher, JibeJdSource,
-                       MetaJdSource, ParallelFetcher, RadancyJdSource, SuccessFactorsJdSource,
+from .fetchers import (AmazonJdSource, AnyHostLdJsonJdSource, AppOneJdSource, AshbyJdSource,
+                       AtsFetcher, AvatureJdSource, BambooHrJdSource, ChainedEnricher,
+                       DispatchingEnricher, FetcherFactory, GreenhouseJdSource, HttpClient,
+                       IcimsJdSource, JdUrlEnricher, JibeJdSource, LeverJdSource, MetaJdSource,
+                       OracleJdSource, ParallelFetcher, RadancyJdSource, RipplingJdSource,
+                       SmartRecruitersJdSource, SuccessFactorsJdSource, WorkableJdSource,
                        WorkdayJdSource, host_pacer)
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
@@ -119,8 +121,12 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
                            AshbyJdSource(jd_http), IcimsJdSource(jd_http),
                            JibeJdSource(jd_http), GreenhouseJdSource(jd_http),
                            AppOneJdSource(jd_http), AvatureJdSource(jd_http),
-                           MetaJdSource(jd_http)],
-                          settings.description_policy),
+                           MetaJdSource(jd_http), LeverJdSource(jd_http),
+                           OracleJdSource(jd_http), SmartRecruitersJdSource(jd_http),
+                           AmazonJdSource(jd_http), WorkableJdSource(jd_http),
+                           RipplingJdSource(jd_http)],
+                          settings.description_policy,
+                          fallback=AnyHostLdJsonJdSource(jd_http)),
         ]),
         annotator=DescriptionFlagger(
             warn_description_terms=settings.warn_description_terms,
