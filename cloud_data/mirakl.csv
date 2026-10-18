@@ -1,0 +1,2 @@
+job_key,company,title,location,department,urls,date_posted,date_posted_iso,first_seen,first_seen_pt,track,scored,score_method,experience_score,reason,emailed,source_uids,source_dates,jd_state,jd_attempts,jd_first_failed,jd_last_attempt
+Mirakl:6222277004,Mirakl,AI Analyst Co-op,"Boston, MA",,https://job-boards.greenhouse.io/mirakl/jobs/6222277004,,,2026-10-18T10:29:01+00:00,2026-10-18 03:29 Sun,AI / ML,true,CLI:claude,8,此職位為資料銷售團隊的AI Analyst Co-op，主要工作是用Python、HTML、SQL做業務分析與GTM資料整理，與候選人的電腦視覺/深度學習工程背景及技能幾乎無關，僅語言重疊，不構成合理申請對象。,false,speedyapply:SpeedyApply AI:6222277004,,,,,
