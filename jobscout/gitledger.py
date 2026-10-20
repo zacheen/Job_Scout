@@ -123,7 +123,8 @@ def ensure_reset_safe(root: Path, ledger_dirs: Sequence[Path], script: str,
     anything OUTSIDE the shard dirs (2026-08-05: uncommitted config.yaml and
     audit_dropped.py revisions were silently wiped exactly this way). Shard
     dirs are exempt — their rows survive the reset via snapshot/union-merge.
-    Untracked files are exempt — the reset leaves them alone. Pre-flight only:
+    Untracked files are not checked, and a hard reset can delete or overwrite
+    one that obstructs a path the reset target tracks. Pre-flight only:
     edits made after this check are still wiped by the next sync."""
     excludes = [f":(exclude){d.relative_to(root).as_posix()}" for d in ledger_dirs]
     dirty = git_out(root, "status", "--porcelain", "--untracked-files=no",
