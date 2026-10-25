@@ -12,6 +12,7 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
 
 from .config import CATCHUP_LOG_FILENAME, SOURCE_STREAKS_FILENAME, Settings
 from .coverage import SourceStreaks, attach_catchup_annotations, attach_catchup_log
+from .digest_snapshot import SnapshotNotifier
 from .fetchers import (AmazonJdSource, AnyHostLdJsonJdSource, AppOneJdSource, AshbyJdSource,
                        AtsFetcher, AvatureJdSource, BambooHrJdSource, ChainedEnricher,
                        DispatchingEnricher, FetcherFactory, GreenhouseJdSource, HttpClient,
@@ -22,15 +23,18 @@ from .fetchers import (AmazonJdSource, AnyHostLdJsonJdSource, AppOneJdSource, As
 from .filters import DescriptionFlagger, LevelClassifier, PreFilter, TrackRouter
 from .notifier import EmailNotifier
 from .pipeline import Pipeline
+from .protocols import Notifier
 from .scoring import build_scorer
 from .store import CsvStore
 
 
-def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
+def main(digest_footer: str = "", subject_time: datetime | None = None,
+         results_dir: Path | None = None) -> bool:
     """`digest_footer` is appended to the digest email body and `subject_time`
     stamps the subject line; local_run.py passes a safe-to-delete-window summary
     plus its scan-start time (so subject == window end), cloud runs (run.py)
-    leave both unset. Returns whether the run caught up (see Pipeline.run)."""
+    leave both unset. `results_dir` set also snapshots each sent digest there for
+    results_gui.py. Returns whether the run caught up (see Pipeline.run)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root = Path(__file__).resolve().parent.parent
     attach_catchup_log(root / CATCHUP_LOG_FILENAME)
@@ -78,6 +82,10 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
     leveler = LevelClassifier(settings.referral_companies, settings.intern_terms,
                               settings.senior_terms)
     scorer, lenient_scorer = build_scorer(settings)
+    notifier: Notifier = EmailNotifier(settings.gmail_user, settings.gmail_app_password,
+                                       settings.mail_to, footer=digest_footer)
+    if results_dir is not None:
+        notifier = SnapshotNotifier(notifier, results_dir, footer=digest_footer)
 
     # Wire the lenient companion (see build_scorer) to the groups worth never missing:
     # it auto-passes title-only roles the keyword fallback would otherwise drop on a
@@ -135,8 +143,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None) -> bool:
         router=TrackRouter(settings.tracks),
         leveler=leveler,
         scorer=scorer,
-        notifier=EmailNotifier(settings.gmail_user, settings.gmail_app_password, settings.mail_to,
-                               footer=digest_footer),
+        notifier=notifier,
         score_workers=settings.score_workers,
         enrich_workers=settings.enrich_workers,
         # The pacer doubles as the RequestMeter: it is the one choke point every request

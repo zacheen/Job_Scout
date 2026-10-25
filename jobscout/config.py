@@ -38,6 +38,11 @@ CATCHUP_LOG_FILENAME = "catchup_cap_hits.txt"
 # survives the post-scan reset --hard.
 SOURCE_STREAKS_FILENAME = "source_streaks.json"
 
+# Untracked directory at the repo root, covered by the `ignore_*` rule: one JSON per
+# emailed local digest (digest_snapshot.SnapshotNotifier) plus results_gui.py's
+# decisions file. Survives the post-scan reset --hard.
+RESULTS_DIRNAME = "ignore_run_results"
+
 
 def _as_bool(value) -> bool:
     """Parse a YAML scalar as bool: native booleans pass through, strings use truthy words."""

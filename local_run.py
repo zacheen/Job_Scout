@@ -25,6 +25,7 @@ re-emailing) in local scans until you fold them in.
        were scanning, re-merge and retry the push once
     6. delete the packs this run's auto-gc could not unlink, which it cannot
        report now that git has no console to ask on (gitledger.sweep_pack_garbage)
+    7. when the scan emailed anything, open results_gui.py, the local results page
 
 Steps 0, 1, 2 and 5 are git plumbing shared with merge_seen_jobs.py — see
 jobscout/gitledger.py. Only the merge policy (_merge_ledgers) is local to here.
@@ -32,6 +33,8 @@ jobscout/gitledger.py. Only the merge policy (_merge_ledgers) is local to here.
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -42,13 +45,27 @@ except ImportError:  # python-dotenv is optional; env vars still work without it
     load_dotenv = None
 
 from jobscout import gitledger
-from jobscout.config import DIGEST_CHECKPOINT_FILENAME, DIGEST_TZ, Settings
+from jobscout.config import DIGEST_CHECKPOINT_FILENAME, DIGEST_TZ, RESULTS_DIRNAME, Settings
+from jobscout.digest_snapshot import snapshot_paths
 from jobscout.store import union_merge
 
 ROOT = Path(__file__).resolve().parent
 SCRIPT = Path(__file__).name
 CLOUD_DIR = ROOT / "cloud_data"  # scan.yml's LEDGER_DIR, at the data-branch root
 CHECKPOINT = ROOT / DIGEST_CHECKPOINT_FILENAME  # untracked: survives the hard-resets below
+RESULTS_DIR = ROOT / RESULTS_DIRNAME
+RESULTS_GUI = ROOT / "results_gui.py"
+# WMI rather than Popen, so the page outlives a scheduled run's process job.
+# ShowWindow=0 keeps Windows Terminal from opening a console the user could close.
+# The command line arrives through the environment to avoid a second quoting layer.
+_WMI_LAUNCH = (
+    "$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly "
+    "-Property @{ ShowWindow = [uint16]0 }; "
+    "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments "
+    "@{ CommandLine = $env:JOBSCOUT_GUI_CMD; CurrentDirectory = $env:JOBSCOUT_GUI_CWD; "
+    "ProcessStartupInformation = $si }; "
+    "exit $r.ReturnValue"
+)
 
 log = logging.getLogger("local_run")
 
@@ -111,6 +128,29 @@ def _sync_with_remote(settings: Settings) -> None:
                                lambda snaps: _merge_ledgers(settings, snaps))
 
 
+def _open_results_page() -> None:
+    """Never raises: the ledger is already pushed, so a page that fails to open must
+    not turn the run into a failure."""
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    if not pythonw.exists():
+        log.warning("results page not opened, %s not found", pythonw)
+        return
+    env = {**os.environ, "JOBSCOUT_GUI_CMD": f'"{pythonw}" "{RESULTS_GUI}"',
+           "JOBSCOUT_GUI_CWD": str(ROOT)}
+    try:
+        proc = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",
+                               "-Command", _WMI_LAUNCH],
+                              env=env, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("results page not opened: %s", exc)
+        return
+    if proc.returncode:
+        log.warning("results page not opened, Win32_Process.Create returned %d %s",
+                    proc.returncode, proc.stderr.strip())
+    else:
+        log.info("results page launched")
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # before any git call: a second run must not even fetch
@@ -134,8 +174,9 @@ def main() -> None:
     # case below still pushes, just without advancing the checkpoint.
     # subject_time=start: the subject timestamp IS the deletable-window end, so
     # "delete every cloud digest older than this subject" needs no footer math.
+    snapshots_before = set(snapshot_paths(RESULTS_DIR))
     caught_up = run_scan(digest_footer=_digest_footer(_read_checkpoint(), start),
-                         subject_time=start)
+                         subject_time=start, results_dir=RESULTS_DIR)
     if caught_up:
         _write_checkpoint(start)  # the next window starts where this scan began
     else:
@@ -149,6 +190,8 @@ def main() -> None:
     # after the last git call, still holding the lock: no repack of ours can be
     # mid-rename, so an .idx-less .pack here is garbage and not a newborn
     gitledger.sweep_pack_garbage(ROOT)
+    if set(snapshot_paths(RESULTS_DIR)) - snapshots_before:
+        _open_results_page()
 
 
 if __name__ == "__main__":
