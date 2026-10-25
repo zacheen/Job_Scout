@@ -15,7 +15,7 @@ A comment in `companies.yaml` saying a company was deferred or rejected counts a
 
 ## Verify every entry you add
 
-Fetch the new entry on its own before keeping it. Write a throwaway script outside the repo that loads the entry with `Settings.load`, builds it with `FetcherFactory.create` and an `HttpClient`, and calls `fetch_all(EMPTY_SEEN_LEDGER)`. Run Python through `conda run -n ML python`.
+Fetch the new entry on its own before keeping it. Write a throwaway script outside the repo that loads the entry with `Settings.load`, builds it with `FetcherFactory.create` and an `HttpClient`, and calls the fetcher's `fetch(EMPTY_SEEN_LEDGER)`. Run Python through `conda run -n ML python`.
 - It has to return roles, and the role I applied to should be among them when it is still open.
 - A wrong slug only logs a warning during a scan, so an entry that returns nothing is a failure here, not a pass.
 - An entry that cannot be made to return roles goes to `ignore_source_skip.txt` with the reason instead.

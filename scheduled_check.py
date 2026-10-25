@@ -47,6 +47,9 @@ LEVEL = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ (\w+) ")
 TRACK_CONFLICT = "track conflict for "
 # Count empty boards because widespread emptiness can signal a fetch-wide failure.
 EMPTY_BOARD = "board lists no openings this run"
+# git's checkout progress. Each hard reset rewrites every shard file and prints many
+# of these, which buried the warnings. The "HEAD is now at" line after it stays.
+GIT_PROGRESS = "Updating files:"
 
 
 def _path_key(path: str) -> str:
@@ -464,6 +467,8 @@ def _summarize(lines: list[str]) -> None:
             conflicts += 1
         elif EMPTY_BOARD in line:
             empty_boards += 1
+        elif line.startswith(GIT_PROGRESS):
+            continue
         # Keep unstructured diagnostics such as tracebacks and git output visible.
         elif level != "INFO" or MILESTONES.search(line):
             print(f"{n}: {line}")

@@ -98,11 +98,10 @@
 - {name: Tenstorrent, ats: greenhouse, board: tenstorrent, seed_only: true}  # AI-chip; ~123 roles
 # Tenstorrent's intern/new-grad roles live on a SEPARATE board (bookmark batch 2026-07-12).
 - {name: Tenstorrent University, ats: greenhouse, board: tenstorrentuniversity}  # ~54
-# University-board audit (2026-07-12): three more Tenstorrent-style separate boards. Riot and
-# Twilio are seasonally EMPTY in July (intern cycles open ~September) — an empty board is
-# harmless and catches the new season automatically.
-- {name: Riot Games University, ats: greenhouse, board: riotgamesup}          # ALL Riot interns post here; main board has none
-- {name: Twilio University, ats: greenhouse, board: twiliostudents}           # SWE-intern reqs that never hit the main board
+# University-board audit (2026-07-12) found more Tenstorrent-style separate boards. Riot's
+# (riotgamesup) and Twilio's (twiliostudents) were removed on 2026-10-25 after 15 and 18 empty
+# runs in a row, well past the September intern season they were kept for, while the riotgames
+# and twilio main boards both listed intern roles.
 - {name: Axon Talent Community, ats: greenhouse, board: axontalentcommunity}  # ~7; disjoint from main; hosted the 2026 SWE internships
 # Samsung Research America (separate US entity from the sec.wd3 Samsung entry); its intern
 # board is a Tenstorrent-style separate board.
@@ -116,7 +115,7 @@
 - {name: Toast,       ats: greenhouse, board: toast, seed_only: true}         # ~303; Clinch front careers.toasttab.com
 - {name: Chime,       ats: greenhouse, board: chime}                          # ~72 (SF)
 - {name: SoFi,        ats: greenhouse, board: sofi}                           # ~70
-- {name: SoFi University, ats: greenhouse, board: sofiuniversity}             # separate uni board; 2 live externships
+# The separate SoFi University board (sofiuniversity) was removed on 2026-10-25 after 17 empty runs in a row.
 - {name: Flexport,    ats: greenhouse, board: flexport, seed_only: true}      # ~144 global
 - {name: Affirm,      ats: greenhouse, board: affirm, seed_only: true}        # ~175 Remote-US
 - {name: Zscaler,     ats: greenhouse, board: zscaler, seed_only: true}       # ~340
@@ -192,7 +191,7 @@
 - {name: Gatik,            ats: greenhouse, board: gatikaiinc}                        # AV middle-mile trucking; ~61
 - {name: Stack AV,         ats: greenhouse, board: stackav}                           # AV trucking; ~23
 - {name: Lucid Motors,     ats: greenhouse, board: lucidmotors, seed_only: true}      # EV + ADAS; ~241 (incl. Saudi factory roles)
-- {name: Carbon Robotics,  ats: greenhouse, board: carbonrobotics}                    # laser-weeding ag CV; ~21
+- {name: Carbon Robotics,  ats: ashby, org: carbon-robotics}                          # laser-weeding ag CV; Greenhouse board 404 since 2026-10-20, its job-openings page reads this Ashby board; 3 on 2026-10-25
 - {name: AMP Robotics,     ats: greenhouse, board: ampsortation}                      # recycling CV; rebranded AMP Sortation; ~3
 - {name: Locus Robotics,   ats: greenhouse, board: locusrobotics}                     # warehouse robots; ~18
 - {name: Samsara,          ats: greenhouse, board: samsara, seed_only: true}          # fleet cameras/IoT; ~318
@@ -511,11 +510,11 @@
 
 # --- Requested robot-learning startups on static first-party pages (2026-08-05).
 #     Both are scoped_html: no external ATS fingerprint exists for either. ---
-# Origami Robotics (SF, dexterous manipulation): the homepage careers section links
-# careers.html#<role> — fragment-only links, hence jd_url moves the id into the query
-# (the static page ignores it) so canon_url keeps the four roles distinct; title_pattern
-# takes just the role name out of the card (the anchor body holds the whole blurb).
-- {name: Origami Robotics, ats: scoped_html, url: "https://www.origami-robotics.com/", scope_start: '<div class="careers-list">', scope_end: careers-foot, link_pattern: 'careers[.]html#', id_pattern: 'careers[.]html#(.+)$', title_pattern: 'class="careers-role">([^<]+)<', location: "San Francisco, CA", jd_url: "https://www.origami-robotics.com/careers.html?role={id}#{id}"}  # 4 roles (2 intern) at add time
+# Origami Robotics (SF, dexterous manipulation): the site was rebuilt on Framer by 2026-10-21,
+# so careers.html is gone. /careers server-renders one <a href="./careers/<slug>"> per role in
+# <ul class="home-roles">, with the role name in the card's <h3>. The "View All Roles" link to
+# /careers/open-roles has no <h3>, so title_pattern skips it.
+- {name: Origami Robotics, ats: scoped_html, url: "https://www.origami-robotics.com/careers", scope_start: '<ul class="home-roles">', scope_end: '</ul>', link_pattern: '/careers/[a-z0-9-]+$', id_pattern: '/careers/([a-z0-9-]+)$', title_pattern: '<h3>([^<]+)</h3>', location: "San Francisco, CA"}  # 5 roles (2 intern) on 2026-10-25
 # Run Robotics (SF, robot-learning debugging/eval; runrobotics.ai): server-rendered
 # Next.js /jobs board, one clean <h2><a> per card. The lookahead excludes the /jobs/company
 # and /jobs/talent-network pages that live under the same path.
