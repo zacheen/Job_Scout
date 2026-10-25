@@ -2,7 +2,9 @@
 
 local_run.py launches it after a run that emailed at least one role. Every role is a
 todo until marked applied or skipped, which moves it to the collapsed Handled section,
-where the mark can be undone. The process exits on its own once no page is open.
+where the mark can be undone. A role marked following moves to a section pinned above
+the days and stays there until marked again. The process exits on its own once no page
+is open.
 
 digest_snapshot.SnapshotNotifier writes the run-*.json snapshots and this process only
 reads them, while this process is the only writer of the decisions file. With atomic
@@ -38,7 +40,10 @@ CANDIDATES_PATH = ROOT / "ignore_source_candidates.md"
 # that decision and only read here.
 SKIP_PATH = ROOT / "ignore_source_skip.txt"
 DECISIONS_VERSION = 1
-STATES = ("applied", "skipped")
+# following marks a role still being worked on, such as a referral ask or a cover letter.
+STATES = ("applied", "skipped", "following")
+# Kept until unmarked, even after the snapshots listing the role are pruned.
+LASTING_STATES = ("applied", "following")
 # Older todos stay in their snapshots, so widening this brings them back.
 SHOW_DAYS = 5
 # A skipped role leaves the Handled section after this many days. Applied ones stay.
@@ -119,11 +124,13 @@ def live_ids(runs: list[dict]) -> set[str]:
 def prune_decisions(items: dict, live: set[str]) -> dict:
     """A skip is kept while any snapshot still lists the role, because dropping it
     sooner would put the role back on the todo list. SKIP_TTL_DAYS only hides it."""
-    return {k: v for k, v in items.items() if v.get("state") == "applied" or k in live}
+    return {k: v for k, v in items.items() if v.get("state") in LASTING_STATES or k in live}
 
 
 def _shown_as_handled(entry: dict, now: float) -> bool:
-    return entry["state"] == "applied" or now - entry["at"] <= SKIP_TTL_DAYS * 86400
+    if entry["state"] == "skipped":
+        return now - entry["at"] <= SKIP_TTL_DAYS * 86400
+    return entry["state"] == "applied"
 
 
 def build_view(runs: list[dict], decisions: dict, now: float) -> dict:
@@ -156,7 +163,13 @@ def build_view(runs: list[dict], decisions: dict, now: float) -> dict:
           "left": SKIP_TTL_DAYS - int((now - v["at"]) // 86400)}
          for v in decisions.values() if _shown_as_handled(v, now)),
         key=lambda j: j["at"], reverse=True)
-    return {"days": [d for d in days if d["jobs"]], "handled": handled,
+    # Oldest first, so the role waiting longest leads.
+    following = sorted(
+        ({**v["job"], "at": v["at"], "days": int((now - v["at"]) // 86400)}
+         for v in decisions.values() if v["state"] == "following"),
+        key=lambda j: j["at"])
+    return {"following": following, "days": [d for d in days if d["jobs"]],
+            "handled": handled,
             "footer": runs[0].get("footer", "") if runs else ""}
 
 
@@ -334,9 +347,15 @@ PAGE = """<!doctype html>
  .tag{font-size:11px;font-weight:600;border-radius:5px;padding:1px 7px;margin-right:8px}
  .tag.applied{background:#1d3a26;color:#7ee09a}
  .tag.skipped{background:#262a31;color:#aab0b7}
+ .tag.following{background:#2f2445;color:#c9a0ff}
+ .follow{border:1px solid #4a3a6a;border-radius:12px;background:#1a1722;margin-bottom:22px;
+         padding:0 14px 6px}
+ .follow .hd{color:#c9a0ff;border-bottom-color:#3a2f52;padding-top:12px}
+ .btn.fol{border-color:#4a3a6a;color:#d4b8ff}
  .tog{float:right;font-weight:400;color:#7fb2ff;cursor:pointer;font-size:12px}
  .hidden{display:none}
  .empty{color:#9aa0a6;text-align:center;padding:44px 0}
+ .none{color:#6a6f76;font-size:13px;padding:2px 0 8px}
  .err{color:#ff7a7a;font-weight:600;margin-bottom:16px}
  .foot{color:#8b9096;font-size:12px;margin-top:20px;text-align:center}
 </style>
@@ -344,6 +363,10 @@ PAGE = """<!doctype html>
   <h1>Job Scout 職缺</h1>
   <div class=sub id=sub>載入中</div>
   <div id=err class="err hidden"></div>
+  <div class=follow id=secfollow>
+    <div class=hd>追蹤中 <span class=n id=cntfollow></span></div>
+    <div id=listfollow></div>
+  </div>
   <div id=days></div>
   <div class=sec id=sechandled>
     <div class="hd old">已處理 <span class=n id=cnthandled></span>
@@ -421,6 +444,17 @@ async function load(){
   const err = document.getElementById('err');
   err.classList.toggle('hidden', !d.unreadable);
   err.textContent = d.unreadable ? 'decisions.json 讀不懂，已處理的紀錄先不顯示，按鈕也無法儲存' : '';
+  const follow = document.getElementById('listfollow');
+  follow.replaceChildren();
+  for(const j of d.following){
+    const tag = el('span','tag following', j.days ? '追蹤 '+j.days+' 天' : '今天開始追蹤');
+    follow.append(card(j,{tag, buttons:[button('已投遞','ok',j.id,'applied'),
+                                        button('略過','',j.id,'skipped'),
+                                        button('移回待辦','',j.id,'')]}));
+  }
+  if(!d.following.length)
+    follow.append(el('div','none','沒有追蹤中的職缺。在待辦按「追蹤」就會移到這裡。'));
+  document.getElementById('cntfollow').textContent = d.following.length+' 筆';
   const box = document.getElementById('days');
   box.replaceChildren();
   let open = 0;
@@ -441,7 +475,8 @@ async function load(){
     for(const j of day.jobs){
       const g = j.group+' ▸ '+j.track;
       if(g !== last){ body.append(el('div','grp',g)); last = g; }
-      body.append(card(j,{buttons:[button('已投遞','ok',j.id,'applied'),
+      body.append(card(j,{buttons:[button('追蹤','fol',j.id,'following'),
+                                   button('已投遞','ok',j.id,'applied'),
                                    button('略過','',j.id,'skipped')]}));
     }
     sec.append(hd, body);
@@ -459,7 +494,7 @@ async function load(){
   }
   document.getElementById('cnthandled').textContent = d.handled.length+' 筆';
   document.getElementById('sub').textContent =
-    d.days.length+' 天，共 '+open+' 筆待辦。按已投遞或略過會移到已處理，在那裡可以取消。';
+    d.days.length+' 天，共 '+open+' 筆待辦。按追蹤會移到最上方的追蹤中，按已投遞或略過會移到已處理，在那裡可以取消。';
   document.getElementById('foot').textContent = (d.footer ? d.footer+' ' : '')
     + '只顯示最近 '+SHOW_DAYS+' 天的待辦。略過的職缺 '+SKIP_DAYS+' 天後從已處理清除。';
 }
