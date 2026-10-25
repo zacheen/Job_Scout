@@ -99,6 +99,10 @@ def snapshot_cases(tmp: Path) -> None:
     SnapshotNotifier(FakeEmail(), tmp / "warn", clock=lambda: at(20)).send_digest(noted)
     warnings = load_snapshots(tmp / "warn")[0]["jobs"][0]["warnings"]
     check("note and LLM caveat each become one warning", len(warnings) == 2)
+    SnapshotNotifier(FakeEmail(), tmp / "src", clock=lambda: at(20)).send_digest(
+        digest("simplify:Simplify Internships:123"))
+    check("the source is the uid's ats segment",
+          load_snapshots(tmp / "src")[0]["jobs"][0]["source"] == "simplify")
 
 
 def view_cases() -> None:
@@ -134,9 +138,38 @@ def view_cases() -> None:
           [j["id"] for j in view["handled"]] == ["x", "a"])
 
 
+def candidate_cases(tmp: Path) -> None:
+    def entry(company: str, state: str, at: float) -> dict:
+        return {"state": state, "at": at, "job": {"company": company, "title": "T",
+                                                   "url": "https://x/" + company,
+                                                   "source": "simplify"}}
+
+    decisions = {"1": entry("Newco", "applied", 20), "2": entry("Newco", "applied", 10),
+                 "3": entry("KnownCo", "applied", 5), "4": entry("Skipped Inc", "applied", 5),
+                 "5": entry("Passed", "skipped", 5)}
+    found = results_gui.source_candidates(decisions, {"knownco"}, {"skipped inc"})
+    check("only applied, unknown, unskipped companies are candidates", list(found) == ["Newco"])
+    check("a company's roles are listed oldest first",
+          [e["at"] for e in found["Newco"]] == [10, 20])
+
+    skip = tmp / "skip.txt"
+    skip.write_text("# decided\n\nSkipped Inc | staffing firm\n  Other  \n", encoding="utf-8")
+    check("the skip file ignores comments and reasons",
+          results_gui.read_skips(skip) == {"skipped inc", "other"})
+    check("a missing skip file skips nothing", results_gui.read_skips(tmp / "none") == set())
+
+    text = results_gui.render_candidates(found)
+    check("the list names the company and its apply URL",
+          "## Newco" in text and "https://x/Newco" in text and "via simplify" in text)
+    check("an empty list says so", "No companies are waiting" in
+          results_gui.render_candidates({}))
+
+
 def api_cases(tmp: Path) -> None:
     results_gui.RESULTS_DIR = tmp / "api"
     results_gui.DECISIONS_PATH = results_gui.RESULTS_DIR / "decisions.json"
+    results_gui.CANDIDATES_PATH = tmp / "candidates.md"
+    results_gui.SKIP_PATH = tmp / "skip-none.txt"
     # Stamped now, because /api/jobs hides runs older than SHOW_DAYS by the real clock.
     SnapshotNotifier(FakeEmail(), results_gui.RESULTS_DIR,
                      clock=lambda: datetime.now(timezone.utc)).send_digest(
@@ -147,10 +180,14 @@ def api_cases(tmp: Path) -> None:
         return client.post("/api/decide", json={"id": uid, "state": state})
 
     check("marking a role applied succeeds", decide("a", "applied").status_code == 200)
+    check("and lists its company as a source candidate",
+          "## Acme" in results_gui.CANDIDATES_PATH.read_text(encoding="utf-8"))
     ids = [j["id"] for d in client.get("/api/jobs").get_json()["days"] for j in d["jobs"]]
     check("an applied role leaves the todo list", ids == ["b"])
     check("undo puts it back", decide("a", "").status_code == 200
           and results_gui.read_decisions() == {})
+    check("and takes the company off the candidate list",
+          "## Acme" not in results_gui.CANDIDATES_PATH.read_text(encoding="utf-8"))
     check("an unknown role is refused as gone", decide("zzz", "skipped").status_code == 409)
     check("an unknown state is refused", decide("a", "later").status_code == 400)
 
@@ -187,6 +224,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as raw:
         snapshot_cases(Path(raw))
         view_cases()
+        candidate_cases(Path(raw))
         api_cases(Path(raw))
         exit_cases()
     print(f"{failures} failure(s)")
