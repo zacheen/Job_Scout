@@ -472,15 +472,17 @@ def check_summary_filters_the_log() -> None:
            "2026-10-17 03:00:02,000 INFO Acme: board lists no openings this run",
            "2026-10-17 03:00:03,000 WARNING something odd",
            "Traceback (most recent call last):",
-           "2026-10-17 03:00:04,000 INFO ledger pushed to origin/data"]
+           "2026-10-17 03:00:04,000 INFO ledger pushed to origin/data",
+           "Updating files:  18% (1723/9161)",
+           "HEAD is now at 216ac97c6 Merge branch 'main' into data"]
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         _summarize(log)
     shown = out.getvalue()
-    check("summary: milestones, warnings and tracebacks shown",
-          all(f"\n{n}: " in shown for n in (1, 5, 6, 7)))
-    check("summary: routine INFO and counted shapes hidden",
-          not any(f"\n{n}: " in shown for n in (2, 3, 4)))
+    check("summary: milestones, warnings, tracebacks and git output shown",
+          all(f"\n{n}: " in shown for n in (1, 5, 6, 7, 9)))
+    check("summary: routine INFO, counted shapes and git progress hidden",
+          not any(f"\n{n}: " in shown for n in (2, 3, 4, 8)))
     check("summary: counts", "track conflict lines: 1" in shown
           and "'board lists no openings this run' lines: 1" in shown)
 
