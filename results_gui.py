@@ -1,0 +1,434 @@
+"""Local results page: the roles each local run emailed, one block per day, newest first.
+
+local_run.py launches it after a run that emailed at least one role. Every role is a
+todo until marked applied or skipped, which moves it to the collapsed Handled section,
+where the mark can be undone. The process exits on its own once no page is open.
+
+digest_snapshot.SnapshotNotifier writes the run-*.json snapshots and this process only
+reads them, while this process is the only writer of the decisions file. With atomic
+replace on both sides no lock between the two processes is needed.
+
+Run with
+    conda run -n ML python results_gui.py
+"""
+from __future__ import annotations
+
+import json
+import os
+import socket
+import threading
+import time
+import webbrowser
+from datetime import datetime
+from pathlib import Path
+
+from flask import Flask, jsonify, request
+
+from jobscout.config import DIGEST_TZ, RESULTS_DIRNAME
+from jobscout.digest_snapshot import load_snapshots, write_atomic
+
+ROOT = Path(__file__).resolve().parent
+RESULTS_DIR = ROOT / RESULTS_DIRNAME
+DECISIONS_PATH = RESULTS_DIR / "decisions.json"
+DECISIONS_VERSION = 1
+STATES = ("applied", "skipped")
+# Older todos stay in their snapshots, so widening this brings them back.
+SHOW_DAYS = 5
+# A skipped role leaves the Handled section after this many days. Applied ones stay.
+SKIP_TTL_DAYS = 3
+# Daily_Task's task list holds 8765, so both pages can be open at once.
+HOST, PORT = "127.0.0.1", 8766
+# Long enough for a cold browser start on a busy machine.
+STARTUP_GRACE = 90
+# Must clear a minute: Chrome throttles hidden-tab timers to about once a minute.
+CLIENT_TIMEOUT = 150
+PING_EVERY_MS = 15000
+WATCHDOG_TICK = 3
+WEEKDAYS = "一二三四五六日"
+
+app = Flask(__name__)
+_lock = threading.Lock()
+_started = time.time()
+_clients: dict[str, float] = {}
+_seen_any = False
+
+
+def exit_reason(now: float, started: float, clients: dict[str, float],
+                seen_any: bool) -> str:
+    """Why the process should stop, or "" to keep serving. Before the first page
+    connects only the startup grace can end it, since no clients yet is not every
+    page closed."""
+    if not seen_any:
+        return "" if now - started <= STARTUP_GRACE else "browser never connected"
+    live = [t for t in clients.values() if now - t <= CLIENT_TIMEOUT]
+    return "" if live else "page closed"
+
+
+def _touch(cid: str) -> None:
+    global _seen_any
+    if not cid:
+        return
+    with _lock:
+        _seen_any = True
+        _clients[cid] = time.time()
+
+
+def _watchdog() -> None:
+    while True:
+        time.sleep(WATCHDOG_TICK)
+        now = time.time()
+        with _lock:
+            for cid in [c for c, t in _clients.items() if now - t > CLIENT_TIMEOUT]:
+                del _clients[cid]
+            why = exit_reason(now, _started, _clients, _seen_any)
+            if why:
+                # os._exit, not sys.exit: sys.exit would only end this thread, and Flask's dev
+                # server has no shutdown hook callable from outside a request.
+                # Exiting under the lock keeps a decide request from being cut off
+                # between its temp file and the replace.
+                print("exiting: " + why)
+                os._exit(0)
+
+
+def read_decisions() -> dict | None:
+    """id -> {state, at, job}. {} when the file does not exist yet, None when it exists
+    but cannot be read, so a write never replaces a file it could not understand."""
+    try:
+        data = json.loads(DECISIONS_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != DECISIONS_VERSION:
+        return None
+    items = data.get("items")
+    return items if isinstance(items, dict) else None
+
+
+def live_ids(runs: list[dict]) -> set[str]:
+    return {job.get("id") for run in runs for job in run.get("jobs", [])}
+
+
+def prune_decisions(items: dict, live: set[str]) -> dict:
+    """A skip is kept while any snapshot still lists the role, because dropping it
+    sooner would put the role back on the todo list. SKIP_TTL_DAYS only hides it."""
+    return {k: v for k, v in items.items() if v.get("state") == "applied" or k in live}
+
+
+def _shown_as_handled(entry: dict, now: float) -> bool:
+    return entry["state"] == "applied" or now - entry["at"] <= SKIP_TTL_DAYS * 86400
+
+
+def build_view(runs: list[dict], decisions: dict, now: float) -> dict:
+    """Undecided roles grouped by the day their run emailed them, newest day first,
+    for the last SHOW_DAYS days counting today. A role emailed by two runs shows
+    once, under the newer one."""
+    today = datetime.fromtimestamp(now, DIGEST_TZ).date()
+    days: list[dict] = []
+    seen: set[str] = set()
+    for run in runs:
+        try:
+            day = datetime.fromisoformat(run["run_at"]).astimezone(DIGEST_TZ).date()
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (today - day).days >= SHOW_DAYS:
+            continue
+        if not days or days[-1]["date"] != day.isoformat():
+            days.append({"date": day.isoformat(),
+                         "label": f"{day:%m/%d} 週{WEEKDAYS[day.weekday()]}",
+                         "runs": 0, "jobs": []})
+        days[-1]["runs"] += 1
+        for job in run.get("jobs", []):
+            jid = job.get("id")
+            if not jid or jid in seen or jid in decisions:
+                continue
+            seen.add(jid)
+            days[-1]["jobs"].append(job)
+    handled = sorted(
+        ({**v["job"], "state": v["state"], "at": v["at"],
+          "left": SKIP_TTL_DAYS - int((now - v["at"]) // 86400)}
+         for v in decisions.values() if _shown_as_handled(v, now)),
+        key=lambda j: j["at"], reverse=True)
+    return {"days": [d for d in days if d["jobs"]], "handled": handled,
+            "footer": runs[0].get("footer", "") if runs else ""}
+
+
+def find_job(jid: str, runs: list[dict], decisions: dict) -> dict | None:
+    for run in runs:
+        for job in run.get("jobs", []):
+            if job.get("id") == jid:
+                return job
+    entry = decisions.get(jid)
+    return entry["job"] if entry else None
+
+
+@app.get("/")
+def index():
+    return PAGE.replace("__PING_MS__", str(PING_EVERY_MS))
+
+
+@app.get("/api/jobs")
+def api_jobs():
+    _touch(request.args.get("cid", ""))
+    # Under the lock: on Windows an open reader makes api_decide's os.replace fail.
+    with _lock:
+        decisions = read_decisions()
+    view = build_view(load_snapshots(RESULTS_DIR), decisions or {}, time.time())
+    view["unreadable"] = decisions is None
+    return jsonify(view)
+
+
+@app.post("/api/decide")
+def api_decide():
+    body = request.get_json(silent=True) or {}
+    jid, state = str(body.get("id", "")), str(body.get("state", ""))
+    if not jid or state not in (*STATES, ""):
+        return jsonify({"ok": False, "error": "bad request"}), 400
+    with _lock:
+        decisions = read_decisions()
+        if decisions is None:
+            return jsonify({"ok": False, "error": "decisions file unreadable"}), 500
+        runs = load_snapshots(RESULTS_DIR)
+        if state:
+            job = find_job(jid, runs, decisions)
+            if job is None:
+                return jsonify({"ok": False, "error": "gone"}), 409
+            decisions[jid] = {"state": state, "at": time.time(), "job": job}
+        else:
+            decisions.pop(jid, None)
+        RESULTS_DIR.mkdir(exist_ok=True)
+        write_atomic(DECISIONS_PATH, {"version": DECISIONS_VERSION,
+                                      "items": prune_decisions(decisions, live_ids(runs))})
+    return jsonify({"ok": True})
+
+
+@app.post("/api/ping")
+def api_ping():
+    _touch(request.args.get("cid", ""))
+    return jsonify({"ok": True})
+
+
+@app.post("/api/bye")
+def api_bye():
+    """Drops only the closing page's id, so a second open tab keeps the server alive."""
+    with _lock:
+        _clients.pop(request.args.get("cid", ""), None)
+    return jsonify({"ok": True})
+
+
+PAGE = """<!doctype html>
+<html lang="zh-Hant-TW">
+<meta charset="utf-8"><title>Job Scout 職缺</title>
+<style>
+ :root{color-scheme:dark}
+ body{font:15px/1.55 -apple-system,"Segoe UI",system-ui,sans-serif;
+      background:#14161a;color:#e8eaed;margin:0;padding:28px 20px;}
+ .wrap{max-width:900px;margin:0 auto}
+ h1{font-size:19px;margin:0 0 4px;font-weight:600}
+ .sub{color:#9aa0a6;font-size:13px;margin-bottom:22px}
+ .sec{margin-bottom:26px}
+ .hd{font-size:13px;font-weight:600;color:#7fb2ff;padding-bottom:9px;margin-bottom:11px;
+     border-bottom:1px solid #262a31}
+ .hd.old{color:#aab0b7}
+ .n{font-weight:400;color:#6a6f76;font-size:12px}
+ .grp{font-size:11px;letter-spacing:.06em;color:#8b9096;margin:12px 0 6px}
+ .day{border:1px solid #333a45;border-radius:12px;background:#171a1f;margin-bottom:22px;
+      overflow:hidden}
+ .dayhd{display:flex;align-items:baseline;gap:10px;padding:12px 16px;background:#20252e;
+        cursor:pointer;user-select:none}
+ .dayhd .date{font-size:16px;font-weight:600;color:#aab0b7}
+ .day.newest .dayhd{background:#1c2a3d}
+ .day.newest .dayhd .date{color:#9cc3ff}
+ .dayhd .arrow{margin-left:auto;color:#8b9096;font-size:12px}
+ .daybody{padding:4px 14px 6px;border-top:1px solid #333a45}
+ .day.shut .daybody{display:none}
+ @media (max-width:640px){.row{flex-wrap:wrap}.acts{width:100%;justify-content:flex-end}}
+ .row{display:flex;gap:13px;padding:13px 15px;border:1px solid #2a2e35;
+      border-radius:10px;margin-bottom:9px;background:#1b1e23;align-items:flex-start}
+ .body{flex:1;min-width:0}
+ .ttl{font-weight:600;margin-bottom:3px;overflow-wrap:anywhere}
+ .ttl a{color:inherit;text-decoration:none;border-bottom:1px dotted #6a7480}
+ .ttl a:hover{color:#9cc3ff;border-bottom-color:#9cc3ff}
+ .co{color:#aab0b7;font-weight:400}
+ .meta{color:#8b9096;font-size:12px;margin-top:4px}
+ .warn{color:#ffb26b;font-size:13px;margin-top:4px}
+ .why{color:#c9cdd3;font-size:13px;margin-top:4px;overflow-wrap:anywhere}
+ .sc{font-size:11px;font-weight:600;border-radius:5px;padding:1px 7px;margin-right:8px}
+ .sc.hi{background:#1d3a26;color:#7ee09a}
+ .sc.mid{background:#43351a;color:#ffc46b}
+ .sc.lo{background:#262a31;color:#aab0b7}
+ .acts{display:flex;gap:6px;flex:none;align-items:center}
+ .btn{background:#23272e;border:1px solid #383d45;color:#cfd4da;border-radius:7px;
+      padding:5px 11px;font-size:12px;cursor:pointer}
+ .btn:hover{background:#2b3038;color:#fff}
+ .btn:disabled{opacity:.45;cursor:default}
+ .btn.ok{border-color:#2f5a3a;color:#8fe0a6}
+ .st{font-size:11px;min-width:44px;text-align:right}
+ .saving{color:#8b9096}.failed{color:#ff7a7a;font-weight:600}
+ .row.done{opacity:.6}
+ .tag{font-size:11px;font-weight:600;border-radius:5px;padding:1px 7px;margin-right:8px}
+ .tag.applied{background:#1d3a26;color:#7ee09a}
+ .tag.skipped{background:#262a31;color:#aab0b7}
+ .tog{float:right;font-weight:400;color:#7fb2ff;cursor:pointer;font-size:12px}
+ .hidden{display:none}
+ .empty{color:#9aa0a6;text-align:center;padding:44px 0}
+ .err{color:#ff7a7a;font-weight:600;margin-bottom:16px}
+ .foot{color:#8b9096;font-size:12px;margin-top:20px;text-align:center}
+</style>
+<div class=wrap>
+  <h1>Job Scout 職缺</h1>
+  <div class=sub id=sub>載入中</div>
+  <div id=err class="err hidden"></div>
+  <div id=days></div>
+  <div class=sec id=sechandled>
+    <div class="hd old">已處理 <span class=n id=cnthandled></span>
+      <span class=tog id=toghandled>展開</span></div>
+    <div id=listhandled class=hidden></div>
+  </div>
+  <div class=foot id=foot></div>
+</div>
+<script>
+const el = (t,c,txt)=>{const e=document.createElement(t); if(c)e.className=c;
+  if(txt!==undefined)e.textContent=txt; return e;};
+// One id per page, so closing one of two tabs does not look like closing both.
+const CID = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()));
+const SKIP_DAYS = """ + str(SKIP_TTL_DAYS) + """;
+const SHOW_DAYS = """ + str(SHOW_DAYS) + """;
+// Collapsed days by date. load() rebuilds the list, so this outlives the DOM.
+const SHUT = new Set();
+
+function badge(j){
+  if(j.matches !== null && j.matches !== undefined)
+    return el('span','sc lo','kw '+j.matches);
+  const cls = j.score >= 75 ? 'hi' : j.score >= 60 ? 'mid' : 'lo';
+  return el('span','sc '+cls, String(j.score));
+}
+
+function card(j, acts){
+  const row = el('div','row'), body = el('div','body');
+  const t = el('div','ttl');
+  if(acts.tag) t.append(acts.tag);
+  else t.append(badge(j));
+  const a = el('a',null,j.title); a.href = j.url; a.target = '_blank'; a.rel = 'noopener';
+  t.append(a, el('span','co',' · '+j.company));
+  body.append(t);
+  body.append(el('div','meta',[j.location||'?', j.department||'?',
+    'posted '+(j.posted||'?')].join(' · ')));
+  if(j.match_counts && j.match_counts.length || j.title_matches && j.title_matches.length){
+    let kw = (j.match_counts||[]).map(p=>p[0]+' x'+p[1]).join(', ');
+    if(j.title_matches && j.title_matches.length) kw += ' [title: '+j.title_matches.join(', ')+']';
+    body.append(el('div','meta','keyword: '+kw));
+  }
+  for(const w of j.warnings||[]) body.append(el('div','warn','⚠ '+w));
+  if(j.reason) body.append(el('div','why','why: '+j.reason));
+  const side = el('div','acts'), st = el('span','st');
+  for(const b of acts.buttons) side.append(b(st));
+  side.append(st);
+  row.append(body, side);
+  return row;
+}
+
+function button(label, cls, id, state){
+  return st => {
+    const b = el('button','btn '+cls,label);
+    b.onclick = async ()=>{
+      b.disabled = true; st.className = 'st saving'; st.textContent = '儲存中';
+      try{
+        const r = await fetch('/api/decide',{method:'POST',
+          headers:{'Content-Type':'application/json'},body:JSON.stringify({id,state})});
+        if(!r.ok) throw new Error(String(r.status));
+        await load();
+      }catch(e){
+        b.disabled = false; st.className = 'st failed'; st.textContent = '未儲存';
+      }
+    };
+    return b;
+  };
+}
+
+async function load(){
+  let d;
+  try{ d = await (await fetch('/api/jobs?cid='+CID)).json(); }
+  catch(e){
+    document.getElementById('sub').textContent = '讀不到資料，伺服器已經關閉。重新啟動 results_gui.py';
+    return;
+  }
+  const err = document.getElementById('err');
+  err.classList.toggle('hidden', !d.unreadable);
+  err.textContent = d.unreadable ? 'decisions.json 讀不懂，已處理的紀錄先不顯示，按鈕也無法儲存' : '';
+  const box = document.getElementById('days');
+  box.replaceChildren();
+  let open = 0;
+  d.days.forEach((day, i)=>{
+    open += day.jobs.length;
+    const sec = el('div', 'day'+(i ? '' : ' newest')+(SHUT.has(day.date) ? ' shut' : ''));
+    const hd = el('div','dayhd'), body = el('div','daybody');
+    const arrow = el('span','arrow', SHUT.has(day.date) ? '展開 ▸' : '收起 ▾');
+    hd.append(el('span','date',day.label),
+              el('span','n', day.jobs.length+' 筆待辦'+(day.runs>1 ? '，'+day.runs+' 次 run' : '')),
+              arrow);
+    hd.onclick = ()=>{
+      const shut = sec.classList.toggle('shut');
+      shut ? SHUT.add(day.date) : SHUT.delete(day.date);
+      arrow.textContent = shut ? '展開 ▸' : '收起 ▾';
+    };
+    let last = '';
+    for(const j of day.jobs){
+      const g = j.group+' ▸ '+j.track;
+      if(g !== last){ body.append(el('div','grp',g)); last = g; }
+      body.append(card(j,{buttons:[button('已投遞','ok',j.id,'applied'),
+                                   button('略過','',j.id,'skipped')]}));
+    }
+    sec.append(hd, body);
+    box.append(sec);
+  });
+  if(!d.days.length) box.append(el('div','empty','目前沒有待辦職缺'));
+  const list = document.getElementById('listhandled');
+  list.replaceChildren();
+  for(const j of d.handled){
+    const tag = j.state === 'applied' ? el('span','tag applied','已投遞')
+      : el('span','tag skipped','略過，'+(j.left<=0 ? '即將清除' : '剩 '+j.left+' 天'));
+    const row = card(j,{tag, buttons:[button('取消','',j.id,'')]});
+    row.classList.add('done');
+    list.append(row);
+  }
+  document.getElementById('cnthandled').textContent = d.handled.length+' 筆';
+  document.getElementById('sub').textContent =
+    d.days.length+' 天，共 '+open+' 筆待辦。按已投遞或略過會移到已處理，在那裡可以取消。';
+  document.getElementById('foot').textContent = (d.footer ? d.footer+' ' : '')
+    + '只顯示最近 '+SHOW_DAYS+' 天的待辦。略過的職缺 '+SKIP_DAYS+' 天後從已處理清除。';
+}
+
+document.getElementById('toghandled').onclick = e=>{
+  const hidden = document.getElementById('listhandled').classList.toggle('hidden');
+  e.target.textContent = hidden ? '展開' : '收起';
+};
+load();
+setInterval(load, 60000);
+setInterval(()=>fetch('/api/ping?cid='+CID,{method:'POST'}).catch(()=>{}), __PING_MS__);
+// pagehide is the unload-side event browsers still allow a beacon from. A discarded
+// tab sends none, which the ping timeout covers.
+addEventListener('pagehide', ()=>{ navigator.sendBeacon('/api/bye?cid='+CID); });
+</script>
+"""
+
+
+def port_is_taken(host: str, port: int) -> bool:
+    """Occupancy only. An already-open page is the usual listener, and it picks up the
+    new run on its next minute refresh."""
+    with socket.socket() as sock:
+        sock.settimeout(1)
+        return sock.connect_ex((host, port)) == 0
+
+
+if __name__ == "__main__":
+    url = f"http://{HOST}:{PORT}/"
+    if port_is_taken(HOST, PORT):
+        print(f"port {PORT} is already in use, not starting. If the results page is "
+              f"the listener it is at {url}")
+        raise SystemExit(0)
+    print("Job Scout results at " + url)
+    # After the port check, or a failed bind would still pop a tab.
+    threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    threading.Thread(target=_watchdog, daemon=True).start()
+    app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
