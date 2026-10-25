@@ -4,6 +4,12 @@ Work in the Job_Scout repo. Read `ignore_source_candidates.md` at the repo root.
 
 If the file says no companies are waiting, tell me so and stop.
 
+## Work on main
+
+These edits are committed on `main`, so make them there rather than on `data`. Before touching any file, run `git branch --show-current`. If it prints anything other than `main`, run `git status --porcelain`.
+- When that prints nothing, run `git checkout main` and carry on.
+- When it prints anything, stop and show me what it printed. Uncommitted work would either block the switch or travel along to `main`, and which of those I want is my call.
+
 ## For each company, decide one of four outcomes
 
 1. **Already a source under another spelling.** Search `companies.yaml` for the company, including comments, and compare the apply URL's ATS tenant and site with the existing entries. Decide by tenant and site, never by how similar the names look. "DellFor Technologies" is a staffing firm on SmartRecruiters and not Dell. When it is the same employer, add an alias in `jobscout/company_aliases.py` and follow the rules in that file's docstring.
@@ -25,7 +31,7 @@ After the edits, run `conda run -n ML python results_gui.py --write-candidates` 
 ## Limits
 
 - Edit only `companies.yaml`, `jobscout/company_aliases.py`, `jobscout/fetchers.py` and `ignore_source_skip.txt`. Never edit `ignore_source_candidates.md` by hand, since it is regenerated.
-- Do not commit, push or run `local_run.py`.
+- Do not commit, push or run `local_run.py`. Switch to no branch other than `main`.
 - If a company needs a decision only I can make, list it and leave it out of every file.
 
 ## Report

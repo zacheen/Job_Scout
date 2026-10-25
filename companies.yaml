@@ -215,6 +215,7 @@
 - {name: CoreWeave,       ats: greenhouse, board: coreweave, seed_only: true}       # GPU cloud; ~287
 - {name: Vercel,          ats: greenhouse, board: vercel}                           # global developer platform; ~69
 - {name: Motive,          ats: greenhouse, board: gomotive}                         # fleet cameras/physical AI; ~76
+- {name: Carvana,         ats: greenhouse, board: carvana, seed_only: true}         # online used cars (Tempe AZ); ~1681, mostly ops/ADESA sites
 
 # --- Lever ---
 # Netflix migrated Lever -> Eightfold; the Lever "netflix" org still answers 200 but with
@@ -264,6 +265,7 @@
 # Mobileye's board is hosted in Lever's EU cluster. It currently has no US-based rows, but
 # keeping the live board catches future US openings without another re-probe.
 - {name: Mobileye,       ats: lever, org: mobileye, region: eu, seed_only: true}  # ~110 global
+- {name: Applied Underwriters, ats: lever, org: auw}                    # workers' comp insurer; org is auw; ~21
 
 # --- Ashby ---
 - {name: OpenAI,     ats: ashby, org: openai}
@@ -473,6 +475,7 @@
 
 # --- Workable (anonymous v1 widget; one request, full descriptions) ---
 - {name: Pony.ai, ats: workable, account: pony-dot-ai}  # AV; US board (Fremont CA), ~7 roles
+- {name: Coretek, ats: workable, account: coretek-services}  # IT managed services (Farmington Hills MI); ~16 roles
 
 # --- JazzHR (server-rendered HTML board; no dates/descriptions -> title-only matching) ---
 - {name: Ouster, ats: jazzhr, account: ouster}          # lidar (SF + remote); ~21 roles
