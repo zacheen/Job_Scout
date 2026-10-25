@@ -28,6 +28,9 @@ def _job_record(group: str, track: str, job: Job, score: Score) -> dict:
     """One digest row in the same terms the email body prints it."""
     return {
         "id": job.job_uid,
+        # The ats segment of the uid (AtsFetcher.uid_prefix), naming the feed that
+        # found the role, such as simplify for a job-board row.
+        "source": job.job_uid.split(":", 1)[0],
         "group": group,
         "track": track,
         "title": job.title,
