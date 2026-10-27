@@ -2,9 +2,9 @@
 
 local_run.py launches it after a run that emailed at least one role. Every role is a
 todo until marked applied or skipped, which moves it to the collapsed Handled section,
-where the mark can be undone. A role marked following moves to a section pinned above
-the days and stays there until marked again. The process exits on its own once no page
-is open.
+where the mark can be undone. A role marked applying or following moves to its own
+section pinned above the days, applying first, and stays there until marked again. The
+process exits on its own once no page is open.
 
 digest_snapshot.SnapshotNotifier writes the run-*.json snapshots and this process only
 reads them, while this process is the only writer of the decisions file. With atomic
@@ -41,9 +41,12 @@ CANDIDATES_PATH = ROOT / "ignore_source_candidates.md"
 SKIP_PATH = ROOT / "ignore_source_skip.txt"
 DECISIONS_VERSION = 1
 # following marks a role still being worked on, such as a referral ask or a cover letter.
-STATES = ("applied", "skipped", "following")
+# applying marks one picked to apply to whose application is not finished yet.
+STATES = ("applied", "skipped", "following", "applying")
+# Each gets a section pinned above the days.
+PINNED_STATES = ("applying", "following")
 # Kept until unmarked, even after the snapshots listing the role are pruned.
-LASTING_STATES = ("applied", "following")
+LASTING_STATES = ("applied", *PINNED_STATES)
 # Older todos stay in their snapshots, so widening this brings them back.
 SHOW_DAYS = 5
 # A skipped role leaves the Handled section after this many days. Applied ones stay.
@@ -164,12 +167,11 @@ def build_view(runs: list[dict], decisions: dict, now: float) -> dict:
          for v in decisions.values() if _shown_as_handled(v, now)),
         key=lambda j: j["at"], reverse=True)
     # Oldest first, so the role waiting longest leads.
-    following = sorted(
+    pinned = {state: sorted(
         ({**v["job"], "at": v["at"], "days": int((now - v["at"]) // 86400)}
-         for v in decisions.values() if v["state"] == "following"),
-        key=lambda j: j["at"])
-    return {"following": following, "days": [d for d in days if d["jobs"]],
-            "handled": handled,
+         for v in decisions.values() if v["state"] == state),
+        key=lambda j: j["at"]) for state in PINNED_STATES}
+    return {**pinned, "days": [d for d in days if d["jobs"]], "handled": handled,
             "footer": runs[0].get("footer", "") if runs else ""}
 
 
@@ -352,6 +354,10 @@ PAGE = """<!doctype html>
          padding:0 14px 6px}
  .follow .hd{color:#c9a0ff;border-bottom-color:#3a2f52;padding-top:12px}
  .btn.fol{border-color:#4a3a6a;color:#d4b8ff}
+ .tag.applying{background:#43351a;color:#ffc46b}
+ .follow.apply{border-color:#6b5226;background:#1f1b14}
+ .follow.apply .hd{color:#ffc46b;border-bottom-color:#4a3b20}
+ .btn.app{border-color:#6b5226;color:#ffcf85}
  .tog{float:right;font-weight:400;color:#7fb2ff;cursor:pointer;font-size:12px}
  .hidden{display:none}
  .empty{color:#9aa0a6;text-align:center;padding:44px 0}
@@ -363,6 +369,10 @@ PAGE = """<!doctype html>
   <h1>Job Scout 職缺</h1>
   <div class=sub id=sub>載入中</div>
   <div id=err class="err hidden"></div>
+  <div class="follow apply" id=secapply>
+    <div class=hd>申請中 <span class=n id=cntapply></span></div>
+    <div id=listapply></div>
+  </div>
   <div class=follow id=secfollow>
     <div class=hd>追蹤中 <span class=n id=cntfollow></span></div>
     <div id=listfollow></div>
@@ -384,6 +394,14 @@ const SKIP_DAYS = """ + str(SKIP_TTL_DAYS) + """;
 const SHOW_DAYS = """ + str(SHOW_DAYS) + """;
 // Collapsed days by date. load() rebuilds the list, so this outlives the DOM.
 const SHUT = new Set();
+// The sections for PINNED_STATES. extra holds the buttons only that section offers.
+const PINNED = [
+  {state:'applying', list:'listapply', cnt:'cntapply', since:'申請中', start:'今天開始申請',
+   empty:'沒有申請中的職缺。在待辦或追蹤中按「申請中」就會移到這裡。', extra:[]},
+  {state:'following', list:'listfollow', cnt:'cntfollow', since:'追蹤', start:'今天開始追蹤',
+   empty:'沒有追蹤中的職缺。在待辦按「追蹤」就會移到這裡。',
+   extra:[['申請中','app','applying']]},
+];
 
 function badge(j){
   if(j.matches !== null && j.matches !== undefined)
@@ -444,17 +462,19 @@ async function load(){
   const err = document.getElementById('err');
   err.classList.toggle('hidden', !d.unreadable);
   err.textContent = d.unreadable ? 'decisions.json 讀不懂，已處理的紀錄先不顯示，按鈕也無法儲存' : '';
-  const follow = document.getElementById('listfollow');
-  follow.replaceChildren();
-  for(const j of d.following){
-    const tag = el('span','tag following', j.days ? '追蹤 '+j.days+' 天' : '今天開始追蹤');
-    follow.append(card(j,{tag, buttons:[button('已投遞','ok',j.id,'applied'),
+  for(const p of PINNED){
+    const list = document.getElementById(p.list);
+    list.replaceChildren();
+    for(const j of d[p.state]){
+      const tag = el('span','tag '+p.state, j.days ? p.since+' '+j.days+' 天' : p.start);
+      list.append(card(j,{tag, buttons:[...p.extra.map(b=>button(b[0],b[1],j.id,b[2])),
+                                        button('已投遞','ok',j.id,'applied'),
                                         button('略過','',j.id,'skipped'),
                                         button('移回待辦','',j.id,'')]}));
+    }
+    if(!d[p.state].length) list.append(el('div','none',p.empty));
+    document.getElementById(p.cnt).textContent = d[p.state].length+' 筆';
   }
-  if(!d.following.length)
-    follow.append(el('div','none','沒有追蹤中的職缺。在待辦按「追蹤」就會移到這裡。'));
-  document.getElementById('cntfollow').textContent = d.following.length+' 筆';
   const box = document.getElementById('days');
   box.replaceChildren();
   let open = 0;
@@ -475,7 +495,8 @@ async function load(){
     for(const j of day.jobs){
       const g = j.group+' ▸ '+j.track;
       if(g !== last){ body.append(el('div','grp',g)); last = g; }
-      body.append(card(j,{buttons:[button('追蹤','fol',j.id,'following'),
+      body.append(card(j,{buttons:[button('申請中','app',j.id,'applying'),
+                                   button('追蹤','fol',j.id,'following'),
                                    button('已投遞','ok',j.id,'applied'),
                                    button('略過','',j.id,'skipped')]}));
     }
@@ -494,7 +515,7 @@ async function load(){
   }
   document.getElementById('cnthandled').textContent = d.handled.length+' 筆';
   document.getElementById('sub').textContent =
-    d.days.length+' 天，共 '+open+' 筆待辦。按追蹤會移到最上方的追蹤中，按已投遞或略過會移到已處理，在那裡可以取消。';
+    d.days.length+' 天，共 '+open+' 筆待辦。按申請中或追蹤會移到最上方的同名區塊，按已投遞或略過會移到已處理，在那裡可以取消。';
   document.getElementById('foot').textContent = (d.footer ? d.footer+' ' : '')
     + '只顯示最近 '+SHOW_DAYS+' 天的待辦。略過的職缺 '+SKIP_DAYS+' 天後從已處理清除。';
 }

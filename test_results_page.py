@@ -147,6 +147,13 @@ def view_cases() -> None:
           "b" not in [j["id"] for d in view["days"] for j in d["jobs"]]
           and view["handled"] == [])
 
+    split = {"b": {"state": "applying", "at": now - 86400, "job": {"id": "b"}},
+             "c": {"state": "following", "at": now, "job": {"id": "c"}}}
+    view = results_gui.build_view(runs, split, now)
+    check("applying and following each get only their own roles",
+          [(j["id"], j["days"]) for j in view["applying"]] == [("b", 1)]
+          and [j["id"] for j in view["following"]] == ["c"] and view["handled"] == [])
+
 
 def candidate_cases(tmp: Path) -> None:
     def entry(company: str, state: str, at: float) -> dict:
@@ -212,14 +219,15 @@ def api_cases(tmp: Path) -> None:
         "a": {"state": "skipped", "at": old, "job": {"id": "a"}},
         "gone": {"state": "skipped", "at": old, "job": {"id": "gone"}},
         "kept": {"state": "applied", "at": old, "job": {"id": "kept"}},
-        "chasing": {"state": "following", "at": old, "job": {"id": "chasing"}}}}),
+        "chasing": {"state": "following", "at": old, "job": {"id": "chasing"}},
+        "filling": {"state": "applying", "at": old, "job": {"id": "filling"}}}}),
         encoding="utf-8")
     decide("b", "applied")
     data = client.get("/api/jobs").get_json()
     check("an expired skip stays off the todo list after another write",
           data["days"] == [] and "a" in results_gui.read_decisions())
-    check("a skip whose snapshot is gone is dropped, applied and following are kept",
-          set(results_gui.read_decisions()) == {"a", "b", "kept", "chasing"})
+    check("a skip whose snapshot is gone is dropped, applied, following and applying are kept",
+          set(results_gui.read_decisions()) == {"a", "b", "kept", "chasing", "filling"})
     decide("a", "following")
     following = [j["id"] for j in client.get("/api/jobs").get_json()["following"]]
     decide("a", "applied")
@@ -227,6 +235,12 @@ def api_cases(tmp: Path) -> None:
     check("a followed role can then be marked applied",
           following == ["chasing", "a"] and [j["id"] for j in after["following"]] == ["chasing"]
           and results_gui.read_decisions()["a"]["state"] == "applied")
+    decide("a", "following")
+    decide("a", "applying")
+    moved = client.get("/api/jobs").get_json()
+    check("a followed role moves to applying",
+          [j["id"] for j in moved["applying"]] == ["filling", "a"]
+          and [j["id"] for j in moved["following"]] == ["chasing"])
 
 
 def exit_cases() -> None:
