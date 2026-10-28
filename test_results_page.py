@@ -99,6 +99,21 @@ def snapshot_cases(tmp: Path) -> None:
     SnapshotNotifier(FakeEmail(), tmp / "warn", clock=lambda: at(20)).send_digest(noted)
     warnings = load_snapshots(tmp / "warn")[0]["jobs"][0]["warnings"]
     check("note and LLM caveat each become one warning", len(warnings) == 2)
+    seasonal = [Job(job_uid="s", company="Acme", title="Software Intern", location="",
+                    url="https://example.com/s", description="Join us this Summer 2027."),
+                Job(job_uid="t", company="Acme", title="Intern, SUMMER 2027", location="",
+                    url="https://example.com/t", description="summer"),
+                Job(job_uid="u", company="Acme", title="Summer2027 Intern", location="",
+                    url="https://example.com/u", description="Consumer products"),
+                Job(job_uid="v", company="Acme", title="Robotics Intern", location="",
+                    url="https://example.com/v", description="summer",
+                    department="Internships - Summer 2027")]
+    SnapshotNotifier(FakeEmail(), tmp / "season", clock=lambda: at(20)).send_digest(
+        [("Intern", [("Software", [(j, Score(70, "ok", ScoreScale.LLM)) for j in seasonal])])])
+    check("the first field holding a season word becomes one warning",
+          [r["warnings"] for r in load_snapshots(tmp / "season")[0]["jobs"]]
+          == [["description says 'summer'"], ["title says 'summer'"], [],
+              ["department says 'summer'"]])
     SnapshotNotifier(FakeEmail(), tmp / "src", clock=lambda: at(20)).send_digest(
         digest("simplify:Simplify Internships:123"))
     check("the source is the uid's ats segment",
@@ -146,6 +161,28 @@ def view_cases() -> None:
     check("a followed role leaves its day block and stays out of handled",
           "b" not in [j["id"] for d in view["days"] for j in d["jobs"]]
           and view["handled"] == [])
+
+    split = {"b": {"state": "applying", "at": now - 86400, "job": {"id": "b"}},
+             "c": {"state": "following", "at": now, "job": {"id": "c"}}}
+    view = results_gui.build_view(runs, split, now)
+    check("applying and following each get only their own roles",
+          [(j["id"], j["days"]) for j in view["applying"]] == [("b", 1)]
+          and [j["id"] for j in view["following"]] == ["c"] and view["handled"] == [])
+
+    marked = {"a": {"state": "applied", "at": now, "job": {"id": "a"}},
+              "b": {"state": "applied", "at": now, "job": {"id": "b"},
+                    "was": {"state": "following", "at": now - 3 * 86400}},
+              "c": {"state": "following", "at": now - 86400, "job": {"id": "c"}}}
+    view = results_gui.build_view(runs, marked, now, frozenset({"a", "b", "c"}))
+    check("a kept role stays in its day block, marked, with undo back to todo",
+          [(j["id"], j.get("state"), j.get("undo")) for j in view["days"][0]["jobs"]]
+          == [("x", None, None), ("a", "applied", "")])
+    check("one marked from following stays there in its old place, with undo to following",
+          [(j["id"], j.get("state"), j.get("undo"), j["days"]) for j in view["following"]]
+          == [("b", "applied", "following", 3), ("c", None, None, 1)])
+    check("kept roles stay out of handled", view["handled"] == [])
+    check("without keep they are handled",
+          [j["id"] for j in results_gui.build_view(runs, marked, now)["handled"]] == ["a", "b"])
 
 
 def candidate_cases(tmp: Path) -> None:
@@ -212,14 +249,15 @@ def api_cases(tmp: Path) -> None:
         "a": {"state": "skipped", "at": old, "job": {"id": "a"}},
         "gone": {"state": "skipped", "at": old, "job": {"id": "gone"}},
         "kept": {"state": "applied", "at": old, "job": {"id": "kept"}},
-        "chasing": {"state": "following", "at": old, "job": {"id": "chasing"}}}}),
+        "chasing": {"state": "following", "at": old, "job": {"id": "chasing"}},
+        "filling": {"state": "applying", "at": old, "job": {"id": "filling"}}}}),
         encoding="utf-8")
     decide("b", "applied")
     data = client.get("/api/jobs").get_json()
     check("an expired skip stays off the todo list after another write",
           data["days"] == [] and "a" in results_gui.read_decisions())
-    check("a skip whose snapshot is gone is dropped, applied and following are kept",
-          set(results_gui.read_decisions()) == {"a", "b", "kept", "chasing"})
+    check("a skip whose snapshot is gone is dropped, applied, following and applying are kept",
+          set(results_gui.read_decisions()) == {"a", "b", "kept", "chasing", "filling"})
     decide("a", "following")
     following = [j["id"] for j in client.get("/api/jobs").get_json()["following"]]
     decide("a", "applied")
@@ -227,6 +265,44 @@ def api_cases(tmp: Path) -> None:
     check("a followed role can then be marked applied",
           following == ["chasing", "a"] and [j["id"] for j in after["following"]] == ["chasing"]
           and results_gui.read_decisions()["a"]["state"] == "applied")
+    since = results_gui.read_decisions()["a"]["was"]["at"]
+    kept = client.get("/api/jobs?keep=" + json.dumps(["a"])).get_json()
+    check("keep holds it greyed in following",
+          [(j["id"], j.get("state")) for j in kept["following"]]
+          == [("chasing", None), ("a", "applied")]
+          and "a" not in [j["id"] for j in kept["handled"]])
+    decide("a", "following")
+    back = results_gui.read_decisions()["a"]
+    check("undo to following resumes its day count",
+          back["state"] == "following" and back["at"] == since and "was" not in back)
+    check("a malformed keep is ignored",
+          client.get("/api/jobs?keep=%7Bnot").status_code == 200
+          and client.get("/api/jobs?keep=5").status_code == 200)
+    decide("a", "following")
+    decide("a", "applying")
+    moved = client.get("/api/jobs").get_json()
+    check("a followed role moves to applying",
+          [j["id"] for j in moved["applying"]] == ["filling", "a"]
+          and [j["id"] for j in moved["following"]] == ["chasing"])
+
+
+def season_cases() -> None:
+    old = {"title": "Intern, Summer 2027", "department": "", "warnings": ["w"]}
+    check("an older record gains the season caveat after its warnings",
+          results_gui.with_season(old)["warnings"] == ["w", "title says 'summer'"])
+    newer = {"title": "Intern, Summer 2027", "warnings": ["title says 'summer'"]}
+    check("a record already holding it is left alone", results_gui.with_season(newer) is newer)
+    jd = {"title": "Intern", "department": "Eng", "warnings": ["description says 'summer'"]}
+    check("a description caveat gains no second one", results_gui.with_season(jd) is jd)
+    check("Summer_2027 is not a whole word",
+          results_gui.with_season({"title": "Summer_2027 Intern"}).get("warnings") is None)
+    now = time.time()
+    run = {"run_at": datetime.now(timezone.utc).isoformat(), "jobs": [{**old, "id": "d"}]}
+    decided = {k: {"state": k, "at": now, "job": {**old, "id": k}} for k in ("applied", "following")}
+    view = results_gui.build_view([run], decided, now)
+    check("day, handled and pinned records all gain it",
+          all(r["warnings"][-1] == "title says 'summer'"
+              for r in (view["days"][0]["jobs"][0], view["handled"][0], view["following"][0])))
 
 
 def exit_cases() -> None:
@@ -245,6 +321,7 @@ if __name__ == "__main__":
         view_cases()
         candidate_cases(Path(raw))
         api_cases(Path(raw))
+        season_cases()
         exit_cases()
     print(f"{failures} failure(s)")
     raise SystemExit(1 if failures else 0)

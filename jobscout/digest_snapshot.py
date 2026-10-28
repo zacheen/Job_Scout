@@ -44,7 +44,7 @@ def _job_record(group: str, track: str, job: Job, score: Score) -> dict:
         "matches": score.matches,
         "match_counts": [list(pair) for pair in score.match_counts or ()],
         "title_matches": [kw for kw, _ in score.title_match_counts or ()],
-        "warnings": [w for w in (job.note, score.work_auth_caveat) if w],
+        "warnings": [w for w in (job.note, score.work_auth_caveat, job.season_caveat) if w],
         "reason": score.reason,
     }
 
