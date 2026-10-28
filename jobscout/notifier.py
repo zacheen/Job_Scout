@@ -80,7 +80,7 @@ class EmailNotifier:
                     # One line each, never merged: the note is DescriptionFlagger's quote
                     # of a matched term, the caveat is the LLM's reading of the same text,
                     # and both can fire on one role.
-                    for caveat in (job.note, score.work_auth_caveat):
+                    for caveat in (job.note, score.work_auth_caveat, job.season_caveat):
                         if caveat:
                             lines.append(f"  ⚠ {caveat}")
                     lines.append(f"  why: {score.reason}")

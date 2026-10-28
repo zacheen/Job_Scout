@@ -29,6 +29,7 @@ from flask import Flask, jsonify, request
 
 from jobscout.config import DIGEST_TZ, RESULTS_DIRNAME, Settings
 from jobscout.digest_snapshot import load_snapshots, write_atomic
+from jobscout.models import season_caveat_of
 
 ROOT = Path(__file__).resolve().parent
 RESULTS_DIR = ROOT / RESULTS_DIRNAME
@@ -136,6 +137,17 @@ def _shown_as_handled(entry: dict, now: float) -> bool:
     return entry["state"] == "applied"
 
 
+def with_season(job: dict) -> dict:
+    """Adds the season caveat a snapshot written before Job.season_caveat lacks. Records
+    keep no description, so this recomputes from title and department only, which for a
+    newer record either finds nothing or repeats a caveat it already holds."""
+    caveat = season_caveat_of(job.get("title", ""), job.get("department", ""))
+    warnings = job.get("warnings") or []
+    if not caveat or caveat in warnings:
+        return job
+    return {**job, "warnings": [*warnings, caveat]}
+
+
 def build_view(runs: list[dict], decisions: dict, now: float) -> dict:
     """Undecided roles grouped by the day their run emailed them, newest day first,
     for the last SHOW_DAYS days counting today. A role emailed by two runs shows
@@ -160,15 +172,15 @@ def build_view(runs: list[dict], decisions: dict, now: float) -> dict:
             if not jid or jid in seen or jid in decisions:
                 continue
             seen.add(jid)
-            days[-1]["jobs"].append(job)
+            days[-1]["jobs"].append(with_season(job))
     handled = sorted(
-        ({**v["job"], "state": v["state"], "at": v["at"],
+        ({**with_season(v["job"]), "state": v["state"], "at": v["at"],
           "left": SKIP_TTL_DAYS - int((now - v["at"]) // 86400)}
          for v in decisions.values() if _shown_as_handled(v, now)),
         key=lambda j: j["at"], reverse=True)
     # Oldest first, so the role waiting longest leads.
     pinned = {state: sorted(
-        ({**v["job"], "at": v["at"], "days": int((now - v["at"]) // 86400)}
+        ({**with_season(v["job"]), "at": v["at"], "days": int((now - v["at"]) // 86400)}
          for v in decisions.values() if v["state"] == state),
         key=lambda j: j["at"]) for state in PINNED_STATES}
     return {**pinned, "days": [d for d in days if d["jobs"]], "handled": handled,

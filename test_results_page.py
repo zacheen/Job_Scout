@@ -99,6 +99,21 @@ def snapshot_cases(tmp: Path) -> None:
     SnapshotNotifier(FakeEmail(), tmp / "warn", clock=lambda: at(20)).send_digest(noted)
     warnings = load_snapshots(tmp / "warn")[0]["jobs"][0]["warnings"]
     check("note and LLM caveat each become one warning", len(warnings) == 2)
+    seasonal = [Job(job_uid="s", company="Acme", title="Software Intern", location="",
+                    url="https://example.com/s", description="Join us this Summer 2027."),
+                Job(job_uid="t", company="Acme", title="Intern, SUMMER 2027", location="",
+                    url="https://example.com/t", description="summer"),
+                Job(job_uid="u", company="Acme", title="Summer2027 Intern", location="",
+                    url="https://example.com/u", description="Consumer products"),
+                Job(job_uid="v", company="Acme", title="Robotics Intern", location="",
+                    url="https://example.com/v", description="summer",
+                    department="Internships - Summer 2027")]
+    SnapshotNotifier(FakeEmail(), tmp / "season", clock=lambda: at(20)).send_digest(
+        [("Intern", [("Software", [(j, Score(70, "ok", ScoreScale.LLM)) for j in seasonal])])])
+    check("the first field holding a season word becomes one warning",
+          [r["warnings"] for r in load_snapshots(tmp / "season")[0]["jobs"]]
+          == [["description says 'summer'"], ["title says 'summer'"], [],
+              ["department says 'summer'"]])
     SnapshotNotifier(FakeEmail(), tmp / "src", clock=lambda: at(20)).send_digest(
         digest("simplify:Simplify Internships:123"))
     check("the source is the uid's ats segment",
@@ -243,6 +258,25 @@ def api_cases(tmp: Path) -> None:
           and [j["id"] for j in moved["following"]] == ["chasing"])
 
 
+def season_cases() -> None:
+    old = {"title": "Intern, Summer 2027", "department": "", "warnings": ["w"]}
+    check("an older record gains the season caveat after its warnings",
+          results_gui.with_season(old)["warnings"] == ["w", "title says 'summer'"])
+    newer = {"title": "Intern, Summer 2027", "warnings": ["title says 'summer'"]}
+    check("a record already holding it is left alone", results_gui.with_season(newer) is newer)
+    jd = {"title": "Intern", "department": "Eng", "warnings": ["description says 'summer'"]}
+    check("a description caveat gains no second one", results_gui.with_season(jd) is jd)
+    check("Summer_2027 is not a whole word",
+          results_gui.with_season({"title": "Summer_2027 Intern"}).get("warnings") is None)
+    now = time.time()
+    run = {"run_at": datetime.now(timezone.utc).isoformat(), "jobs": [{**old, "id": "d"}]}
+    decided = {k: {"state": k, "at": now, "job": {**old, "id": k}} for k in ("applied", "following")}
+    view = results_gui.build_view([run], decided, now)
+    check("day, handled and pinned records all gain it",
+          all(r["warnings"][-1] == "title says 'summer'"
+              for r in (view["days"][0]["jobs"][0], view["handled"][0], view["following"][0])))
+
+
 def exit_cases() -> None:
     reason = results_gui.exit_reason
     check("waits for the first page during the grace",
@@ -259,6 +293,7 @@ if __name__ == "__main__":
         view_cases()
         candidate_cases(Path(raw))
         api_cases(Path(raw))
+        season_cases()
         exit_cases()
     print(f"{failures} failure(s)")
     raise SystemExit(1 if failures else 0)

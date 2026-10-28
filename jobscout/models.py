@@ -6,6 +6,7 @@ warning belongs to the normalization, and the alternative — normalizing in eac
 instead — is worse, because the callers must agree exactly (see seen_snapshot)."""
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
@@ -15,6 +16,10 @@ from typing import NamedTuple
 
 from .dates import display_date, posted_iso
 from .urls import workday_short_url
+
+# Whole words, case-insensitive, so "Summer2027" is not a hit.
+SEASON_TERMS = ("summer",)
+_SEASON_RE = re.compile(r"\b(" + "|".join(map(re.escape, SEASON_TERMS)) + r")\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,23 @@ class Job:
         ledger stores the raw string and `posted_iso` derives from it, so nothing upstream
         should read this."""
         return display_date(self.date_posted)
+
+    @property
+    def season_caveat(self) -> str:
+        """Kept out of `note`, which Pipeline would read as a work-auth warn match."""
+        return season_caveat_of(self.title, self.department, self.description)
+
+
+def season_caveat_of(title: str, department: str, description: str = "") -> str:
+    """The caveat for the first of title, department, description holding a SEASON_TERMS
+    word, e.g. "title says 'summer'", or "". A row rebuilt from the ledger, or
+    a snapshot record, has no description, so only its title and department count."""
+    for where, text in (("title", title), ("department", department),
+                        ("description", description)):
+        hit = _SEASON_RE.search(text or "")
+        if hit:
+            return f"{where} says {hit.group(1).lower()!r}"
+    return ""
 
 
 @dataclass(frozen=True)
