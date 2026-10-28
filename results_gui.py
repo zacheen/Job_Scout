@@ -2,9 +2,11 @@
 
 local_run.py launches it after a run that emailed at least one role. Every role is a
 todo until marked applied or skipped, which moves it to the collapsed Handled section,
-where the mark can be undone. A role marked applying or following moves to its own
-section pinned above the days, applying first, and stays there until marked again. The
-process exits on its own once no page is open.
+where the mark can be undone. A role marked applied on an open page instead stays greyed
+out where it was until that page reloads, so a misclick can be undone in place. A role
+marked applying or following moves to its own section pinned above the days, applying
+first, and stays there until marked again. The process exits on its own once no page is
+open.
 
 digest_snapshot.SnapshotNotifier writes the run-*.json snapshots and this process only
 reads them, while this process is the only writer of the decisions file. With atomic
@@ -48,6 +50,8 @@ STATES = ("applied", "skipped", "following", "applying")
 PINNED_STATES = ("applying", "following")
 # Kept until unmarked, even after the snapshots listing the role are pruned.
 LASTING_STATES = ("applied", *PINNED_STATES)
+# Marked on an open page, these stay greyed out in their section until it reloads.
+KEEP_IN_PLACE = ("applied",)
 # Older todos stay in their snapshots, so widening this brings them back.
 SHOW_DAYS = 5
 # A skipped role leaves the Handled section after this many days. Applied ones stay.
@@ -148,10 +152,17 @@ def with_season(job: dict) -> dict:
     return {**job, "warnings": [*warnings, caveat]}
 
 
-def build_view(runs: list[dict], decisions: dict, now: float) -> dict:
+def build_view(runs: list[dict], decisions: dict, now: float,
+               keep: frozenset[str] = frozenset()) -> dict:
     """Undecided roles grouped by the day their run emailed them, newest day first,
     for the last SHOW_DAYS days counting today. A role emailed by two runs shows
-    once, under the newer one."""
+    once, under the newer one.
+
+    A role in `keep` whose mark is in KEEP_IN_PLACE stays where it was marked from, in
+    its day block or in the pinned section its decision's `was` names. It carries
+    `state` and the `undo` state that puts it back, and is left out of handled."""
+    kept = {jid: v for jid, v in decisions.items()
+            if jid in keep and v["state"] in KEEP_IN_PLACE}
     today = datetime.fromtimestamp(now, DIGEST_TZ).date()
     days: list[dict] = []
     seen: set[str] = set()
@@ -169,19 +180,29 @@ def build_view(runs: list[dict], decisions: dict, now: float) -> dict:
         days[-1]["runs"] += 1
         for job in run.get("jobs", []):
             jid = job.get("id")
-            if not jid or jid in seen or jid in decisions:
+            if not jid or jid in seen:
+                continue
+            held = kept.get(jid)
+            if jid in decisions and not (held and "was" not in held):
                 continue
             seen.add(jid)
-            days[-1]["jobs"].append(with_season(job))
+            job = with_season(job)
+            days[-1]["jobs"].append({**job, "state": held["state"], "undo": ""} if held else job)
     handled = sorted(
         ({**with_season(v["job"]), "state": v["state"], "at": v["at"],
           "left": SKIP_TTL_DAYS - int((now - v["at"]) // 86400)}
-         for v in decisions.values() if _shown_as_handled(v, now)),
+         for jid, v in decisions.items() if jid not in kept and _shown_as_handled(v, now)),
         key=lambda j: j["at"], reverse=True)
-    # Oldest first, so the role waiting longest leads.
+
+    def since(v: dict, at: float) -> dict:
+        return {**with_season(v["job"]), "at": at, "days": int((now - at) // 86400)}
+
+    # Oldest first, so the role waiting longest leads. A kept role sorts by when it
+    # entered the pinned state, so it keeps its place.
     pinned = {state: sorted(
-        ({**with_season(v["job"]), "at": v["at"], "days": int((now - v["at"]) // 86400)}
-         for v in decisions.values() if v["state"] == state),
+        [since(v, v["at"]) for v in decisions.values() if v["state"] == state]
+        + [{**since(v, v["was"]["at"]), "state": v["state"], "undo": state}
+           for v in kept.values() if v.get("was", {}).get("state") == state],
         key=lambda j: j["at"]) for state in PINNED_STATES}
     return {**pinned, "days": [d for d in days if d["jobs"]], "handled": handled,
             "footer": runs[0].get("footer", "") if runs else ""}
@@ -264,7 +285,11 @@ def api_jobs():
     # Under the lock: on Windows an open reader makes api_decide's os.replace fail.
     with _lock:
         decisions = read_decisions()
-    view = build_view(load_snapshots(RESULTS_DIR), decisions or {}, time.time())
+    try:
+        keep = frozenset(map(str, json.loads(request.args.get("keep") or "[]")))
+    except (TypeError, ValueError):
+        keep = frozenset()
+    view = build_view(load_snapshots(RESULTS_DIR), decisions or {}, time.time(), keep)
     view["unreadable"] = decisions is None
     return jsonify(view)
 
@@ -284,7 +309,15 @@ def api_decide():
             job = find_job(jid, runs, decisions)
             if job is None:
                 return jsonify({"ok": False, "error": "gone"}), 409
-            decisions[jid] = {"state": state, "at": time.time(), "job": job}
+            old = decisions.get(jid, {})
+            entry = {"state": state, "at": time.time(), "job": job}
+            was = old.get("was")
+            if was and was["state"] == state:
+                # An undo back to the pinned state, so its day count resumes.
+                entry["at"] = was["at"]
+            elif old.get("state") in PINNED_STATES:
+                entry["was"] = {"state": old["state"], "at": old["at"]}
+            decisions[jid] = entry
         else:
             decisions.pop(jid, None)
         RESULTS_DIR.mkdir(exist_ok=True)
@@ -358,6 +391,7 @@ PAGE = """<!doctype html>
  .st{font-size:11px;min-width:44px;text-align:right}
  .saving{color:#8b9096}.failed{color:#ff7a7a;font-weight:600}
  .row.done{opacity:.6}
+ .row.kept{opacity:.45;filter:grayscale(1)}
  .tag{font-size:11px;font-weight:600;border-radius:5px;padding:1px 7px;margin-right:8px}
  .tag.applied{background:#1d3a26;color:#7ee09a}
  .tag.skipped{background:#262a31;color:#aab0b7}
@@ -406,6 +440,11 @@ const SKIP_DAYS = """ + str(SKIP_TTL_DAYS) + """;
 const SHOW_DAYS = """ + str(SHOW_DAYS) + """;
 // Collapsed days by date. load() rebuilds the list, so this outlives the DOM.
 const SHUT = new Set();
+// Roles marked with a KEEP_IN_PLACE state on this page. A reload empties it, which is
+// what moves them to handled.
+const KEPT = new Set();
+const KEEP_IN_PLACE = """ + json.dumps(KEEP_IN_PLACE) + """;
+const DONE_TAG = {applied:'已投遞', skipped:'略過'};
 // The sections for PINNED_STATES. extra holds the buttons only that section offers.
 const PINNED = [
   {state:'applying', list:'listapply', cnt:'cntapply', since:'申請中', start:'今天開始申請',
@@ -455,6 +494,7 @@ function button(label, cls, id, state){
         const r = await fetch('/api/decide',{method:'POST',
           headers:{'Content-Type':'application/json'},body:JSON.stringify({id,state})});
         if(!r.ok) throw new Error(String(r.status));
+        KEEP_IN_PLACE.includes(state) ? KEPT.add(id) : KEPT.delete(id);
         await load();
       }catch(e){
         b.disabled = false; st.className = 'st failed'; st.textContent = '未儲存';
@@ -464,9 +504,17 @@ function button(label, cls, id, state){
   };
 }
 
+function keptCard(j){
+  const row = card(j,{tag: el('span','tag '+j.state, DONE_TAG[j.state]),
+                      buttons:[button('取消','',j.id,j.undo)]});
+  row.classList.add('kept');
+  return row;
+}
+
 async function load(){
   let d;
-  try{ d = await (await fetch('/api/jobs?cid='+CID)).json(); }
+  const keep = encodeURIComponent(JSON.stringify([...KEPT]));
+  try{ d = await (await fetch('/api/jobs?cid='+CID+'&keep='+keep)).json(); }
   catch(e){
     document.getElementById('sub').textContent = '讀不到資料，伺服器已經關閉。重新啟動 results_gui.py';
     return;
@@ -478,6 +526,7 @@ async function load(){
     const list = document.getElementById(p.list);
     list.replaceChildren();
     for(const j of d[p.state]){
+      if(j.state){ list.append(keptCard(j)); continue; }
       const tag = el('span','tag '+p.state, j.days ? p.since+' '+j.days+' 天' : p.start);
       list.append(card(j,{tag, buttons:[...p.extra.map(b=>button(b[0],b[1],j.id,b[2])),
                                         button('已投遞','ok',j.id,'applied'),
@@ -485,18 +534,19 @@ async function load(){
                                         button('移回待辦','',j.id,'')]}));
     }
     if(!d[p.state].length) list.append(el('div','none',p.empty));
-    document.getElementById(p.cnt).textContent = d[p.state].length+' 筆';
+    document.getElementById(p.cnt).textContent = d[p.state].filter(j=>!j.state).length+' 筆';
   }
   const box = document.getElementById('days');
   box.replaceChildren();
   let open = 0;
   d.days.forEach((day, i)=>{
-    open += day.jobs.length;
+    const todo = day.jobs.filter(j=>!j.state).length;
+    open += todo;
     const sec = el('div', 'day'+(i ? '' : ' newest')+(SHUT.has(day.date) ? ' shut' : ''));
     const hd = el('div','dayhd'), body = el('div','daybody');
     const arrow = el('span','arrow', SHUT.has(day.date) ? '展開 ▸' : '收起 ▾');
     hd.append(el('span','date',day.label),
-              el('span','n', day.jobs.length+' 筆待辦'+(day.runs>1 ? '，'+day.runs+' 次 run' : '')),
+              el('span','n', todo+' 筆待辦'+(day.runs>1 ? '，'+day.runs+' 次 run' : '')),
               arrow);
     hd.onclick = ()=>{
       const shut = sec.classList.toggle('shut');
@@ -507,6 +557,7 @@ async function load(){
     for(const j of day.jobs){
       const g = j.group+' ▸ '+j.track;
       if(g !== last){ body.append(el('div','grp',g)); last = g; }
+      if(j.state){ body.append(keptCard(j)); continue; }
       body.append(card(j,{buttons:[button('申請中','app',j.id,'applying'),
                                    button('追蹤','fol',j.id,'following'),
                                    button('已投遞','ok',j.id,'applied'),
@@ -527,7 +578,7 @@ async function load(){
   }
   document.getElementById('cnthandled').textContent = d.handled.length+' 筆';
   document.getElementById('sub').textContent =
-    d.days.length+' 天，共 '+open+' 筆待辦。按申請中或追蹤會移到最上方的同名區塊，按已投遞或略過會移到已處理，在那裡可以取消。';
+    d.days.length+' 天，共 '+open+' 筆待辦。按申請中或追蹤會移到最上方的同名區塊，按已投遞會變灰留在原處，可以直接取消，重新整理後才移到已處理。按略過會移到已處理，在那裡可以取消。';
   document.getElementById('foot').textContent = (d.footer ? d.footer+' ' : '')
     + '只顯示最近 '+SHOW_DAYS+' 天的待辦。略過的職缺 '+SKIP_DAYS+' 天後從已處理清除。';
 }

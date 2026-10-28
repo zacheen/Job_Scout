@@ -169,6 +169,21 @@ def view_cases() -> None:
           [(j["id"], j["days"]) for j in view["applying"]] == [("b", 1)]
           and [j["id"] for j in view["following"]] == ["c"] and view["handled"] == [])
 
+    marked = {"a": {"state": "applied", "at": now, "job": {"id": "a"}},
+              "b": {"state": "applied", "at": now, "job": {"id": "b"},
+                    "was": {"state": "following", "at": now - 3 * 86400}},
+              "c": {"state": "following", "at": now - 86400, "job": {"id": "c"}}}
+    view = results_gui.build_view(runs, marked, now, frozenset({"a", "b", "c"}))
+    check("a kept role stays in its day block, marked, with undo back to todo",
+          [(j["id"], j.get("state"), j.get("undo")) for j in view["days"][0]["jobs"]]
+          == [("x", None, None), ("a", "applied", "")])
+    check("one marked from following stays there in its old place, with undo to following",
+          [(j["id"], j.get("state"), j.get("undo"), j["days"]) for j in view["following"]]
+          == [("b", "applied", "following", 3), ("c", None, None, 1)])
+    check("kept roles stay out of handled", view["handled"] == [])
+    check("without keep they are handled",
+          [j["id"] for j in results_gui.build_view(runs, marked, now)["handled"]] == ["a", "b"])
+
 
 def candidate_cases(tmp: Path) -> None:
     def entry(company: str, state: str, at: float) -> dict:
@@ -250,6 +265,19 @@ def api_cases(tmp: Path) -> None:
     check("a followed role can then be marked applied",
           following == ["chasing", "a"] and [j["id"] for j in after["following"]] == ["chasing"]
           and results_gui.read_decisions()["a"]["state"] == "applied")
+    since = results_gui.read_decisions()["a"]["was"]["at"]
+    kept = client.get("/api/jobs?keep=" + json.dumps(["a"])).get_json()
+    check("keep holds it greyed in following",
+          [(j["id"], j.get("state")) for j in kept["following"]]
+          == [("chasing", None), ("a", "applied")]
+          and "a" not in [j["id"] for j in kept["handled"]])
+    decide("a", "following")
+    back = results_gui.read_decisions()["a"]
+    check("undo to following resumes its day count",
+          back["state"] == "following" and back["at"] == since and "was" not in back)
+    check("a malformed keep is ignored",
+          client.get("/api/jobs?keep=%7Bnot").status_code == 200
+          and client.get("/api/jobs?keep=5").status_code == 200)
     decide("a", "following")
     decide("a", "applying")
     moved = client.get("/api/jobs").get_json()
