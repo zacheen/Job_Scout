@@ -46,6 +46,7 @@ class Pipeline:
         scorer_overrides: Mapping[str, JobScorer] | None = None,
         suppressed_groups: Collection[str] = (),
         subject_time: datetime | None = None,
+        subject_suffix: str = "",
         jd_retry: JdRetryPolicy | None = None,
         email_confirmed_work_auth_bars: bool = True,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
@@ -78,6 +79,9 @@ class Pipeline:
         # passes its scan-start time so the subject matches the footer's
         # deletable-window end exactly (one cutoff for the user).
         self._subject_time = subject_time
+        # Appended after the timestamp, so the timestamp keeps its place for anyone
+        # reading the deletable-window end off the subject.
+        self._subject_suffix = subject_suffix
         # None = no JD retry: a retryable JD failure is neither recorded nor retried, which
         # is exactly the behaviour from before the retry existed.
         self._jd_retry = jd_retry
@@ -179,6 +183,8 @@ class Pipeline:
         subject += f" [{self._scorer.method_label}]"
         # Timestamp makes each subject unique so Gmail doesn't thread digests together.
         subject += f" {(self._subject_time or datetime.now(DIGEST_TZ)):%m/%d %H:%M}"
+        if self._subject_suffix:
+            subject += f" {self._subject_suffix}"
 
         try:
             self._notifier.send_digest(digest, subject=subject)

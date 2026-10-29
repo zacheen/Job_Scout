@@ -29,12 +29,14 @@ from .store import CsvStore
 
 
 def main(digest_footer: str = "", subject_time: datetime | None = None,
-         results_dir: Path | None = None) -> bool:
+         results_dir: Path | None = None, subject_suffix: str = "") -> bool:
     """`digest_footer` is appended to the digest email body and `subject_time`
     stamps the subject line; local_run.py passes a safe-to-delete-window summary
     plus its scan-start time (so subject == window end), cloud runs (run.py)
     leave both unset. `results_dir` set also snapshots each sent digest there for
-    results_gui.py. Returns whether the run caught up (see Pipeline.run)."""
+    results_gui.py. `subject_suffix` ends the subject line, which local_run.py uses
+    to mark a digest whose run opens the results page. Returns whether the run
+    caught up (see Pipeline.run)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root = Path(__file__).resolve().parent.parent
     attach_catchup_log(root / CATCHUP_LOG_FILENAME)
@@ -155,6 +157,7 @@ def main(digest_footer: str = "", subject_time: datetime | None = None,
         # LevelClassifier routes a referral-company senior role to Referral, not Senior.
         suppressed_groups={leveler.senior_group},
         subject_time=subject_time,
+        subject_suffix=subject_suffix,
         jd_retry=settings.jd_retry_policy,
         email_confirmed_work_auth_bars=settings.email_confirmed_work_auth_bars,
     )

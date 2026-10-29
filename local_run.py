@@ -27,11 +27,20 @@ re-emailing) in local scans until you fold them in.
        report now that git has no console to ask on (gitledger.sweep_pack_garbage)
     7. when the scan emailed anything, open results_gui.py, the local results page
 
+    local_run.py              # every step above
+    local_run.py --no-html    # mail the same digest but skip step 7
+
+The digest of a run that opens the page ends its subject with (HTML_shown). The mail
+goes out mid-scan, before step 7 runs, so the tag records the intent to open the page.
+A launch that then fails logs a WARNING saying the tag was wrong, and a crash between
+the send and step 7, or a snapshot that failed to write, leaves its own traceback instead.
+
 Steps 0, 1, 2 and 5 are git plumbing shared with merge_seen_jobs.py — see
 jobscout/gitledger.py. Only the merge policy (_merge_ledgers) is local to here.
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import subprocess
@@ -55,6 +64,7 @@ CLOUD_DIR = ROOT / "cloud_data"  # scan.yml's LEDGER_DIR, at the data-branch roo
 CHECKPOINT = ROOT / DIGEST_CHECKPOINT_FILENAME  # untracked: survives the hard-resets below
 RESULTS_DIR = ROOT / RESULTS_DIRNAME
 RESULTS_GUI = ROOT / "results_gui.py"
+HTML_SHOWN_TAG = "(HTML_shown)"
 # WMI rather than Popen, so the page outlives a scheduled run's process job.
 # ShowWindow=0 keeps Windows Terminal from opening a console the user could close.
 # The command line arrives through the environment to avoid a second quoting layer.
@@ -128,31 +138,42 @@ def _sync_with_remote(settings: Settings) -> None:
                                lambda snaps: _merge_ledgers(settings, snaps))
 
 
-def _open_results_page() -> None:
+def _parse(argv: list[str]) -> argparse.Namespace:
+    # allow_abbrev=False so a typo cannot be read as some other flag.
+    parser = argparse.ArgumentParser(prog=SCRIPT, description=__doc__.splitlines()[0],
+                                     allow_abbrev=False)
+    parser.add_argument("--html", action=argparse.BooleanOptionalAction, default=True)
+    return parser.parse_args(argv)
+
+
+def _open_results_page(pythonw: Path) -> None:
     """Never raises: the ledger is already pushed, so a page that fails to open must
     not turn the run into a failure."""
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    if not pythonw.exists():
-        log.warning("results page not opened, %s not found", pythonw)
-        return
     env = {**os.environ, "JOBSCOUT_GUI_CMD": f'"{pythonw}" "{RESULTS_GUI}"',
            "JOBSCOUT_GUI_CWD": str(ROOT)}
+    wrong_tag = f"so this run's digest subject is wrong to say {HTML_SHOWN_TAG}"
     try:
         proc = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",
                                "-Command", _WMI_LAUNCH],
                               env=env, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as exc:
-        log.warning("results page not opened: %s", exc)
+        log.warning("results page not opened (%s), %s", exc, wrong_tag)
         return
     if proc.returncode:
-        log.warning("results page not opened, Win32_Process.Create returned %d %s",
-                    proc.returncode, proc.stderr.strip())
+        log.warning("results page not opened, Win32_Process.Create returned %d %s, %s",
+                    proc.returncode, proc.stderr.strip(), wrong_tag)
     else:
         log.info("results page launched")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    args = _parse(sys.argv[1:] if argv is None else argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    # Checked before the scan, while the subject can still drop the tag.
+    show_page = args.html and pythonw.exists()
+    if args.html and not show_page:
+        log.warning("results page will not open, %s not found", pythonw)
     # before any git call: a second run must not even fetch
     gitledger.acquire_single_instance_lock(ROOT)
     gitledger.ensure_branch(ROOT, SCRIPT)
@@ -176,7 +197,8 @@ def main() -> None:
     # "delete every cloud digest older than this subject" needs no footer math.
     snapshots_before = set(snapshot_paths(RESULTS_DIR))
     caught_up = run_scan(digest_footer=_digest_footer(_read_checkpoint(), start),
-                         subject_time=start, results_dir=RESULTS_DIR)
+                         subject_time=start, results_dir=RESULTS_DIR,
+                         subject_suffix=HTML_SHOWN_TAG if show_page else "")
     if caught_up:
         _write_checkpoint(start)  # the next window starts where this scan began
     else:
@@ -190,8 +212,8 @@ def main() -> None:
     # after the last git call, still holding the lock: no repack of ours can be
     # mid-rename, so an .idx-less .pack here is garbage and not a newborn
     gitledger.sweep_pack_garbage(ROOT)
-    if set(snapshot_paths(RESULTS_DIR)) - snapshots_before:
-        _open_results_page()
+    if show_page and set(snapshot_paths(RESULTS_DIR)) - snapshots_before:
+        _open_results_page(pythonw)
 
 
 if __name__ == "__main__":

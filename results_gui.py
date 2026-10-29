@@ -1,12 +1,12 @@
 """Local results page: the roles each local run emailed, one block per day, newest first.
 
-local_run.py launches it after a run that emailed at least one role. Every role is a
-todo until marked applied or skipped, which moves it to the collapsed Handled section,
-where the mark can be undone. A role marked applied on an open page instead stays greyed
-out where it was until that page reloads, so a misclick can be undone in place. A role
-marked applying or following moves to its own section pinned above the days, applying
-first, and stays there until marked again. The process exits on its own once no page is
-open.
+local_run.py launches it after a run that emailed at least one role, unless that run was
+given --no-html. Every role is a todo until marked applied or skipped, which moves it to
+the collapsed Handled section, where the mark can be undone. A role marked applied on an
+open page instead stays greyed out where it was until that page reloads, so a misclick
+can be undone in place. A role marked applying or following moves to its own section
+pinned above the days, applying first, and stays there until marked again. The process
+exits on its own once no page is open.
 
 digest_snapshot.SnapshotNotifier writes the run-*.json snapshots and this process only
 reads them, while this process is the only writer of the decisions file. With atomic
@@ -62,11 +62,24 @@ HOST, PORT = "127.0.0.1", 8766
 STARTUP_GRACE = 90
 # Must clear a minute: Chrome throttles hidden-tab timers to about once a minute.
 CLIENT_TIMEOUT = 150
+# How long a closed page still counts as open, so a reload can arrive.
+BYE_GRACE = 10
 PING_EVERY_MS = 15000
 WATCHDOG_TICK = 3
 WEEKDAYS = "一二三四五六日"
 
 app = Flask(__name__)
+
+
+@app.before_request
+def _refuse_foreign_host():
+    """A DNS-rebinding page reaches 127.0.0.1 under its own hostname, so the Host
+    header is what tells it apart from this page."""
+    if request.host not in (f"{HOST}:{PORT}", f"localhost:{PORT}"):
+        return jsonify({"error": "unexpected host"}), 403
+    return None
+
+
 _lock = threading.Lock()
 _started = time.time()
 _clients: dict[str, float] = {}
@@ -335,10 +348,18 @@ def api_ping():
 
 @app.post("/api/bye")
 def api_bye():
-    """Drops only the closing page's id, so a second open tab keeps the server alive."""
-    with _lock:
-        _clients.pop(request.args.get("cid", ""), None)
+    """Ages only the closing page's id, so a second open tab keeps the server alive.
+    Aged to BYE_GRACE before expiry rather than removed, because a reload sends this
+    before the new page's first request, and removing it let a watchdog tick in that
+    gap end the server."""
+    _age_out(request.args.get("cid", ""), time.time())
     return jsonify({"ok": True})
+
+
+def _age_out(cid: str, now: float) -> None:
+    with _lock:
+        if cid in _clients:
+            _clients[cid] = min(_clients[cid], now - CLIENT_TIMEOUT + BYE_GRACE)
 
 
 PAGE = """<!doctype html>
