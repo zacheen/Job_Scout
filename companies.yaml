@@ -35,6 +35,7 @@
 #   jobvite:    company (the static c= id from the careers page)
 #   whatnot:    (no params) jobs.whatnot.com/api/jobs
 #   aurora:     (no params) aurora.tech/api/jobs-index (first-party; body included)
+#   restart:    (no params) restart.new/api/careers/jobs (in-house board; body included)
 #   deshaw:     (no params) deshaw.com/careers __NEXT_DATA__
 #   nio:        (no params) nio.com/careers/jobs __NEXT_DATA__
 #   visa:       (no params) search.visa.com single POST
@@ -733,6 +734,9 @@
 # --- Tinder (first-party proxy; Match Group's shared Lever org would mislabel all brands
 #     as Tinder, so this Tinder-only source is used instead). Single-shot, no date field. ---
 - {name: Tinder, ats: tinder}
+
+# --- Restart (AI company builder, SF; in-house board). ---
+- {name: Restart, ats: restart}
 
 # --- GitHub job-list aggregators. One repo lists many employers; each role keeps its
 #     REAL company (so referral-company roles still group under Referral) and dedupes
