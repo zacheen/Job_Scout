@@ -2786,6 +2786,46 @@ class AuroraFetcher(AtsFetcher):
         return jobs
 
 
+class RestartFetcher(AtsFetcher):
+    """Restart's in-house board. restart.new/careers renders client-side
+    from /api/careers/jobs, which returns the whole board with full descriptions and dates
+    in one request. Single-shot."""
+
+    ats_name = "restart"
+    empty_is_confirmed = True
+
+    @property
+    def host(self) -> str:
+        return "restart.new"
+
+    def fetch(self, seen: SeenLedger = EMPTY_SEEN_LEDGER) -> list[Job]:
+        data = self._http.get_json("https://restart.new/api/careers/jobs")
+        jobs = []
+        for item in self._listing(data, "jobs"):
+            if not item.get("id") or not item.get("slug"):
+                continue
+            location = item.get("location") or ""
+            # Remote is carried only in `workplace`, so without this a remote role reads as
+            # on-site at whatever city `location` names.
+            if item.get("workplace") == "remote" and "remote" not in location.lower():
+                location = "; ".join(p for p in ("Remote", location) if p)
+            jobs.append(
+                Job(
+                    job_uid=self._uid(item["id"]),
+                    company=self._company.name,
+                    title=item.get("title", ""),
+                    location=location,
+                    # The board opens a role's detail view from ?job={slug}. The app's
+                    # /careers/apply/{id} link needs a sign-in, so it is wrong for email links.
+                    url=f"https://restart.new/careers?job={item['slug']}",
+                    description=strip_html(item.get("description", "")),
+                    department=item.get("department", ""),
+                    date_posted=item.get("publishedAt", ""),
+                )
+            )
+        return jobs
+
+
 class DeShawFetcher(AtsFetcher):
     """D.E. Shaw embeds its board in the careers page as Next.js __NEXT_DATA__ JSON
     (method D). `pageProps` carries `regularJobs` + `internships` (both external); the
@@ -3381,6 +3421,7 @@ class FetcherFactory:
         JobviteFetcher.ats_name: JobviteFetcher,
         WhatnotFetcher.ats_name: WhatnotFetcher,
         AuroraFetcher.ats_name: AuroraFetcher,
+        RestartFetcher.ats_name: RestartFetcher,
         DeShawFetcher.ats_name: DeShawFetcher,
         NioFetcher.ats_name: NioFetcher,
         VisaFetcher.ats_name: VisaFetcher,
