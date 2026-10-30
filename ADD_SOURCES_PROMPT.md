@@ -28,12 +28,24 @@ Fetch the new entry on its own before keeping it. Write a throwaway script outsi
 
 After the edits, run `conda run -n ML python results_gui.py --write-candidates` and confirm every company you handled has left `ignore_source_candidates.md`.
 
+## Commit on main, then merge into data
+
+Do this yourself once every entry is verified and the code reviews are done. It replaces the usual hand-off where I commit after reading the staged diff.
+- Run `git diff --cached --quiet` first. When the index already holds something you did not stage, stop and show me what it holds, because committing would sweep my work into yours.
+- Stage the edited paths by name, never with `git add -A`, `git add .` or `git add -u`. `ignore_source_skip.txt` is gitignored and never gets staged.
+- Commit on `main` with `git commit -F` and a message file in your scratchpad, written to the commit message rules in my user-level instructions. Do not arm the GitKraken template, since nothing is left for me to commit.
+- Check that no `local_run.py` or `scheduled_check.py` process is alive, then run `git switch data` and `git pull --ff-only`. When the pull refuses because the branches diverged, stay where you are and show me the refusal.
+- Run `git merge main`. When it conflicts, run `git merge --abort` and show me the conflicting paths.
+- Never push either branch, and finish on `data`.
+
 ## Limits
 
 - Edit only `companies.yaml`, `jobscout/company_aliases.py`, `jobscout/fetchers.py` and `ignore_source_skip.txt`. Never edit `ignore_source_candidates.md` by hand, since it is regenerated.
-- Do not commit, push or run `local_run.py`. Switch to no branch other than `main`.
+- Do not run `local_run.py`. Switch to no branch other than `main` and `data`.
 - If a company needs a decision only I can make, list it and leave it out of every file.
 
 ## Report
 
 Give one line per company saying which outcome it got, the entry or alias you added, and how many roles the verification fetch returned. List the companies you left for me separately with the question each one needs answered.
+
+Then give the commit hash on `main`, the merge commit hash on `data`, and what `git status -sb` prints on `data`. Say that `local_run.py` refuses to start until I push, because its reset-safety check rejects unpushed commits that touch files outside the shard dirs.
