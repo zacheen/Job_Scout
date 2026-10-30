@@ -431,7 +431,12 @@ PAGE = """<!doctype html>
  .none{color:#6a6f76;font-size:13px;padding:2px 0 8px}
  .err{color:#ff7a7a;font-weight:600;margin-bottom:16px}
  .foot{color:#8b9096;font-size:12px;margin-top:20px;text-align:center}
+ .conn{position:fixed;top:12px;right:16px;font-size:12px;padding:3px 10px;border-radius:999px;
+       background:#1b1e23;border:1px solid #2a2e35;color:#8b9096}
+ .conn.up{color:#7ee09a;border-color:#2f5a3a}
+ .conn.down{color:#ff7a7a;border-color:#6a2f2f;font-weight:600}
 </style>
+<div class=conn id=conn>連線檢查中</div>
 <div class=wrap>
   <h1>Job Scout 職缺</h1>
   <div class=sub id=sub>載入中</div>
@@ -532,14 +537,23 @@ function keptCard(j){
   return row;
 }
 
+function showConn(up){
+  const c = document.getElementById('conn');
+  c.className = 'conn '+(up ? 'up' : 'down');
+  c.textContent = (up ? '● 已連線 ' : '● 已斷線 ')
+    + new Date().toLocaleTimeString('zh-TW',{hour12:false});
+}
+
 async function load(){
   let d;
   const keep = encodeURIComponent(JSON.stringify([...KEPT]));
   try{ d = await (await fetch('/api/jobs?cid='+CID+'&keep='+keep)).json(); }
   catch(e){
+    showConn(false);
     document.getElementById('sub').textContent = '讀不到資料，伺服器已經關閉。重新啟動 results_gui.py';
     return;
   }
+  showConn(true);
   const err = document.getElementById('err');
   err.classList.toggle('hidden', !d.unreadable);
   err.textContent = d.unreadable ? 'decisions.json 讀不懂，已處理的紀錄先不顯示，按鈕也無法儲存' : '';
@@ -610,7 +624,12 @@ document.getElementById('toghandled').onclick = e=>{
 };
 load();
 setInterval(load, 60000);
-setInterval(()=>fetch('/api/ping?cid='+CID,{method:'POST'}).catch(()=>{}), __PING_MS__);
+const ping = ()=>fetch('/api/ping?cid='+CID,{method:'POST'})
+  .then(r=>showConn(r.ok), ()=>showConn(false));
+setInterval(ping, __PING_MS__);
+// A hidden tab's timers are throttled to about once a minute, so the badge can be that
+// stale when the tab comes back.
+addEventListener('visibilitychange', ()=>{ if(!document.hidden) ping(); });
 // pagehide is the unload-side event browsers still allow a beacon from. A discarded
 // tab sends none, which the ping timeout covers.
 addEventListener('pagehide', ()=>{ navigator.sendBeacon('/api/bye?cid='+CID); });
