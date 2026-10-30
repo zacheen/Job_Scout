@@ -6,6 +6,7 @@ Every case works in a throwaway directory, so the real ignore_run_results/ is un
 """
 from __future__ import annotations
 
+import functools
 import json
 import tempfile
 import time
@@ -222,14 +223,22 @@ def api_cases(tmp: Path) -> None:
                      clock=lambda: datetime.now(timezone.utc)).send_digest(
         digest("a", "b"))
     client = results_gui.app.test_client()
+    # The test client's default host is a bare localhost, which the page refuses.
+    own = f"http://{results_gui.HOST}:{results_gui.PORT}/"
+    get = functools.partial(client.get, base_url=own)
+    post = functools.partial(client.post, base_url=own)
+    check("a request under another hostname is refused",
+          client.get("/api/jobs", base_url=f"http://rebound.example:{results_gui.PORT}/")
+          .status_code == 403)
+    check("its own address is served", get("/").status_code == 200)
 
     def decide(uid: str, state: str):
-        return client.post("/api/decide", json={"id": uid, "state": state})
+        return post("/api/decide", json={"id": uid, "state": state})
 
     check("marking a role applied succeeds", decide("a", "applied").status_code == 200)
     check("and lists its company as a source candidate",
           "## Acme" in results_gui.CANDIDATES_PATH.read_text(encoding="utf-8"))
-    ids = [j["id"] for d in client.get("/api/jobs").get_json()["days"] for j in d["jobs"]]
+    ids = [j["id"] for d in get("/api/jobs").get_json()["days"] for j in d["jobs"]]
     check("an applied role leaves the todo list", ids == ["b"])
     check("undo puts it back", decide("a", "").status_code == 200
           and results_gui.read_decisions() == {})
@@ -239,7 +248,7 @@ def api_cases(tmp: Path) -> None:
     check("an unknown state is refused", decide("a", "later").status_code == 400)
 
     results_gui.DECISIONS_PATH.write_text("{not json", encoding="utf-8")
-    data = client.get("/api/jobs").get_json()
+    data = get("/api/jobs").get_json()
     check("an unreadable decisions file is reported", data["unreadable"] is True)
     check("and never overwritten", decide("a", "applied").status_code == 500
           and results_gui.DECISIONS_PATH.read_text(encoding="utf-8") == "{not json")
@@ -253,20 +262,20 @@ def api_cases(tmp: Path) -> None:
         "filling": {"state": "applying", "at": old, "job": {"id": "filling"}}}}),
         encoding="utf-8")
     decide("b", "applied")
-    data = client.get("/api/jobs").get_json()
+    data = get("/api/jobs").get_json()
     check("an expired skip stays off the todo list after another write",
           data["days"] == [] and "a" in results_gui.read_decisions())
     check("a skip whose snapshot is gone is dropped, applied, following and applying are kept",
           set(results_gui.read_decisions()) == {"a", "b", "kept", "chasing", "filling"})
     decide("a", "following")
-    following = [j["id"] for j in client.get("/api/jobs").get_json()["following"]]
+    following = [j["id"] for j in get("/api/jobs").get_json()["following"]]
     decide("a", "applied")
-    after = client.get("/api/jobs").get_json()
+    after = get("/api/jobs").get_json()
     check("a followed role can then be marked applied",
           following == ["chasing", "a"] and [j["id"] for j in after["following"]] == ["chasing"]
           and results_gui.read_decisions()["a"]["state"] == "applied")
     since = results_gui.read_decisions()["a"]["was"]["at"]
-    kept = client.get("/api/jobs?keep=" + json.dumps(["a"])).get_json()
+    kept = get("/api/jobs?keep=" + json.dumps(["a"])).get_json()
     check("keep holds it greyed in following",
           [(j["id"], j.get("state")) for j in kept["following"]]
           == [("chasing", None), ("a", "applied")]
@@ -276,11 +285,11 @@ def api_cases(tmp: Path) -> None:
     check("undo to following resumes its day count",
           back["state"] == "following" and back["at"] == since and "was" not in back)
     check("a malformed keep is ignored",
-          client.get("/api/jobs?keep=%7Bnot").status_code == 200
-          and client.get("/api/jobs?keep=5").status_code == 200)
+          get("/api/jobs?keep=%7Bnot").status_code == 200
+          and get("/api/jobs?keep=5").status_code == 200)
     decide("a", "following")
     decide("a", "applying")
-    moved = client.get("/api/jobs").get_json()
+    moved = get("/api/jobs").get_json()
     check("a followed role moves to applying",
           [j["id"] for j in moved["applying"]] == ["filling", "a"]
           and [j["id"] for j in moved["following"]] == ["chasing"])
@@ -313,6 +322,18 @@ def exit_cases() -> None:
           reason(results_gui.STARTUP_GRACE + 1, 0, {}, False) == "browser never connected")
     check("keeps serving a live page", reason(100, 0, {"p": 90}, True) == "")
     check("exits once every page is gone", reason(100, 0, {}, True) == "page closed")
+
+    results_gui._clients.clear()
+    results_gui._clients["p"] = 1000.0
+    results_gui._age_out("p", 1000.0)
+    aged = results_gui._clients["p"]
+    check("a closed page outlives the next watchdog tick, so a reload can arrive",
+          reason(1000 + results_gui.WATCHDOG_TICK, 0, {"p": aged}, True) == "")
+    check("and ends the server once the grace is over",
+          reason(1000 + results_gui.BYE_GRACE + 1, 0, {"p": aged}, True) == "page closed")
+    results_gui._age_out("p", 2000.0)
+    check("a second goodbye never extends the grace", results_gui._clients["p"] == aged)
+    results_gui._clients.clear()
 
 
 if __name__ == "__main__":

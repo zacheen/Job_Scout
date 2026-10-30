@@ -134,6 +134,10 @@
 - {name: Jump Trading, ats: greenhouse, board: jumptrading}                   # ~78 (Chicago/NY)
 - {name: Akuna Capital, ats: greenhouse, board: akunacapital}                 # ~27 (Chicago)
 - {name: Optiver,      ats: greenhouse, board: optiverus, seed_only: true}    # ~192 global
+# Applied to through a job board.
+- {name: Atoms,         ats: greenhouse, board: cssmerge, seed_only: true}    # ~339; board name "ATOMS Careers page", slug is cssmerge
+- {name: Lila Sciences, ats: greenhouse, board: lilasciences, seed_only: true}  # autonomous science labs; ~120
+- {name: Mill,          ats: greenhouse, board: mill}                         # food-waste bins with CV (San Bruno); ~25
 
 # --- Intern-sheet quant/finance NEW-FETCHER cases (2026-07-12) ---
 - {name: Goldman Sachs, ats: goldman, seed_only: true}   # ~1322 prof+early + 151 campus; GraphQL
@@ -267,6 +271,7 @@
 # keeping the live board catches future US openings without another re-probe.
 - {name: Mobileye,       ats: lever, org: mobileye, region: eu, seed_only: true}  # ~110 global
 - {name: Applied Underwriters, ats: lever, org: auw}                    # workers' comp insurer; org is auw; ~21
+- {name: Reply,          ats: lever, org: reply}                        # Reply group's US arm (Atlanta/Chicago); ~51
 
 # --- Ashby ---
 - {name: OpenAI,     ats: ashby, org: openai}
@@ -320,6 +325,11 @@
 - {name: Replit,     ats: ashby, org: replit}                        # global AI coding platform; ~99
 - {name: Lambda,     ats: ashby, org: lambda}                        # GPU cloud/AI systems; ~40
 - {name: Notion,     ats: ashby, org: notion, seed_only: true}       # internationally known workspace AI; ~142
+# Applied to through a job board.
+- {name: 42dot,      ats: ashby, org: 42dot, seed_only: true}        # Hyundai's autonomy/SDV arm; ~109, mostly Pangyo (Korea)
+- {name: Goaly,      ats: ashby, org: goaly}                         # applied AI (Palo Alto); ~7
+- {name: Powertown,  ats: ashby, org: powertown}                     # Boston; ~8
+- {name: Quadric,    ats: ashby, org: quadric}                       # edge-AI processor IP (Burlingame); ~20
 
 # --- Workday (host/tenant/site must match the company's myworkdayjobs URL) ---
 - {name: NVIDIA, ats: workday, host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite}  # referral
@@ -402,6 +412,7 @@
 - {name: HPE, ats: workday, host: hpe.wd5.myworkdayjobs.com, tenant: hpe, site: Jobsathpe, seed_only: true}  # ~1128
 - {name: Expedia Group, ats: workday, host: expedia.wd108.myworkdayjobs.com, tenant: expedia, site: search, seed_only: true}  # ~155; rare wd108 shard, site literally "search"
 - {name: Philips, ats: workday, host: philips.wd3.myworkdayjobs.com, tenant: philips, site: jobs-and-careers, seed_only: true}  # ~1115
+- {name: Prologis, ats: workday, host: prologis.wd5.myworkdayjobs.com, tenant: prologis, site: prologis_external_careers, seed_only: true}  # ~104
 
 # --- Oracle Recruiting (Fusion HCM candidate-experience API; newest-first, paginated) ---
 - {name: Ford, ats: oracle, host: efds.fa.em5.oraclecloud.com, site: CX_1}       # referral
@@ -417,6 +428,7 @@
 # (gaming/retail Workday adds are grouped below the oracle section)
 - {name: JPMorgan Chase, ats: oracle, host: jpmc.fa.oraclecloud.com, site: CX_1001, seed_only: true}  # ~7188 (largest board)
 - {name: American Express, ats: oracle, host: egug.fa.us2.oraclecloud.com, site: CX_1, seed_only: true}  # ~289
+- {name: Mayo Clinic, ats: oracle, host: fa-euwp-saasfaprod1.fa.ocs.oraclecloud.com, site: CX_1, seed_only: true}  # ~1428, mostly clinical (Rochester/Jacksonville/Phoenix)
 
 # --- Intern-sheet batch: gaming/media + retail/telecom (2026-07-12). Blizzard's Phenom front
 #     leaks the OPEN xboxgaming Workday tenant — Microsoft's browser-only gate does not apply.
@@ -674,6 +686,7 @@
 # --- SuccessFactors CSB (server-rendered rows; referencedate desc -> early-stop works) ---
 - {name: SAP, ats: successfactors, host: careers.sap.com, seed_only: true}                    # ~838 global; jobs.sap.com is now a separate SmartRecruiters front end
 - {name: Hyundai, ats: successfactors, host: careers-americas.hyundai.com, seed_only: true}   # ~300 (US plants/tech centers)
+- {name: AMETEK, ats: successfactors, host: jobs.ametek.com, seed_only: true}              # ~810 global
 
 # --- Avature (plain-HTTP portals only — Siemens' is JS-gated. Ordering NOT newest-first ->
 #     bounded full-board fetch each run; heavier than other sources) ---
