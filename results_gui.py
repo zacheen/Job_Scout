@@ -119,7 +119,10 @@ def _watchdog() -> None:
                 # server has no shutdown hook callable from outside a request.
                 # Exiting under the lock keeps a decide request from being cut off
                 # between its temp file and the replace.
-                print("exiting: " + why)
+                # os._exit also skips flushing stdout, which redirected to a file is
+                # block-buffered, so without flush=True this line and every earlier
+                # one are lost.
+                print("exiting: " + why, flush=True)
                 os._exit(0)
 
 
@@ -663,7 +666,7 @@ if __name__ == "__main__":
         print(f"port {PORT} is already in use, not starting. If the results page is "
               f"the listener it is at {url}")
         raise SystemExit(0)
-    print("Job Scout results at " + url)
+    print("Job Scout results at " + url, flush=True)
     # After the port check, or a failed bind would still pop a tab.
     threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     threading.Thread(target=_watchdog, daemon=True).start()
