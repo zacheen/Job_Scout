@@ -28,6 +28,14 @@ _TRACKING_PARAMS = frozenset({"ref", "gh_src", "lever-source", "source", "src", 
 # aggregator's apply URL) — a new atsx portal here may need adding there too.
 _ATSX_HOSTS = ("joinbytedance.com", "lifeattiktok.com")
 
+# amazon.jobs serves one posting at /{locale}/jobs/{id}/{title-slug} (AmazonFetcher's
+# job_path, which Simplify links with or without www.) and at /jobs/{id}/apply (what
+# SpeedyApply links). Only the numeric id names the posting, so every form folds to it.
+# Same path shape as fetchers.AmazonJdSource._JD_URL_RE, kept independent (this module
+# stays a leaf).
+_AMAZON_HOST = "amazon.jobs"
+_AMAZON_JOB_RE = re.compile(r"^(?:/[a-z]{2}(?:-[a-z]{2})?)?/jobs/(\d+)(?:/.*)?$", re.IGNORECASE)
+
 # Hosted boards that serve the SAME posting at .../{uuid} and at an application-form
 # child page (.../{uuid}/apply on Lever, .../{uuid}/application on Ashby) — aggregators
 # link either form, splitting one posting into two keys. host -> the one suffix that
@@ -99,7 +107,11 @@ def canon_url(url: str) -> str:
     Workday links fold to their casefolded site and Title_ReqId, so long-form keys already
     in older ledger rows equal the short form models.Job now stores. Loading one cloud
     ledger of 365294 rows under this fold merged away 3514 duplicates, lost no source uid
-    or emailed flag, and changed no non-Workday key."""
+    or emailed flag, and changed no non-Workday key.
+
+    amazon.jobs links fold to amazon.jobs:{id}. Loading the cloud ledger's Amazon shards
+    under this fold merged away 243 duplicate rows in 222 groups, lost no source uid or
+    emailed flag, and changed no non-Amazon key."""
     parts = urlsplit(url.strip())
     host = parts.netloc.lower()
     path = parts.path.rstrip("/")
@@ -113,6 +125,11 @@ def canon_url(url: str) -> str:
         job_id = path.rsplit("/", 1)[-1]
         if job_id.isdigit():
             return f"atsx:{job_id}"
+
+    if host.removeprefix("www.") == _AMAZON_HOST:
+        amazon = _AMAZON_JOB_RE.match(path)
+        if amazon:
+            return f"amazon.jobs:{amazon[1]}"
 
     form_suffix = _FORM_SUFFIXES.get(host.removeprefix("www."))
     if form_suffix and path.endswith(form_suffix):
