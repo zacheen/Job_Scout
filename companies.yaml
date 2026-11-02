@@ -138,6 +138,7 @@
 - {name: Atoms,         ats: greenhouse, board: cssmerge, seed_only: true}    # ~339; board name "ATOMS Careers page", slug is cssmerge
 - {name: Lila Sciences, ats: greenhouse, board: lilasciences, seed_only: true}  # autonomous science labs; ~120
 - {name: Mill,          ats: greenhouse, board: mill}                         # food-waste bins with CV (San Bruno); ~25
+- {name: Orbis,         ats: greenhouse, board: orbisoperations}              # government intelligence/AI software (McLean VA, Remote-US); ~25
 
 # --- Intern-sheet quant/finance NEW-FETCHER cases (2026-07-12) ---
 - {name: Goldman Sachs, ats: goldman, seed_only: true}   # ~1322 prof+early + 151 campus; GraphQL
