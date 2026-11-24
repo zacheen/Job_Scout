@@ -120,6 +120,7 @@
 - {name: Flexport,    ats: greenhouse, board: flexport, seed_only: true}      # ~144 global
 - {name: Affirm,      ats: greenhouse, board: affirm, seed_only: true}        # ~175 Remote-US
 - {name: Zscaler,     ats: greenhouse, board: zscaler, seed_only: true}       # ~340
+- {name: Taboola,     ats: greenhouse, board: taboola}                        # ~58 global (NYC/Tel Aviv); taboola.com/careers embeds gh_jid links
 # Nutanix (Jobvite XML).
 - {name: Nutanix, ats: jobvite, company: qKr9VfwZ, seed_only: true}           # ~275 (Jobvite c= id)
 # Whatnot disabled 2026-09-11: jobs.whatnot.com was folded into whatnot.com/careers, so the
